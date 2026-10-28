@@ -12,7 +12,7 @@ Turn Expectations into tests. Test files only.
 - The playbook for the package: [backend.md](backend.md) or [frontend.md](frontend.md). Read it first.
 
 ## Steps
-1. Pick the file: amend the existing test file for the Unit if there is one, else create one where the playbook says.
+1. Pick the file: amend the existing test file for the Unit if there is one, else create one where the playbook says. Existing tests the change broke are fixed in `prove-tests`; a setup-only fix there also makes the Verdict `amended`.
 2. Read the neighbouring tests and copy their style: imports, fixtures, naming, mocking.
 3. Write one test per Expectation. Name it after the behaviour, not the function.
 4. Assert on observable results: return values, responses, rendered output, calls on the collaborator. Never assert on private state.
