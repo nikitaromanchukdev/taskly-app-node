@@ -153,7 +153,7 @@ function renderAuthor({ run, repo }: Report): string {
   const rows = run.author.units.map((unit) => [
     unitName(unit, repo),
     verdictLabel(unit, rejected),
-    unit.kind ?? '',
+    unit.kind,
     unit.tests.map((test) => cell(test, repo)).join('<br>'),
     String(unit.attempts),
   ]);

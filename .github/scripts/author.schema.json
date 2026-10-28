@@ -9,16 +9,21 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["path", "unit", "verdict", "expectations", "tests", "attempts"],
+        "required": ["path", "unit", "verdict", "kind", "expectations", "tests", "attempts"],
         "properties": {
           "path": { "type": "string", "maxLength": 300 },
           "unit": { "type": "string", "maxLength": 200 },
           "verdict": { "type": "string", "enum": ["added", "amended", "not-needed", "flagged-defect"] },
           "reason": {
             "type": "string",
+            "description": "Required when verdict is not-needed.",
             "enum": ["already-covered", "no-logic", "trivial", "not-unit-testable", "unreachable"]
           },
-          "kind": { "type": "string", "enum": ["intent", "characterization"] },
+          "kind": {
+            "type": "string",
+            "description": "characterization when no Intent source states the behaviour, else intent.",
+            "enum": ["intent", "characterization"]
+          },
           "expectations": {
             "type": "array",
             "items": {
@@ -35,6 +40,7 @@
           "attempts": { "type": "integer" },
           "defect": {
             "type": "object",
+            "description": "Required when verdict is flagged-defect.",
             "additionalProperties": false,
             "required": ["test", "expected", "received", "source"],
             "properties": {
