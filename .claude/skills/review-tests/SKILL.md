@@ -1,6 +1,6 @@
 ---
 name: review-tests
-description: Reviewer only. Check each new test against the Intent source it cites, and confirm or reject every flagged Defect with a quote.
+description: Reviewer only. Check each new or changed test against the Intent source it cites, and confirm or reject every flagged Defect with a quote.
 ---
 
 # review-tests
@@ -12,12 +12,13 @@ The Author can misread intent. You check that, read-only.
 
 ## Steps
 1. Read `author.json`. Open each cited Intent source yourself (PR description, `backend/openapi.json`, neighbouring tests, docs).
-2. For each test in `tests.patch`, ask in order:
+2. For each new or changed test in `tests.patch`, ask in order:
    1. Does the cited source actually state this Expectation? If not, it is unsupported.
    2. Would the test fail if the Unit were wrong? A test that cannot fail (asserts a constant, mirrors the code, only checks a mock it set up) is a tautology.
    3. Does it test the implementation (private calls, call order, internals) instead of behaviour?
    4. Can it flake (real clock, random, order dependence, network)?
    5. Is it outside the Scope, testing something the change did not touch?
+   6. For a changed existing test: is the change setup only (fakes, mocks, providers, types)? A changed or removed assertion needs an Intent source that states the new behaviour; without one it is `unsupported-expectation`, blocking.
 3. Record a Finding for each problem, with the test as `file > test name`. Use the reason and severity values from `.github/scripts/reviewer.schema.json`.
    - Blocking: the test is wrong or misleading. Its whole test file will be dropped, so use it with care.
    - Advisory: weak but not wrong.
