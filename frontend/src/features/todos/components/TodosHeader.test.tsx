@@ -4,6 +4,7 @@ import { expect, it, vi } from 'vitest'
 import { TodosHeader } from './TodosHeader'
 
 vi.mock('../../../design-system', () => import('../../../design-system/mocks'))
+vi.mock('./TodoStats', () => ({ TodoStats: () => <p>stats counters</p> }))
 
 it('invokes creation when enabled and blocks it when disabled', async () => {
   const user = userEvent.setup()
@@ -15,6 +16,7 @@ it('invokes creation when enabled and blocks it when disabled', async () => {
   expect(
     screen.getByText('Create, organize, and complete tasks.'),
   ).toBeVisible()
+  expect(screen.getByText('stats counters')).toBeVisible()
   const button = screen.getByRole('button', { name: 'New task' })
   await user.click(button)
   expect(onCreate).toHaveBeenCalledTimes(1)

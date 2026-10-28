@@ -17,6 +17,19 @@ it('lists tasks in newest-first order and maps database rows', async () => {
   expect(await repository.list()).toEqual([todo]);
   expect(findMany).toHaveBeenCalledWith({ orderBy: [{ created_at: 'desc' }, { id: 'desc' }] });
 });
+it('computes stats from all listed tasks as of today (UTC)', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-10-16T08:00:00.000Z'));
+  try {
+    const { database, repository } = setup();
+    vi.spyOn(database.todo, 'findMany').mockResolvedValue([record, { ...record, id: 2, completed: true }]);
+    expect(await repository.stats()).toEqual({
+      total: 2, open: 1, completed: 1, by_priority: { low: 0, medium: 0, high: 2 }, overdue: 1,
+    });
+  } finally {
+    vi.useRealTimers();
+  }
+});
 it('gets a task by ID and handles missing tasks', async () => {
   const { database, repository } = setup();
   const findUnique = vi.spyOn(database.todo, 'findUnique').mockResolvedValueOnce(record).mockResolvedValueOnce(null);
