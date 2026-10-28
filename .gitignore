@@ -22,7 +22,7 @@ coverage/
 # macOS
 .DS_Store
 
-# Local pipeline runs (Makefile)
+# Local PR workflow runs (Makefile)
 .test-agent/
 
 # Claude Code agent worktrees

@@ -1,6 +1,6 @@
 ---
 name: extract-intent
-description: Parts A and B. Write down what each Unit should do, with the Intent source of every Expectation, before any test exists.
+description: PR workflow and Backfill. Write down what each Unit should do, with the Intent source of every Expectation, before any test exists.
 ---
 
 # extract-intent

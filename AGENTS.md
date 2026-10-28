@@ -1,12 +1,12 @@
 # Working in this repo
 
-For contributors and coding agents who change the app, its tests, or the PR test workflow.
+For contributors and coding agents who change the app, its tests, or the PR workflow.
 
-The agents of the PR test workflow follow their own agent files, which take precedence over this file. They never commit, push, post, or run npm on the host. The push, commit and command steps below are for people.
+The agents of the PR workflow and the Backfill follow their own agent files, which take precedence over this file. They never commit, push, post, or run npm on the host. The push, commit and command steps below are for people.
 
 ## What happens when you push to a PR
 
-- The PR test workflow runs on each push. Its jobs and triggers are in [SOLUTION.md](SOLUTION.md).
+- The PR workflow runs on each push. Its jobs and triggers are in [SOLUTION.md](SOLUTION.md).
 - On a draft PR the agents do not run; only the suites do. Open the PR as a draft while you iterate, and mark it ready for review when the change is done.
 - It may add one Bot commit with tests to your branch. Run `git pull --rebase` before your next push, or your push will be rejected.
 - GitHub then asks to approve a workflow run for the Bot commit. Approving it or not changes nothing: that run skips every job.

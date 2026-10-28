@@ -1,6 +1,6 @@
 # Terminology
 
-For everyone who works on or reads the PR test workflow: the terms the agents, skills, scripts and docs use.
+For everyone who works on or reads the PR workflow or the Backfill: the terms the agents, skills, scripts and docs use.
 
 Use these words as written. Each entry lists words to avoid.
 
@@ -68,9 +68,15 @@ A report-only state for a Unit whose test file was dropped from the Bot commit b
 
 Avoid: rejected (that word belongs to a Defect), failed, dropped.
 
+## PR workflow
+
+The GitHub Actions workflow `pr-test-engineer`, which adds or updates tests for the Units each PR changes, on every push. Each execution is a PR run.
+
+Avoid: Part B, PR test workflow, pipeline.
+
 ## PR run
 
-One execution of the PR test workflow for one PR head, through the prepare, engineer, commit, verify and publish jobs. A push starts a new PR run and cancels the older run for the same PR. A manual dispatch also starts a PR run.
+One execution of the PR workflow for one PR head, through the prepare, engineer, commit, verify and publish jobs. A push starts a new PR run and cancels the older run for the same PR. A manual dispatch also starts a PR run.
 
 Avoid: build, CI run, check run.
 
@@ -88,6 +94,6 @@ Avoid: diff, change set, changeset.
 
 ## Backfill
 
-Part A of the workflow: a one-off local pass that adds tests for existing, untested code. The owner approves a ranked list of gaps before any test is written. Backfill PRs go through the same merge gate as any other PR.
+A one-off local pass that adds tests for existing, untested code. The owner approves a ranked list of gaps before any test is written. Backfill PRs go through the same merge gate as any other PR.
 
-Avoid: catch-up, retroactive tests, gap fill.
+Avoid: Part A, catch-up, retroactive tests, gap fill.

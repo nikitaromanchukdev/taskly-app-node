@@ -2,7 +2,10 @@
 
 For reviewers: what this repo adds, how to run it, what to set up, and what is still open.
 
-Part A (Backfill) adds tests for existing code, run locally by the owner. Part B (PR run) adds or updates tests for the Units a PR changes, run by GitHub Actions on every PR.
+This repo adds two ways to get tests written, both by the same agents and skills:
+
+- **PR workflow:** adds or updates tests for the Units a PR changes. GitHub Actions runs it on every PR.
+- **Backfill:** adds tests for existing, untested code, in one pass. The owner runs it locally.
 
 ## Key decisions
 

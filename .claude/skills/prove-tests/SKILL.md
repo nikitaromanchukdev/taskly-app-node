@@ -1,6 +1,6 @@
 ---
 name: prove-tests
-description: Parts A and B. Run the new tests and the existing tests of each Unit in the sandbox, fix the Author's own mistakes within the attempt budget, update existing tests the change broke, and report code that contradicts intent as a Defect.
+description: PR workflow and Backfill. Run the new tests and the existing tests of each Unit in the sandbox, fix the Author's own mistakes within the attempt budget, update existing tests the change broke, and report code that contradicts intent as a Defect.
 ---
 
 # prove-tests
