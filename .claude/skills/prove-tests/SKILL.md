@@ -28,6 +28,9 @@ A test counts only after it has run green, or been reported as a Defect.
    - A failure in a test of no Unit in Scope is not yours. Do not touch it; mention it in `summary`.
 5. Stop retrying a Unit when it passes or its attempts reach the budget. A test still failing then is a Defect too.
 6. For a Defect in a test you wrote: delete only that failing test from the working tree, keep the Unit's passing tests, and record the Defect with the test name, expected, received and the Intent source. Verdict `flagged-defect`.
+   - In a file that keeps other tests, remove the test with Edit.
+   - A new file left with no tests: delete it with `git clean -f -- <file>`, run on its own (no `cd`, no `&&`). Edit and Write cannot delete files, and no other delete command is allowed.
+   - `commit` rejects the whole run if a flagged Defect's test name is still in an added line of the patch.
 7. Run every test file you wrote or changed once more. It must pass, apart from existing tests left failing as Defects. Typecheck must show no error in those files.
 8. Report each Unit's final Verdict, tests, Expectations, `kind` and `attempts`. Use the Verdict and reason values from `.github/scripts/author.schema.json`. A Unit with any Defect gets `flagged-defect`.
 

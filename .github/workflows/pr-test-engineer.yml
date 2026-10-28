@@ -207,7 +207,8 @@ jobs:
           S=trusted/.github/scripts
           node $S/guard.ts patch "$OUT/tests.patch"
           reviewer=(); [ -f "$OUT/reviewer.json" ] && reviewer=(--reviewer "$OUT/reviewer.json")
-          node $S/agent-output.ts "$OUT/author.json" "${reviewer[@]}" --max-attempts "$MAX_ATTEMPTS" --out "$OUT/checked.json"
+          node $S/agent-output.ts "$OUT/author.json" "${reviewer[@]}" --patch "$OUT/tests.patch" --max-attempts "$MAX_ATTEMPTS" \
+            --out "$OUT/checked.json"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() }}
         with:

@@ -69,7 +69,8 @@ review: need-pr-body
 	else echo "review: skipped, the author wrote no tests and flagged no defects"; fi
 
 check:
-	$(SCRIPTS)/agent-output.ts $(OUT)/author.json --max-attempts $(TEST_AGENT_MAX_ATTEMPTS) --out $(OUT)/checked.json \
+	$(SCRIPTS)/agent-output.ts $(OUT)/author.json --patch $(OUT)/tests.patch --max-attempts $(TEST_AGENT_MAX_ATTEMPTS) \
+	  --out $(OUT)/checked.json \
 	  $$(test -f $(OUT)/reviewer.json && echo --reviewer $(OUT)/reviewer.json)
 
 # The verify job (coverage, mutation) is CI-only, so the report says verification did not finish.
