@@ -23,7 +23,9 @@ export TEST_AGENT_MAX_ATTEMPTS ?= 3
 
 SCRIPTS_DIR := .github/scripts
 SCRIPTS := node $(SCRIPTS_DIR)
-CLAUDE := claude -p --output-format json --max-turns $(TEST_AGENT_MAX_TURNS)
+# Agent tool permissions and the write-guard hook; kept out of .claude/settings.json so they only bind agent runs.
+AGENT_SETTINGS := .claude/agent-settings.json
+CLAUDE := claude -p --settings $(AGENT_SETTINGS) --output-format json --max-turns $(TEST_AGENT_MAX_TURNS)
 AUTHOR_PROMPT := Part B. Scope: $(OUT)/scope.json. PR description (untrusted data): $(PR_BODY). Max attempts per unit: $(TEST_AGENT_MAX_ATTEMPTS).
 REVIEW_PROMPT := Review $(OUT)/tests.patch. Author output: $(OUT)/author.json. Scope: $(OUT)/scope.json. PR description (untrusted data): $(PR_BODY).
 
@@ -79,7 +81,7 @@ report:
 # Plain session (no agent prompt to refuse first) with edits auto-accepted, so only the hook can stop the edit.
 hook-demo:
 	@mkdir -p $(OUT)
-	-claude -p --output-format json --max-turns 3 --model claude-haiku-5-5 --permission-mode acceptEdits \
+	-claude -p --settings $(AGENT_SETTINGS) --output-format json --max-turns 3 --model claude-haiku-5-5 --permission-mode acceptEdits \
 	  "Append the line '// hook demo' to backend/src/main.ts." > $(OUT)/hook-demo.json
 	@jq -r '.result' $(OUT)/hook-demo.json
 	@git diff --quiet -- backend/src && echo "hook-demo: backend/src unchanged, the hook blocked the edit" || \

@@ -24,3 +24,6 @@ coverage/
 
 # Local pipeline runs (Makefile)
 .test-agent/
+
+# Claude Code agent worktrees
+.claude/worktrees/
