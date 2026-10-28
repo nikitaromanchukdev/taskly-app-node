@@ -38,7 +38,7 @@ export type Unit = {
   unit: string;
   verdict: Verdict;
   reason?: string;
-  kind?: Kind;
+  kind: Kind;
   expectations: Expectation[];
   tests: string[];
   attempts: number;
@@ -109,10 +109,10 @@ export type VerdictRule = {
 };
 
 export const VERDICT_RULES: Record<Verdict, VerdictRule> = {
-  added: { requires: ['kind'], writesTests: true, needsReview: true },
-  amended: { requires: ['kind'], writesTests: true, needsReview: true },
+  added: { requires: [], writesTests: true, needsReview: true },
+  amended: { requires: [], writesTests: true, needsReview: true },
   'not-needed': { requires: ['reason'], writesTests: false, needsReview: false },
-  'flagged-defect': { requires: ['kind', 'defect'], writesTests: false, needsReview: true },
+  'flagged-defect': { requires: ['defect'], writesTests: false, needsReview: true },
 };
 
 export const writesTests = (verdict: Verdict) => VERDICT_RULES[verdict].writesTests;
