@@ -69,7 +69,8 @@ async function main(env: Record<string, string | undefined>) {
   console.log(`${SCRIPT}: ${status.state}: ${status.description}`);
 
   if (!values.post || !run.context.same_repo) return;
-  await post(githubFromEnv(SCRIPT, env), repo, run.context, status, bodies);
+  await post(githubFromEnv(env), repo, run.context, status, bodies);
 }
 
-if (import.meta.main) await main(process.env);
+if (import.meta.main) 
+  await main(process.env).catch((error: Error) => die(SCRIPT, error.message));

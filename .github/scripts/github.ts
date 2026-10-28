@@ -1,5 +1,4 @@
-// Minimal GitHub REST client (Node 24 global fetch, no dependencies).
-import { die } from './cli.ts';
+// Minimal GitHub REST client (Node 24 global fetch, no dependencies). Errors are thrown; each script's main reports them.
 
 export type GitHubOptions = { token: string; baseUrl?: string };
 export type RequestOptions = { method?: string; body?: unknown };
@@ -49,8 +48,9 @@ export function github({ token, baseUrl = DEFAULT_BASE_URL }: GitHubOptions): Gi
   return { request, paginate };
 }
 
-// The client a script builds from the Actions environment; dies if the token is missing.
-export function githubFromEnv(script: string, env: Record<string, string | undefined>): GitHub {
-  const token = env.GITHUB_TOKEN?.trim() || die(script, 'GITHUB_TOKEN is not set');
+// The client a script builds from the Actions environment.
+export function githubFromEnv(env: Record<string, string | undefined>): GitHub {
+  const token = env.GITHUB_TOKEN?.trim();
+  if (!token) throw new Error('GITHUB_TOKEN is not set');
   return github({ token, baseUrl: env.GITHUB_API_URL?.trim() || undefined });
 }

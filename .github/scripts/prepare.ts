@@ -20,6 +20,7 @@ type DiffFile = { path: string; status: FileStatus; hunks: Hunk[] };
 type LabelEvent = { action: string; label: string };
 type LabelDecision = { actor: string; honoured: boolean };
 type PrEnv = { repo: string; prNumber: string; eventName: string; labelEvent: LabelEvent; fallbackActors: string[] };
+type RunFacts = { stop: boolean; hasCandidates: boolean; sameRepo: boolean; draft: boolean; labelSkip: boolean };
 
 // The parts of GitHub API responses this script reads.
 type PullRequest = {
@@ -195,7 +196,6 @@ function readPrEnv(env: Env): PrEnv {
 }
 
 // The agent runs only on a same-repo, ready PR with something to test, unless a label event or skip label says otherwise.
-type RunFacts = { stop: boolean; hasCandidates: boolean; sameRepo: boolean; draft: boolean; labelSkip: boolean };
 const shouldRunAgent = ({ stop, hasCandidates, sameRepo, draft, labelSkip }: RunFacts) =>
   !stop && hasCandidates && sameRepo && !draft && !labelSkip;
 
@@ -204,7 +204,7 @@ async function main(env: Env) {
   if (values.local !== undefined) return local(values.local, values.out, env);
   const budgets = readBudgets(env);
   const { repo, prNumber, eventName, labelEvent, fallbackActors } = readPrEnv(env);
-  const gh = githubFromEnv(SCRIPT, env);
+  const gh = githubFromEnv(env);
 
   const pr = await gh.request<PullRequest>(`/repos/${repo}/pulls/${prNumber}`);
   const head = pr.head.sha;
@@ -238,4 +238,4 @@ async function main(env: Env) {
   });
 }
 
-if (import.meta.main) await main(process.env);
+if (import.meta.main) await main(process.env).catch((error: Error) => die(SCRIPT, error.message));
