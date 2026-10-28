@@ -3,6 +3,8 @@
 #   sandbox.sh <install|test|typecheck> <backend|frontend> [vitest args]
 # The container gets no host environment, so the model key is never inside.
 # install needs the registry; test and typecheck run with no network.
+# node_modules lives in a Docker volume per repo checkout and package: the container gets Linux
+# binaries, and the host's own node_modules stays untouched. Run install before test or typecheck.
 set -euo pipefail
 
 IMAGE="node:24@sha256:e2007d1f4e652444f88d9bb196256d2d035269015e3d27a0d47c1d0cb5192a98"
@@ -19,19 +21,30 @@ shift 2
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cache="${SANDBOX_NPM_CACHE:-${HOME:?HOME is not set}/.cache/test-agent-npm}"
 mkdir -p "$cache"
+modules="test-agent-$(printf %s "$root" | cksum | cut -d' ' -f1)-$package-modules"
+user="$(id -u):$(id -g)"
 
 network=none
 case "$action" in
-  install)   network=bridge; cmd=(npm ci) ;;
+  install)
+    network=bridge
+    cmd=(npm ci)
+    # A new volume is owned by root; hand it to the calling user.
+    docker run --rm --network=none -v "$modules":/m "$IMAGE" chown "$user" /m
+    ;;
   test)      cmd=(node_modules/.bin/vitest run "$@") ;;
   typecheck) cmd=(node_modules/.bin/tsc --noEmit "$@") ;;
 esac
+[[ "$action" == install ]] || docker volume inspect "$modules" > /dev/null 2>&1 || {
+  echo "sandbox.sh: no dependencies for $package yet; run: sandbox.sh install $package" >&2
+  exit 1
+}
 
 # HOME is a writable dir so a non-root uid can run npm and prisma.
 exec docker run --rm \
-  --user "$(id -u):$(id -g)" \
+  --user "$user" \
   --network="$network" \
   -e HOME=/tmp -e npm_config_cache=/npm-cache -e CI=true \
-  -v "$root":/w -v "$cache":/npm-cache \
+  -v "$root":/w -v "$modules":"/w/$package/node_modules" -v "$cache":/npm-cache \
   -w "/w/$package" \
   "$IMAGE" "${cmd[@]}"

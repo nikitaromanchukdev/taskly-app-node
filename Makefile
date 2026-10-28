@@ -3,7 +3,7 @@
 # and tests.patch is whatever the author agent leaves in the working tree.
 #
 #   make trial        all steps in CI order
-#   make review       one step again (scope, author, patch, review, check, report)
+#   make review       one step again (scope, install, author, patch, review, check, report)
 #   make hook-demo    ask an agent to edit backend/src and show the hook blocking it
 #   make clean        remove run output, keep the PR description
 #
@@ -26,9 +26,9 @@ CLAUDE := claude -p --output-format json --max-turns $(TEST_AGENT_MAX_TURNS)
 # Units the reviewer has something to look at: tests written or a defect flagged.
 REVIEWABLE := [.units[] | select(.verdict != "not-needed")] | length > 0
 
-.PHONY: trial scope author patch review check report hook-demo clean need-pr-body
+.PHONY: trial scope install author patch review check report hook-demo clean need-pr-body
 
-trial: scope author patch review check report
+trial: scope install author patch review check report
 
 need-pr-body:
 	@test -f "$(PR_BODY)" || { echo "make: write the PR description to $(PR_BODY) first" >&2; exit 64; }
@@ -37,6 +37,11 @@ scope:
 	@git diff --quiet HEAD || { echo "make: commit the change under test first (working tree is not clean)" >&2; exit 1; }
 	@mkdir -p $(OUT)
 	$(SCRIPTS)/prepare.ts --local $(BASE) --out $(OUT)/scope.json
+
+# Dependencies for the sandbox, kept in Docker volumes (see sandbox.sh); the host's node_modules stay as they are.
+install:
+	.github/scripts/sandbox.sh install backend
+	.github/scripts/sandbox.sh install frontend
 
 author: need-pr-body
 	$(CLAUDE) --agent pr-test-engineer --model $(TEST_AGENT_MODEL) \
