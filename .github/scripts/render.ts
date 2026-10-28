@@ -1,4 +1,4 @@
-// Markdown for the 3 sticky PR comments: pipeline report, test author, test reviewer.
+// Markdown for the 3 sticky PR comments: report, test author, test reviewer.
 import { isFlaggedDefect, packageRelative, unitKey } from './artifacts.ts';
 import type { Context, Defect, DefectDecision, MutationResult, Results, Run, Unit } from './artifacts.ts';
 import { cell, code, sanitize } from './sanitize.ts';

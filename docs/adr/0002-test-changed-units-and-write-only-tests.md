@@ -14,7 +14,7 @@ The Author must not change product code. If it could, an agent could make a fail
 - Work is per Unit, not per file. Changed lines map to the Units that contain them. Lines outside any Unit map to the Units that use them.
 - The Author writes tests only in the test paths defined in `rules.ts`. A write-guard hook refuses any other edit during the agent run. The commit job checks the patch again before it pushes. See [ADR 0004](0004-isolate-pr-code-from-secrets.md).
 - A Unit whose change cannot alter behaviour gets the Verdict `not-needed`, with a reason from `author.schema.json`.
-- Gaps in untouched code are not part of a PR run. They are handled by Backfill (Part A), which the owner runs locally. See [SOLUTION.md](../../SOLUTION.md).
+- Gaps in untouched code are not part of a PR run. They are handled by the Backfill, which the owner runs locally. See [SOLUTION.md](../../SOLUTION.md).
 
 ## Consequences
 

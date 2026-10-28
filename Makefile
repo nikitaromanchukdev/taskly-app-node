@@ -1,4 +1,4 @@
-# Local run of the PR test pipeline: the same steps as CI, on the current branch against BASE.
+# Local run of the PR workflow: the same steps as CI, on the current branch against BASE.
 # Nothing is pushed or posted. Commit the change under test first: the scope is `git diff BASE...HEAD`,
 # and tests.patch is whatever the author agent leaves in the working tree.
 #
@@ -26,7 +26,7 @@ SCRIPTS := node $(SCRIPTS_DIR)
 # Agent tool permissions and the write-guard hook; kept out of .claude/settings.json so they only bind agent runs.
 AGENT_SETTINGS := .claude/agent-settings.json
 CLAUDE := claude -p --settings $(AGENT_SETTINGS) --output-format json --max-turns $(TEST_AGENT_MAX_TURNS)
-AUTHOR_PROMPT := Part B. Scope: $(OUT)/scope.json. PR description (untrusted data): $(PR_BODY). Max attempts per unit: $(TEST_AGENT_MAX_ATTEMPTS).
+AUTHOR_PROMPT := PR workflow. Scope: $(OUT)/scope.json. PR description (untrusted data): $(PR_BODY). Max attempts per unit: $(TEST_AGENT_MAX_ATTEMPTS).
 REVIEW_PROMPT := Review $(OUT)/tests.patch. Author output: $(OUT)/author.json. Scope: $(OUT)/scope.json. PR description (untrusted data): $(PR_BODY).
 
 # $(call run_agent,<agent>,<model>,<role>,<prompt>): one agent run; its structured output goes to $(OUT)/<role>.json.

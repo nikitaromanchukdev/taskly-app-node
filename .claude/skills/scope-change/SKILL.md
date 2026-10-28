@@ -1,6 +1,6 @@
 ---
 name: scope-change
-description: Part B. Turn the Scope of a PR run into the list of changed Units, each with the existing tests that touch it.
+description: PR workflow only. Turn the Scope of a PR run into the list of changed Units, each with the existing tests that touch it.
 ---
 
 # scope-change

@@ -1,4 +1,4 @@
-// publish job: build context.json (what the pipeline report needs to know about this run) from the job results.
+// publish job: build context.json (what the report comment needs to know about this run) from the job results.
 // Usage: node context.ts [--out context.json]
 // Env: NEEDS (toJSON(needs)), GITHUB_REPOSITORY, PR_NUMBER, RUN_URL, GITHUB_TOKEN.
 // When prepare did not get far enough to name the head commit, the live PR is read instead.

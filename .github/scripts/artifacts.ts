@@ -1,4 +1,4 @@
-// The files one pipeline run passes between jobs, and small pure helpers over them.
+// The files one PR run passes between jobs, and small pure helpers over them.
 // scope.json (prepare) · author.json, reviewer.json (engineer) · checked.json (commit) · results.json (verify) · context.json (publish)
 import type { Pkg, SkipReason } from './rules.ts';
 
@@ -90,7 +90,7 @@ export type Context = {
   jobs: Record<Job, JobResult>;
 };
 
-// Everything one pipeline run produced; each artifact is missing if its job did not get that far.
+// Everything one PR run produced; each artifact is missing if its job did not get that far.
 export type Run = {
   context: Context;
   scope?: Scope;

@@ -25,7 +25,7 @@ modules="test-agent-$(printf %s "$root" | cksum | cut -d' ' -f1)-$package-module
 user="$(id -u):$(id -g)"
 
 # Code in the container may write the checkout, but not what later runs on the host next to the key:
-# the hook and pipeline scripts (.github), agent config (.claude) and git config or hooks (.git).
+# the hook and workflow scripts (.github), agent config (.claude) and git config or hooks (.git).
 protected=()
 for path in .git .github .claude; do
   if [[ -e "$root/$path" ]]; then protected+=(-v "$root/$path:/w/$path:ro"); fi

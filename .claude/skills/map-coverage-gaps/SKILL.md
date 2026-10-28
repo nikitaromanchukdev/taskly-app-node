@@ -1,6 +1,6 @@
 ---
 name: map-coverage-gaps
-description: Part A (Backfill). Rank the untested behaviour of the whole codebase and stop for the owner's approval before any test is written.
+description: Backfill only. Rank the untested behaviour of the whole codebase and stop for the owner's approval before any test is written.
 ---
 
 # map-coverage-gaps

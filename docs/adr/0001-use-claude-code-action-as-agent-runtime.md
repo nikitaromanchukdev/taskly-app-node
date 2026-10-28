@@ -4,7 +4,7 @@ For reviewers and future maintainers: why the agents run in Claude Code and not 
 
 ## Context
 
-The PR test workflow needs an agent that reads the repo, edits test files, runs commands and returns structured output. The same agent must run in GitHub Actions and on a developer machine, so that a local trial shows what CI will do.
+The PR workflow and the Backfill need an agent that reads the repo, edits test files, runs commands and returns structured output. The same agent must run in GitHub Actions and on a developer machine, so that a local trial shows what CI will do.
 
 A custom tool loop around the model API would need its own permission rules, hooks and structured output. These are the parts most likely to fail quietly, so they come from a tool that already has them.
 

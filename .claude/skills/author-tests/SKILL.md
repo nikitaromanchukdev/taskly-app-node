@@ -1,6 +1,6 @@
 ---
 name: author-tests
-description: Parts A and B. Write unit tests for each Unit's Expectations, following the repo's conventions for the package.
+description: PR workflow and Backfill. Write unit tests for each Unit's Expectations, following the repo's conventions for the package.
 ---
 
 # author-tests
