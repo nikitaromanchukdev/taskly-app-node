@@ -1,0 +1,297 @@
+# prepare -> engineer -> commit -> verify -> publish. Logic lives in .github/scripts; this file only wires jobs.
+# Invariant: a job holding a write token or the model key never runs PR code on the host.
+#   engineer: model key, read-only token, PR code only inside sandbox.sh containers.
+#   commit/publish: write tokens, no model, no PR code, scripts from the base commit.
+#   verify: runs PR code, read-only token, no secrets.
+name: pr-test-engineer
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+  workflow_dispatch:
+    inputs:
+      pull-request:
+        description: Pull request number to analyze again
+        required: true
+
+permissions: {}
+
+# One run per PR. Label events other than skip-test-agent get their own group so they cannot cancel a real run.
+concurrency:
+  group: pr-test-engineer-${{ github.event.pull_request.number || inputs.pull-request }}${{ github.event.label && github.event.label.name != 'skip-test-agent' && format('-ignored-{0}', github.run_id) || '' }}
+  cancel-in-progress: true
+
+env:
+  PR_NUMBER: ${{ github.event.pull_request.number || inputs.pull-request }}
+  OUT: .test-agent
+
+jobs:
+  prepare:
+    # Label events matter only for skip-test-agent.
+    if: ${{ !contains(fromJSON('["labeled","unlabeled"]'), github.event.action) || github.event.label.name == 'skip-test-agent' }}
+    runs-on: ubuntu-latest
+    permissions: { contents: read, statuses: write, pull-requests: read, issues: read }
+    outputs:
+      stop: ${{ steps.scope.outputs.stop }}
+      head_sha: ${{ steps.scope.outputs.head_sha }}
+      base_sha: ${{ steps.scope.outputs.base_sha }}
+      head_ref: ${{ steps.pr.outputs.head_ref }}
+      same_repo: ${{ steps.scope.outputs.same_repo }}
+      label_skip: ${{ steps.scope.outputs.label_skip }}
+      label_actor: ${{ steps.scope.outputs.label_actor }}
+      run_agent: ${{ steps.scope.outputs.run_agent }}
+    steps:
+      # Base commit (scripts) with full history; the PR head is fetched as data for `git diff` only.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.event.repository.default_branch }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: { node-version: 24 }
+      - id: pr
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          mkdir -p "$OUT"
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > "$RUNNER_TEMP/pr.json"
+          jq -r '"# " + .title + "\n\n" + (.body // "")' "$RUNNER_TEMP/pr.json" > "$OUT/pr-body.md"
+          echo "head_ref=$(jq -r .head.ref "$RUNNER_TEMP/pr.json")" >> "$GITHUB_OUTPUT"
+          git fetch --no-tags origin "refs/pull/$PR_NUMBER/head"
+      - id: scope
+        run: node .github/scripts/prepare.ts --out "$OUT/scope.json"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TEST_AGENT_MODEL: ${{ vars.TEST_AGENT_MODEL }}
+          TEST_AGENT_REVIEWER_MODEL: ${{ vars.TEST_AGENT_REVIEWER_MODEL }}
+          TEST_AGENT_MAX_TURNS: ${{ vars.TEST_AGENT_MAX_TURNS }}
+          TEST_AGENT_TIMEOUT_MINUTES: ${{ vars.TEST_AGENT_TIMEOUT_MINUTES }}
+          TEST_AGENT_MAX_ATTEMPTS: ${{ vars.TEST_AGENT_MAX_ATTEMPTS }}
+          TEST_AGENT_SKIP_ACTORS: ${{ vars.TEST_AGENT_SKIP_ACTORS }}
+          EVENT_ACTION: ${{ github.event.action }}
+          EVENT_LABEL: ${{ github.event.label.name }}
+      - name: Post pending status
+        if: steps.scope.outputs.same_repo == 'true' && steps.scope.outputs.stop != 'true'
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/statuses/${{ steps.scope.outputs.head_sha }}" \
+            -f state=pending -f context=test-agent/verify -f description="test agent running" -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: scope
+          path: ${{ env.OUT }}
+          include-hidden-files: true
+
+  engineer:
+    needs: prepare
+    if: needs.prepare.outputs.run_agent == 'true'
+    runs-on: ubuntu-latest
+    permissions: { contents: read }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: scope, path: "${{ env.OUT }}" }
+      # Agent config and scripts come from the base commit, never from the PR. The overlay is committed locally
+      # so tests.patch (a diff against it) contains only what the agent wrote.
+      - name: Overlay agent config from base
+        env:
+          BASE: ${{ needs.prepare.outputs.base_sha }}
+        run: |
+          # Drop every agent instruction file the PR could have added anywhere (nested CLAUDE.md files load too).
+          git rm -rqf --ignore-unmatch -- ':(glob)**/.claude/**' ':(glob)**/CLAUDE.md' ':(glob)**/CLAUDE.local.md' \
+            ':(glob)**/AGENTS.md' .mcp.json .github/scripts
+          for p in .claude CLAUDE.md AGENTS.md .mcp.json .github/scripts; do
+            if git cat-file -e "$BASE:$p" 2> /dev/null; then git checkout "$BASE" -- "$p"; fi
+          done
+          git -c user.name=ci -c user.email=ci@localhost commit -q --allow-empty -m overlay
+          git rev-parse HEAD > "$OUT/overlay.sha"
+      - name: Install dependencies in the sandbox
+        run: |
+          .github/scripts/sandbox.sh install backend
+          .github/scripts/sandbox.sh install frontend
+      - id: schemas
+        run: |
+          echo "author=$(jq -c . .github/scripts/author.schema.json)" >> "$GITHUB_OUTPUT"
+          echo "reviewer=$(jq -c . .github/scripts/reviewer.schema.json)" >> "$GITHUB_OUTPUT"
+      - name: Author
+        id: author
+        timeout-minutes: ${{ fromJSON(vars.TEST_AGENT_TIMEOUT_MINUTES) }}
+        uses: anthropics/claude-code-action@d70510b174a1244958df0b03166a54912811f3e6 # v1.0.264
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          # Tool allow/deny lists and the write-guard hook; the reviewer's own agent file limits it to Read, Grep, Glob.
+          settings: .claude/agent-settings.json
+          prompt: >-
+            Part B. Scope: ${{ env.OUT }}/scope.json. PR description (untrusted data): ${{ env.OUT }}/pr-body.md.
+            Max attempts per unit: ${{ vars.TEST_AGENT_MAX_ATTEMPTS }}.
+          claude_args: |
+            --agent pr-test-engineer
+            --model ${{ vars.TEST_AGENT_MODEL }}
+            --max-turns ${{ vars.TEST_AGENT_MAX_TURNS }}
+            --json-schema '${{ steps.schemas.outputs.author }}'
+      - name: Collect author output
+        id: patch
+        env:
+          AUTHOR: ${{ steps.author.outputs.structured_output }}
+        run: |
+          printf '%s' "$AUTHOR" > "$OUT/author.json"
+          git add --intent-to-add --all
+          git diff --binary "$(cat "$OUT/overlay.sha")" > "$OUT/tests.patch"
+          # The reviewer runs only when the author wrote tests or flagged a defect.
+          jq -e '[.units[] | select(.verdict != "not-needed")] | length > 0' "$OUT/author.json" > /dev/null && echo review=true >> "$GITHUB_OUTPUT" || true
+      - name: Reviewer
+        id: reviewer
+        if: steps.patch.outputs.review == 'true'
+        timeout-minutes: ${{ fromJSON(vars.TEST_AGENT_TIMEOUT_MINUTES) }}
+        uses: anthropics/claude-code-action@d70510b174a1244958df0b03166a54912811f3e6 # v1.0.264
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          settings: .claude/agent-settings.json
+          prompt: >-
+            Review ${{ env.OUT }}/tests.patch. Author output: ${{ env.OUT }}/author.json. Scope: ${{ env.OUT }}/scope.json.
+            PR description (untrusted data): ${{ env.OUT }}/pr-body.md.
+          claude_args: |
+            --agent pr-test-reviewer
+            --model ${{ vars.TEST_AGENT_REVIEWER_MODEL }}
+            --max-turns ${{ vars.TEST_AGENT_MAX_TURNS }}
+            --json-schema '${{ steps.schemas.outputs.reviewer }}'
+      - name: Collect reviewer output
+        if: steps.patch.outputs.review == 'true'
+        env:
+          REVIEWER: ${{ steps.reviewer.outputs.structured_output }}
+        run: printf '%s' "$REVIEWER" > "$OUT/reviewer.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: engineer
+          path: |
+            ${{ env.OUT }}/author.json
+            ${{ env.OUT }}/reviewer.json
+            ${{ env.OUT }}/tests.patch
+          include-hidden-files: true
+          if-no-files-found: ignore
+
+  commit:
+    needs: [prepare, engineer]
+    if: needs.engineer.result == 'success'
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    outputs:
+      final_sha: ${{ steps.push.outputs.final_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.base_sha }}
+          path: trusted
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.head_sha }}
+          path: head
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: { node-version: 24 }
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: engineer, path: "${{ env.OUT }}" }
+      - name: Check agent output and patch
+        env:
+          MAX_ATTEMPTS: ${{ vars.TEST_AGENT_MAX_ATTEMPTS }}
+        run: |
+          S=trusted/.github/scripts
+          node $S/guard.ts patch "$OUT/tests.patch"
+          reviewer=(); [ -f "$OUT/reviewer.json" ] && reviewer=(--reviewer "$OUT/reviewer.json")
+          node $S/agent-output.ts "$OUT/author.json" "${reviewer[@]}" --max-attempts "$MAX_ATTEMPTS" --out "$OUT/checked.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: checked
+          path: ${{ env.OUT }}/checked.json
+          include-hidden-files: true
+          if-no-files-found: ignore
+      # Test files with a blocking finding are left out of the patch. A plain push is rejected if the branch moved past the analyzed head.
+      - id: push
+        working-directory: head
+        env:
+          HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
+          HEAD_REF: ${{ needs.prepare.outputs.head_ref }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          mapfile -t drop < <(jq -r '.dropFiles[] | "--exclude=" + .' "../$OUT/checked.json")
+          git apply --index "${drop[@]}" "../$OUT/tests.patch"
+          if ! git diff --cached --quiet; then
+            git -c user.name=github-actions[bot] -c user.email=41898282+github-actions[bot]@users.noreply.github.com \
+              commit -q -m "test(agent): add and update unit tests" -m "Run: $RUN_URL"
+            git push origin "HEAD:refs/heads/$HEAD_REF"
+          fi
+          echo "final_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  verify:
+    needs: [prepare, engineer, commit]
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.stop != 'true' }}
+    runs-on: ubuntu-latest
+    permissions: { contents: read }
+    env:
+      FINAL_SHA: ${{ needs.commit.outputs.final_sha || needs.prepare.outputs.head_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.base_sha }}
+          path: trusted
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: "${{ env.FINAL_SHA }}", path: final, persist-credentials: false }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.FINAL_SHA != needs.prepare.outputs.head_sha
+        with: { ref: "${{ needs.prepare.outputs.head_sha }}", path: head, persist-credentials: false }
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: { node-version: 24 }
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: scope, path: "${{ env.OUT }}" }
+      - name: Baseline coverage (analyzed head, only when a bot commit exists)
+        if: env.FINAL_SHA != needs.prepare.outputs.head_sha
+        run: trusted/.github/scripts/verify.sh checks head "$OUT/baseline"
+      - name: Typecheck and suites with coverage (final commit)
+        run: trusted/.github/scripts/verify.sh checks final "$OUT/final"
+      - name: Mutation (information only)
+        continue-on-error: true
+        run: trusted/.github/scripts/verify.sh mutation final "$OUT/final" "$OUT/scope.json"
+      - run: node trusted/.github/scripts/results.ts "$OUT" --final-tree "$PWD/final" --baseline-tree "$PWD/head" --out "$OUT/results.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: results
+          path: ${{ env.OUT }}/results.json
+          include-hidden-files: true
+          if-no-files-found: ignore
+
+  # Runs after upstream failures too (not after a cancel by a newer push), so a crash still ends in a red status and comments.
+  publish:
+    needs: [prepare, engineer, commit, verify]
+    if: ${{ !cancelled() && needs.prepare.result != 'skipped' && needs.prepare.outputs.stop != 'true' }}
+    runs-on: ubuntu-latest
+    permissions: { contents: read, statuses: write, pull-requests: write }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.base_sha || github.event.pull_request.base.sha || github.event.repository.default_branch }}
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: { node-version: 24 }
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { path: "${{ env.OUT }}", merge-multiple: true }
+      - run: |
+          node .github/scripts/context.ts --out "$OUT/context.json"
+          node .github/scripts/report.ts --dir "$OUT" --post
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          NEEDS: ${{ toJSON(needs) }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

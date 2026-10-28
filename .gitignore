@@ -24,3 +24,7 @@ coverage/
 
 # Local pipeline runs (Makefile)
 .test-agent/
+
+# Mutation testing
+reports/mutation/
+.stryker-tmp/
