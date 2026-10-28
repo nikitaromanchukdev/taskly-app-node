@@ -1,0 +1,108 @@
+// Validates both agents' output against their schemas and computes which test files to drop.
+// Usage: node agent-output.ts <author.json> [--reviewer reviewer.json] [--max-attempts N] [--out checked.json]
+// Exit 1 if anything is invalid; --out is written either way so `publish` can read it.
+import { parseArgs } from 'node:util';
+import { isFlaggedDefect, unitKey, VERDICT_RULES, writesTests } from './artifacts.ts';
+import type { AuthorOutput, Checked, ReviewerOutput, Unit } from './artifacts.ts';
+import { die, EXIT_CODES } from './cli.ts';
+import { readJson, writeJson } from './json.ts';
+import { readSchema, validate } from './schema.ts';
+
+const SCRIPT = 'agent-output';
+
+// ---- Rules the schema can't express ----
+
+const testFile = (test: string) => test.split(' > ')[0];
+
+function checkUnit(unit: Unit, maxAttempts: number): string[] {
+  const name = `${unit.path} ${unit.unit}`;
+  const rule = VERDICT_RULES[unit.verdict];
+  const errors = rule.requires.filter((field) => unit[field] === undefined).map((field) => `${name}: ${unit.verdict} needs ${field}`);
+  if (rule.writesTests && unit.tests.length === 0) errors.push(`${name}: ${unit.verdict} lists no tests`);
+  if (unit.attempts < 0 || unit.attempts > maxAttempts) errors.push(`${name}: attempts ${unit.attempts} outside 0..${maxAttempts}`);
+  return errors;
+}
+
+function checkDuplicates(units: Unit[]): string[] {
+  const keys = units.map(unitKey);
+  const repeated = new Set(keys.filter((key, index) => keys.indexOf(key) !== index));
+  return [...repeated].map((key) => `unit "${key}" is listed more than once`);
+}
+
+function checkFindings(units: Unit[], review: ReviewerOutput): string[] {
+  const known = new Set(units.flatMap((u) => u.tests));
+  return review.findings.filter((f) => !known.has(f.test)).map((f) => `finding refers to unknown test "${f.test}"`);
+}
+
+function checkDefectDecisions(units: Unit[], review: ReviewerOutput): string[] {
+  const flagged = new Set(units.filter(isFlaggedDefect).map(unitKey));
+  const decided = new Set(review.defects.map(unitKey));
+  const extra = [...decided].filter((key) => !flagged.has(key)).map((key) => `reviewer decides on "${key}", which is not a flagged-defect`);
+  const undecided = [...flagged].filter((key) => !decided.has(key)).map((key) => `flagged-defect "${key}" has no reviewer decision`);
+  return [...extra, ...undecided];
+}
+
+function blockingFiles(review: ReviewerOutput | undefined): Set<string> {
+  const blocking = (review?.findings ?? []).filter((f) => f.severity === 'blocking');
+  return new Set(blocking.map((f) => testFile(f.test)));
+}
+
+const invalid = (errors: string[]): Checked => ({ ok: false, errors, dropFiles: [], reviewRejected: [] });
+
+function check(author: unknown, reviewer: unknown, maxAttempts: number): Checked {
+  const schemaErrors = [
+    ...validate(author, readSchema('./author.schema.json')).map((e) => `author ${e}`),
+    ...(reviewer === undefined ? [] : validate(reviewer, readSchema('./reviewer.schema.json')).map((e) => `reviewer ${e}`)),
+  ];
+  if (schemaErrors.length) return invalid(schemaErrors);
+
+  const { units } = author as AuthorOutput;
+  const review = reviewer as ReviewerOutput | undefined;
+  const reviewRequired = units.some((u) => VERDICT_RULES[u.verdict].needsReview);
+
+  const errors = [
+    ...checkDuplicates(units),
+    ...units.flatMap((unit) => checkUnit(unit, maxAttempts)),
+    ...(reviewRequired && !review ? ['reviewer.json is missing but the author produced tests or defects'] : []),
+    ...(review ? [...checkFindings(units, review), ...checkDefectDecisions(units, review)] : []),
+  ];
+  if (errors.length) return invalid(errors);
+
+  const dropFiles = blockingFiles(review);
+  const reviewRejected = units
+    .filter((u) => writesTests(u.verdict) && u.tests.some((t) => dropFiles.has(testFile(t))))
+    .map(unitKey);
+  return { ok: true, errors: [], dropFiles: [...dropFiles], reviewRejected };
+}
+
+// ---- CLI ----
+
+function checkFiles(authorFile: string, reviewerFile: string | undefined, maxAttempts: number): Checked {
+  try {
+    return check(readJson(authorFile), reviewerFile ? readJson(reviewerFile) : undefined, maxAttempts);
+  } catch (error) {
+    return invalid([(error as Error).message]);
+  }
+}
+
+function main() {
+  const { values, positionals } = parseArgs({
+    allowPositionals: true,
+    options: { reviewer: { type: 'string' }, 'max-attempts': { type: 'string' }, out: { type: 'string' } },
+  });
+  const [file] = positionals;
+  if (!file) die(SCRIPT, 'usage: agent-output.ts <author.json> [--reviewer reviewer.json] [--max-attempts N] [--out checked.json]', 'usage');
+
+  const maxAttempts = Number(values['max-attempts'] ?? process.env.TEST_AGENT_MAX_ATTEMPTS);
+  if (!Number.isInteger(maxAttempts) || maxAttempts < 1) die(SCRIPT, 'pass --max-attempts N or set TEST_AGENT_MAX_ATTEMPTS', 'usage');
+
+  const result = checkFiles(file, values.reviewer, maxAttempts);
+
+  if (values.out) writeJson(values.out, result);
+  for (const error of result.errors) console.error(`${SCRIPT}: ${error}`);
+  const list = (items: string[]) => items.join(', ') || 'none';
+  console.log(`${SCRIPT}: ${result.ok ? 'ok' : 'INVALID'}; drop files: ${list(result.dropFiles)}; review-rejected: ${list(result.reviewRejected)}`);
+  process.exit(result.ok ? 0 : EXIT_CODES.failed);
+}
+
+if (import.meta.main) main();
