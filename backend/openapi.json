@@ -78,6 +78,22 @@
         }
       }
     },
+    "/api/todos/stats": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TodoStats"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/todos/{id}": {
       "parameters": [
         {
@@ -224,6 +240,49 @@
           },
           "completed": {
             "type": "boolean"
+          }
+        }
+      },
+      "TodoStats": {
+        "type": "object",
+        "required": [
+          "total",
+          "open",
+          "completed",
+          "by_priority",
+          "overdue"
+        ],
+        "properties": {
+          "total": {
+            "type": "integer"
+          },
+          "open": {
+            "type": "integer"
+          },
+          "completed": {
+            "type": "integer"
+          },
+          "by_priority": {
+            "type": "object",
+            "required": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "properties": {
+              "low": {
+                "type": "integer"
+              },
+              "medium": {
+                "type": "integer"
+              },
+              "high": {
+                "type": "integer"
+              }
+            }
+          },
+          "overdue": {
+            "type": "integer"
           }
         }
       },
