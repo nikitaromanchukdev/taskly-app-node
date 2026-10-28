@@ -1,12 +1,17 @@
 // Validates both agents' output against their schemas and computes which test files to drop.
-// Usage: node agent-output.ts <author.json> [--reviewer reviewer.json] [--max-attempts N] [--out checked.json]
+// Usage: node agent-output.ts <author.json> [--reviewer reviewer.json] [--patch tests.patch] [--max-attempts N] [--out checked.json]
 // Exit 1 if anything is invalid; --out is written either way so `publish` can read it.
+import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { isFlaggedDefect, unitKey, VERDICT_RULES, writesTests } from './artifacts.ts';
 import type { AuthorOutput, Checked, ReviewerOutput, Unit } from './artifacts.ts';
 import { die, EXIT_CODES } from './cli.ts';
 import { readJson, writeJson } from './json.ts';
 import { readSchema, validate } from './schema.ts';
+import { scanLines } from './scan.ts';
+import type { LineRule } from './scan.ts';
+
+type AddedLines = { file: string; lines: Map<string, string[]> };
 
 const SCRIPT = 'agent-output';
 
@@ -42,6 +47,27 @@ function checkDefectDecisions(units: Unit[], review: ReviewerOutput): string[] {
   return [...extra, ...undecided];
 }
 
+// Lines the patch adds, per file. A `+++ b/<path>` header starts a file; `/dev/null` (a deleted file) adds nothing.
+const PATCH_LINES: readonly LineRule<AddedLines>[] = [
+  { pattern: /^\+\+\+ (?:b\/(.+)|\/dev\/null)$/, apply: (state, [, path]) => (state.file = path ?? '') },
+  { pattern: /^\+(.*)$/, apply: ({ file, lines }, [, line]) => lines.set(file, [...(lines.get(file) ?? []), line]) },
+];
+
+const addedLines = (patch: string) => scanLines(patch, PATCH_LINES, { file: '', lines: new Map<string, string[]>() }).lines;
+
+// A flagged Defect's test fails against the code, so it must not reach the Bot commit.
+function checkDefectTestsRemoved(units: Unit[], patch: string): string[] {
+  const added = addedLines(patch);
+  const leftIn = (test: string) => {
+    const name = test.split(' > ').at(-1) ?? test;
+    return (added.get(testFile(test)) ?? []).some((line) => line.includes(name));
+  };
+  return units
+    .flatMap((unit) => (unit.defect ? [unit.defect.test] : []))
+    .filter(leftIn)
+    .map((test) => `flagged Defect test "${test}" is still in the patch`);
+}
+
 function blockingFiles(review: ReviewerOutput | undefined): Set<string> {
   const blocking = (review?.findings ?? []).filter((f) => f.severity === 'blocking');
   return new Set(blocking.map((f) => testFile(f.test)));
@@ -49,7 +75,7 @@ function blockingFiles(review: ReviewerOutput | undefined): Set<string> {
 
 const invalid = (errors: string[]): Checked => ({ ok: false, errors, dropFiles: [], reviewRejected: [] });
 
-function check(author: unknown, reviewer: unknown, maxAttempts: number): Checked {
+function check(author: unknown, reviewer: unknown, patch: string | undefined, maxAttempts: number): Checked {
   const schemaErrors = [
     ...validate(author, readSchema('./author.schema.json')).map((e) => `author ${e}`),
     ...(reviewer === undefined ? [] : validate(reviewer, readSchema('./reviewer.schema.json')).map((e) => `reviewer ${e}`)),
@@ -65,6 +91,7 @@ function check(author: unknown, reviewer: unknown, maxAttempts: number): Checked
     ...units.flatMap((unit) => checkUnit(unit, maxAttempts)),
     ...(reviewRequired && !review ? ['reviewer.json is missing but the author produced tests or defects'] : []),
     ...(review ? [...checkFindings(units, review), ...checkDefectDecisions(units, review)] : []),
+    ...(patch === undefined ? [] : checkDefectTestsRemoved(units, patch)),
   ];
   if (errors.length) return invalid(errors);
 
@@ -77,9 +104,12 @@ function check(author: unknown, reviewer: unknown, maxAttempts: number): Checked
 
 // ---- CLI ----
 
-function checkFiles(authorFile: string, reviewerFile: string | undefined, maxAttempts: number): Checked {
+type Files = { author: string; reviewer?: string; patch?: string };
+
+function checkFiles(files: Files, maxAttempts: number): Checked {
   try {
-    return check(readJson(authorFile), reviewerFile ? readJson(reviewerFile) : undefined, maxAttempts);
+    const patch = files.patch === undefined ? undefined : readFileSync(files.patch, 'utf8');
+    return check(readJson(files.author), files.reviewer ? readJson(files.reviewer) : undefined, patch, maxAttempts);
   } catch (error) {
     return invalid([(error as Error).message]);
   }
@@ -88,15 +118,17 @@ function checkFiles(authorFile: string, reviewerFile: string | undefined, maxAtt
 function main() {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
-    options: { reviewer: { type: 'string' }, 'max-attempts': { type: 'string' }, out: { type: 'string' } },
+    options: { reviewer: { type: 'string' }, patch: { type: 'string' }, 'max-attempts': { type: 'string' }, out: { type: 'string' } },
   });
   const [file] = positionals;
-  if (!file) die(SCRIPT, 'usage: agent-output.ts <author.json> [--reviewer reviewer.json] [--max-attempts N] [--out checked.json]', 'usage');
+  if (!file) {
+    die(SCRIPT, 'usage: agent-output.ts <author.json> [--reviewer reviewer.json] [--patch tests.patch] [--max-attempts N] [--out checked.json]', 'usage');
+  }
 
   const maxAttempts = Number(values['max-attempts'] ?? process.env.TEST_AGENT_MAX_ATTEMPTS);
   if (!Number.isInteger(maxAttempts) || maxAttempts < 1) die(SCRIPT, 'pass --max-attempts N or set TEST_AGENT_MAX_ATTEMPTS', 'usage');
 
-  const result = checkFiles(file, values.reviewer, maxAttempts);
+  const result = checkFiles({ author: file, reviewer: values.reviewer, patch: values.patch }, maxAttempts);
 
   if (values.out) writeJson(values.out, result);
   for (const error of result.errors) console.error(`${SCRIPT}: ${error}`);
