@@ -25,13 +25,14 @@ type RunFacts = { stop: boolean; hasCandidates: boolean; sameRepo: boolean; draf
 // The parts of GitHub API responses this script reads.
 type PullRequest = {
   head: { sha: string; repo: { full_name: string } | null };
-  base: { sha: string };
+  base: { ref: string };
   draft: boolean;
   labels: { name: string }[];
 };
 type IssueEvent = { event: string; label?: { name: string }; actor?: { login: string } };
 type Permission = { permission: string; role_name?: string };
 type CommitStatus = { context: string; description: string | null };
+type Branch = { commit: { sha: string } };
 
 const SCRIPT = 'prepare';
 const MAINTAINER_ROLES = ['admin', 'maintain'];
@@ -159,6 +160,15 @@ async function stopForLabelEvent(gh: GitHub, repo: string, head: string, event: 
   }
 }
 
+// The PR's base.sha is the base branch as of the PR's last push. Trusted scripts and agent config must come from
+// the branch as it is now, so every later job checks out its current tip. The three-dot diff still compares
+// against the merge-base, so the Scope is the same either way.
+async function baseTip(gh: GitHub, repo: string, branch: string): Promise<string> {
+  const { commit } = await gh.request<Branch>(`/repos/${repo}/branches/${encodeURIComponent(branch)}`);
+  execFileSync('git', ['fetch', '--quiet', '--no-tags', 'origin', commit.sha]);
+  return commit.sha;
+}
+
 // ---- Main ----
 
 function revParse(ref: string): string {
@@ -208,7 +218,7 @@ async function main(env: Env) {
 
   const pr = await gh.request<PullRequest>(`/repos/${repo}/pulls/${prNumber}`);
   const head = pr.head.sha;
-  const base = pr.base.sha;
+  const base = await baseTip(gh, repo, pr.base.ref);
   const sameRepo = pr.head.repo?.full_name === repo;
   if (eventName === 'workflow_dispatch' && !sameRepo) {
     die(SCRIPT, `PR #${prNumber} comes from a fork; dispatch is not allowed`);
