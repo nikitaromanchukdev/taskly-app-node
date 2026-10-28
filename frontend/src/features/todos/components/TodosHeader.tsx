@@ -1,5 +1,6 @@
 import { Plus } from 'lucide-react'
 import { Button, Heading, Text } from '../../../design-system'
+import { TodoStats } from './TodoStats'
 
 export function TodosHeader({
   disabled,
@@ -13,6 +14,7 @@ export function TodosHeader({
       <div className="stack compact">
         <Heading id="page-title">Tasks</Heading>
         <Text muted>Create, organize, and complete tasks.</Text>
+        <TodoStats />
       </div>
       <Button disabled={disabled} onClick={onCreate}>
         <Plus size={18} aria-hidden="true" />

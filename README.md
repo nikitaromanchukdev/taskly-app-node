@@ -14,6 +14,8 @@ docker compose up --build -d --wait
 
 Application: http://localhost:8080. API: http://localhost:8000/docs.
 
+`GET /api/todos/stats` returns task counters: total, open, completed, per priority and overdue.
+
 ```sh
 docker compose down
 ```
