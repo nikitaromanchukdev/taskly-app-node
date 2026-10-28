@@ -24,6 +24,13 @@ mkdir -p "$cache"
 modules="test-agent-$(printf %s "$root" | cksum | cut -d' ' -f1)-$package-modules"
 user="$(id -u):$(id -g)"
 
+# Code in the container may write the checkout, but not what later runs on the host next to the key:
+# the hook and pipeline scripts (.github), agent config (.claude) and git config or hooks (.git).
+protected=()
+for path in .git .github .claude; do
+  if [[ -e "$root/$path" ]]; then protected+=(-v "$root/$path:/w/$path:ro"); fi
+done
+
 network=none
 case "$action" in
   install)
@@ -45,6 +52,6 @@ exec docker run --rm \
   --user "$user" \
   --network="$network" \
   -e HOME=/tmp -e npm_config_cache=/npm-cache -e CI=true \
-  -v "$root":/w -v "$modules":"/w/$package/node_modules" -v "$cache":/npm-cache \
+  -v "$root":/w "${protected[@]}" -v "$modules":"/w/$package/node_modules" -v "$cache":/npm-cache \
   -w "/w/$package" \
   "$IMAGE" "${cmd[@]}"
