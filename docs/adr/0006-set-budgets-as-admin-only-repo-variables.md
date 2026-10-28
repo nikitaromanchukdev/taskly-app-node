@@ -13,10 +13,12 @@ A model-driven run costs money and time. A run with no limit has no cap. A defau
 - The turn limit and the timeout are enforced on each agent step. The attempt limit is passed to the Author as a soft limit, and the scripts check the Author's output against it again.
 - The Makefile has its own local defaults, used only by `make trial`. They never reach CI.
 - `scripts/setup-github.sh config` sets the variables. Admins edit them afterwards.
+- Agents run only on PRs that are ready for review. On a draft PR, `prepare` skips both agents and `verify` still runs the suites. Marking the PR ready starts a full run. Work-in-progress pushes cost no model tokens, and the agents see the change once the author says it is done.
 - The monthly spend limit is set in the model provider's console. It is the hard cap on money. The repo variables cap each run; the console caps the month.
 
 ## Consequences
 
+- Open a PR as a draft while iterating. A draft gets suites but no tests from the agents and no Defects.
 - A new clone fails in `prepare` until the variables are set. This is intended.
 - The budgets are the same for every PR. Normal files in a PR do not change them. The workflow file does, and a same-repo writer can edit it. See the limitations in [SOLUTION.md](../../SOLUTION.md).
 - The spend limit is the only cap that holds if the workflow file is edited. Keep it set.

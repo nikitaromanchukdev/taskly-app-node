@@ -13,11 +13,11 @@ Part A (Backfill) adds tests for existing code, run locally by the owner. Part B
 | Expectations come from Intent sources; failing tests become Defects; a second agent reviews them | [0003](docs/adr/0003-derive-expectations-from-intent-and-review-defects.md) |
 | PR code never runs next to the model key; agent config comes from the base branch | [0004](docs/adr/0004-isolate-pr-code-from-secrets.md) |
 | Merge gate on `test-agent/verify`, with a `skip-test-agent` label | [0005](docs/adr/0005-gate-merges-on-test-agent-verify.md) |
-| Budgets are admin-only repo variables, with no defaults | [0006](docs/adr/0006-set-budgets-as-admin-only-repo-variables.md) |
+| Budgets are admin-only repo variables, with no defaults; agents skip draft PRs | [0006](docs/adr/0006-set-budgets-as-admin-only-repo-variables.md) |
 
 ## How to run the PR workflow
 
-- **Automatic.** The workflow `pr-test-engineer` runs when a PR is opened, reopened, marked ready for review, or pushed to. Adding or removing the `skip-test-agent` label also triggers it. Draft PRs get verification but no agent run.
+- **Automatic.** The workflow `pr-test-engineer` runs when a PR is opened, reopened, marked ready for review, or pushed to. Adding or removing the `skip-test-agent` label also triggers it. Draft PRs get verification but no agent run, so model tokens are spent only once the author marks the PR ready. See [ADR 0006](docs/adr/0006-set-budgets-as-admin-only-repo-variables.md).
 - **Re-run on the current head.** The run reads the live PR, so it analyses the head as it is now:
 
   ```sh
@@ -100,7 +100,22 @@ Agents never post. Only `prepare` (the pending status) and `publish` (the final 
 
 ## Example run
 
-To be filled from the demo PR: its two runs, the Bot commit SHAs, and the status and comments after each push.
+Demo PR [#19](https://github.com/nikitaromanchukdev/taskly-app-node/pull/19) adds todo stats: `GET /api/todos/stats` with open, completed, per-priority and overdue counts, and header counters in the frontend. Its description states the intended behaviour, including "A todo due today is not overdue." The first push plants a defect: the overdue check uses `<=` instead of `<`.
+
+Both runs used the same skills. The Author ran `scope-change`, `extract-intent`, `author-tests` and `prove-tests`; the Reviewer ran `review-tests`.
+
+| | Push 1: planted defect | Push 2: fix |
+|---|---|---|
+| Run | [40778549704](https://github.com/nikitaromanchukdev/taskly-app-node/actions/runs/40778549704) | [40781735968](https://github.com/nikitaromanchukdev/taskly-app-node/actions/runs/40781735968) |
+| Analyzed → Bot commit | `e4fb581` → `99f2945` | `dfb8adf` → `88233e6` |
+| Verdicts (11 Units) | 6 `added`, 3 `amended`, 1 `flagged-defect`, 1 `not-needed` | 1 `amended`, 10 `not-needed` (already covered) |
+| Bot commit | 8 test files, +215 lines | 1 test in `backend/tests/stats.test.ts` |
+| Defect | `computeTodoStats` counts a todo due today as overdue: expected 0, received 1. The Reviewer confirmed it, quoting the PR description. The failing test was left out of the Bot commit. | none |
+| Suites | backend 57, frontend 26, all pass | backend 58, frontend 26, all pass |
+| Mutation (information only) | backend 60.7%, frontend 43.6% | backend 62.6%, frontend 43.6% |
+| `test-agent/verify` | 🔴 1 confirmed defect: merge blocked | 🟢 merged |
+
+Between the pushes, the author ran `git pull --rebase` to take the Bot commit, then changed `<=` to `<`. In push 2 the Author added the due-today test the first run could not commit, and marked the other Units as covered by the tests from push 1. Each run updated the same three comments in place. Each Bot commit left a PR run waiting for approval, which skips every job.
 
 ## Assumptions and limitations
 
@@ -116,6 +131,8 @@ Limitations:
 
 - A blocking Finding removes the whole test file from the Bot commit, including its good tests.
 - Each Bot commit leaves a PR run waiting for approval, because GitHub holds runs started by a `GITHUB_TOKEN` push. The run skips every job. Pushing with a GitHub App token would remove the prompt, but would also start a full run on the Bot commit.
+- The Author does not always follow procedure. In the demo runs it used shell commands its tool rules deny (`cat`, `sed`, `cd …;`) and retried with the right tools, which costs turns. Earlier runs ignored the skill's instructions for removing a Defect's failing test, so `commit` now drops a new file that still holds one.
+- The agents' summaries are free text. One named a Unit by a name that does not exist in the code, while the Units table was correct. Read the tables, not only the summary.
 - The Reviewer is also a model. It lowers the rate of false Defects; it does not remove them.
 - A same-repo writer can edit the workflow file in a PR. PR runs use the head copy of the workflow, so the budgets and the guard steps in it can be changed. The team mitigation is CODEOWNERS on `.github/` and `.claude/`, with a ruleset that requires code-owner review. It is not applied, because the sole maintainer cannot approve their own PRs.
 - Fork PRs get no agent run and no status. The branch must be pushed into the repo to merge.
