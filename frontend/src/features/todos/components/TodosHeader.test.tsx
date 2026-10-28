@@ -4,6 +4,14 @@ import { expect, it, vi } from 'vitest'
 import { TodosHeader } from './TodosHeader'
 
 vi.mock('../../../design-system', () => import('../../../design-system/mocks'))
+vi.mock('./TodoStats', () => ({
+  TodoStats: () => <div data-testid="todo-stats" />,
+}))
+
+it('shows the task statistics in the header', () => {
+  render(<TodosHeader disabled={false} onCreate={vi.fn()} />)
+  expect(screen.getByTestId('todo-stats')).toBeInTheDocument()
+})
 
 it('invokes creation when enabled and blocks it when disabled', async () => {
   const user = userEvent.setup()
