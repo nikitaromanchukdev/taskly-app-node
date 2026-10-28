@@ -17,7 +17,7 @@ export function computeTodoStats(todos: Todo[], today: Date): TodoStats {
     }
     stats.open += 1;
     const dueDay = todo.due_date;
-    if (dueDay && dueDay <= todayDay) stats.overdue += 1;
+    if (dueDay && dueDay < todayDay) stats.overdue += 1;
   }
   return stats;
 }
