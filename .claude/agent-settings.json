@@ -11,9 +11,7 @@
       "Bash(git show:*)",
       "Bash(git status:*)",
       "Bash(.github/scripts/sandbox.sh test:*)",
-      "Bash(.github/scripts/sandbox.sh typecheck:*)",
-      "Bash(git clean -f -- backend/tests/*)",
-      "Bash(git clean -f -- frontend/src/*)"
+      "Bash(.github/scripts/sandbox.sh typecheck:*)"
     ],
     "deny": [
       "WebFetch",

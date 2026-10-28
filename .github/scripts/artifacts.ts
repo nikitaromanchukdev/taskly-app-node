@@ -55,8 +55,8 @@ export type ReviewerOutput = { summary: string; findings: Finding[]; defects: De
 export type Checked = {
   ok: boolean;
   errors: string[];
-  dropFiles: string[]; // test files with a blocking finding
-  reviewRejected: string[]; // unitKey of units whose tests live in a dropped file (report-only state)
+  dropFiles: string[]; // test files with a blocking finding, and new files holding a flagged Defect's failing test
+  reviewRejected: string[]; // unitKey of units whose tests live in a file with a blocking finding (report-only state)
 };
 
 // ---- results.json ----

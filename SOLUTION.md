@@ -92,7 +92,7 @@ The same steps with raw `gh` commands:
 |---|---|---|---|---|
 | `prepare` | no | commit status | no | Reads the live PR. Checks the budget variables. Writes `scope.json`. Sets the status to pending. |
 | `engineer` | yes: Author, then Reviewer | none (read-only token) | only in containers | Restores base-branch config. Installs dependencies in the sandbox. Runs the agents. Saves `author.json`, `reviewer.json` and `tests.patch`. |
-| `commit` | no | repo contents | no | Checks the patch and the agent output. Drops test files with blocking Findings. Pushes the Bot commit. |
+| `commit` | no | repo contents | no | Checks the patch and the agent output. Drops test files with blocking Findings, and new files that hold a flagged Defect's test. Pushes the Bot commit. |
 | `verify` | no | none (read-only token) | yes, on the host, with no secrets | Typecheck and suites with coverage on the final commit. Mutation testing for information only. |
 | `publish` | no | commit status, PR comments | no | Decides the status. Renders the three comments and the job summary. |
 
@@ -115,6 +115,7 @@ Assumptions:
 Limitations:
 
 - A blocking Finding removes the whole test file from the Bot commit, including its good tests.
+- Each Bot commit leaves a PR run waiting for approval, because GitHub holds runs started by a `GITHUB_TOKEN` push. The run skips every job. Pushing with a GitHub App token would remove the prompt, but would also start a full run on the Bot commit.
 - The Reviewer is also a model. It lowers the rate of false Defects; it does not remove them.
 - A same-repo writer can edit the workflow file in a PR. PR runs use the head copy of the workflow, so the budgets and the guard steps in it can be changed. The team mitigation is CODEOWNERS on `.github/` and `.claude/`, with a ruleset that requires code-owner review. It is not applied, because the sole maintainer cannot approve their own PRs.
 - Fork PRs get no agent run and no status. The branch must be pushed into the repo to merge.

@@ -8,6 +8,7 @@ The agents of the PR test workflow follow their own agent files, which take prec
 
 - The PR test workflow runs on each push. Its jobs and triggers are in [SOLUTION.md](SOLUTION.md).
 - It may add one Bot commit with tests to your branch. Run `git pull --rebase` before your next push, or your push will be rejected.
+- GitHub then asks to approve a workflow run for the Bot commit. Approving it or not changes nothing: that run skips every job.
 - It sets the status `test-agent/verify` and writes three PR comments.
 
 ## Reading the three PR comments

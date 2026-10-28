@@ -11,7 +11,8 @@ import { readSchema, validate } from './schema.ts';
 import { scanLines } from './scan.ts';
 import type { LineRule } from './scan.ts';
 
-type AddedLines = { file: string; lines: Map<string, string[]> };
+type PatchFiles = { file: string; added: Map<string, string[]>; created: Set<string> };
+type DefectTests = { errors: string[]; dropFiles: string[] };
 
 const SCRIPT = 'agent-output';
 
@@ -47,25 +48,31 @@ function checkDefectDecisions(units: Unit[], review: ReviewerOutput): string[] {
   return [...extra, ...undecided];
 }
 
-// Lines the patch adds, per file. A `+++ b/<path>` header starts a file; `/dev/null` (a deleted file) adds nothing.
-const PATCH_LINES: readonly LineRule<AddedLines>[] = [
-  { pattern: /^\+\+\+ (?:b\/(.+)|\/dev\/null)$/, apply: (state, [, path]) => (state.file = path ?? '') },
-  { pattern: /^\+(.*)$/, apply: ({ file, lines }, [, line]) => lines.set(file, [...(lines.get(file) ?? []), line]) },
+// Per file of the patch: the lines it adds, and whether the patch creates it. The `+++` header is not an added line.
+const PATCH_LINES: readonly LineRule<PatchFiles>[] = [
+  { pattern: /^diff --git a\/(.+) b\/\1$/, apply: (state, [, path]) => (state.file = path) },
+  { pattern: /^new file mode/, apply: ({ file, created }) => created.add(file) },
+  { pattern: /^\+\+\+ /, apply: () => {} },
+  { pattern: /^\+(.*)$/, apply: ({ file, added }, [, line]) => added.set(file, [...(added.get(file) ?? []), line]) },
 ];
 
-const addedLines = (patch: string) => scanLines(patch, PATCH_LINES, { file: '', lines: new Map<string, string[]>() }).lines;
+const patchFiles = (patch: string) =>
+  scanLines(patch, PATCH_LINES, { file: '', added: new Map<string, string[]>(), created: new Set<string>() });
 
-// A flagged Defect's test fails against the code, so it must not reach the Bot commit.
-function checkDefectTestsRemoved(units: Unit[], patch: string): string[] {
-  const added = addedLines(patch);
+// A flagged Defect's test fails against the code, so it must not reach the Bot commit. A file the patch creates is
+// dropped whole (prove-tests keeps such a test in a file of its own); in a file that existed, the Author must remove it.
+function defectTests(units: Unit[], patch: string): DefectTests {
+  const { added, created } = patchFiles(patch);
   const leftIn = (test: string) => {
     const name = test.split(' > ').at(-1) ?? test;
     return (added.get(testFile(test)) ?? []).some((line) => line.includes(name));
   };
-  return units
-    .flatMap((unit) => (unit.defect ? [unit.defect.test] : []))
-    .filter(leftIn)
-    .map((test) => `flagged Defect test "${test}" is still in the patch`);
+  const left = units.flatMap((unit) => (unit.defect ? [unit.defect.test] : [])).filter(leftIn);
+  const inNewFile = (test: string) => created.has(testFile(test));
+  return {
+    errors: left.filter((test) => !inNewFile(test)).map((test) => `flagged Defect test "${test}" is still in an existing test file`),
+    dropFiles: left.filter(inNewFile).map(testFile),
+  };
 }
 
 function blockingFiles(review: ReviewerOutput | undefined): Set<string> {
@@ -86,20 +93,21 @@ function check(author: unknown, reviewer: unknown, patch: string | undefined, ma
   const review = reviewer as ReviewerOutput | undefined;
   const reviewRequired = units.some((u) => VERDICT_RULES[u.verdict].needsReview);
 
+  const defects: DefectTests = patch === undefined ? { errors: [], dropFiles: [] } : defectTests(units, patch);
   const errors = [
     ...checkDuplicates(units),
     ...units.flatMap((unit) => checkUnit(unit, maxAttempts)),
     ...(reviewRequired && !review ? ['reviewer.json is missing but the author produced tests or defects'] : []),
     ...(review ? [...checkFindings(units, review), ...checkDefectDecisions(units, review)] : []),
-    ...(patch === undefined ? [] : checkDefectTestsRemoved(units, patch)),
+    ...defects.errors,
   ];
   if (errors.length) return invalid(errors);
 
-  const dropFiles = blockingFiles(review);
+  const blocking = blockingFiles(review);
   const reviewRejected = units
-    .filter((u) => writesTests(u.verdict) && u.tests.some((t) => dropFiles.has(testFile(t))))
+    .filter((u) => writesTests(u.verdict) && u.tests.some((t) => blocking.has(testFile(t))))
     .map(unitKey);
-  return { ok: true, errors: [], dropFiles: [...dropFiles], reviewRejected };
+  return { ok: true, errors: [], dropFiles: [...new Set([...blocking, ...defects.dropFiles])], reviewRejected };
 }
 
 // ---- CLI ----
