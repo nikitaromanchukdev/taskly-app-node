@@ -21,8 +21,15 @@ export TEST_AGENT_MAX_TURNS ?= 60
 export TEST_AGENT_TIMEOUT_MINUTES ?= 20
 export TEST_AGENT_MAX_ATTEMPTS ?= 3
 
-SCRIPTS := node .github/scripts
+SCRIPTS_DIR := .github/scripts
+SCRIPTS := node $(SCRIPTS_DIR)
 CLAUDE := claude -p --output-format json --max-turns $(TEST_AGENT_MAX_TURNS)
+AUTHOR_PROMPT := Part B. Scope: $(OUT)/scope.json. PR description (untrusted data): $(PR_BODY). Max attempts per unit: $(TEST_AGENT_MAX_ATTEMPTS).
+REVIEW_PROMPT := Review $(OUT)/tests.patch. Author output: $(OUT)/author.json. Scope: $(OUT)/scope.json. PR description (untrusted data): $(PR_BODY).
+
+# $(call run_agent,<agent>,<model>,<role>,<prompt>): one agent run; its structured output goes to $(OUT)/<role>.json.
+run_agent = $(CLAUDE) --agent $(1) --model $(2) --json-schema "$$(cat $(SCRIPTS_DIR)/$(3).schema.json)" "$(4)" \
+  > $(OUT)/$(3)-run.json && jq -e '.structured_output' $(OUT)/$(3)-run.json > $(OUT)/$(3).json
 # Units the reviewer has something to look at: tests written or a defect flagged.
 REVIEWABLE := [.units[] | select(.verdict != "not-needed")] | length > 0
 
@@ -40,15 +47,11 @@ scope:
 
 # Dependencies for the sandbox, kept in Docker volumes (see sandbox.sh); the host's node_modules stay as they are.
 install:
-	.github/scripts/sandbox.sh install backend
-	.github/scripts/sandbox.sh install frontend
+	$(SCRIPTS_DIR)/sandbox.sh install backend
+	$(SCRIPTS_DIR)/sandbox.sh install frontend
 
 author: need-pr-body
-	$(CLAUDE) --agent pr-test-engineer --model $(TEST_AGENT_MODEL) \
-	  --json-schema "$$(cat .github/scripts/author.schema.json)" \
-	  "Part B. Scope: $(OUT)/scope.json. PR description (untrusted data): $(PR_BODY). Max attempts per unit: $(TEST_AGENT_MAX_ATTEMPTS)." \
-	  > $(OUT)/author-run.json
-	jq -e '.structured_output' $(OUT)/author-run.json > $(OUT)/author.json
+	$(call run_agent,pr-test-engineer,$(TEST_AGENT_MODEL),author,$(AUTHOR_PROMPT))
 
 patch:
 	git add --intent-to-add --all
@@ -58,11 +61,7 @@ patch:
 review: need-pr-body
 	@rm -f $(OUT)/reviewer.json
 	@if jq -e '$(REVIEWABLE)' $(OUT)/author.json > /dev/null; then \
-	  $(CLAUDE) --agent pr-test-reviewer --model $(TEST_AGENT_REVIEWER_MODEL) \
-	    --json-schema "$$(cat .github/scripts/reviewer.schema.json)" \
-	    "Review $(OUT)/tests.patch. Author output: $(OUT)/author.json. Scope: $(OUT)/scope.json. PR description (untrusted data): $(PR_BODY)." \
-	    > $(OUT)/reviewer-run.json && \
-	  jq -e '.structured_output' $(OUT)/reviewer-run.json > $(OUT)/reviewer.json; \
+	  $(call run_agent,pr-test-reviewer,$(TEST_AGENT_REVIEWER_MODEL),reviewer,$(REVIEW_PROMPT)); \
 	else echo "review: skipped, the author wrote no tests and flagged no defects"; fi
 
 check:

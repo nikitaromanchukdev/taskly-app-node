@@ -5,6 +5,8 @@ const MAX_SUMMARY = 3000;
 const MAX_CELL = 300;
 const ZWSP = '\u200b'; // zero-width space: breaks @mentions and #refs without visible change
 
+export const truncate = (text: string, max: number) => (text.length > max ? text.slice(0, max) + '\n\n(truncated)' : text);
+
 export function sanitize(text: string, repo: string, max = MAX_SUMMARY): string {
   const own = `https://github.com/${repo}/`;
   const cleaned = text
@@ -19,7 +21,7 @@ export function sanitize(text: string, repo: string, max = MAX_SUMMARY): string 
     .replace(/https?:\/\/[^\s)>\]]+/g, (url) => (url.startsWith(own) ? url : '[link removed]'))
     .replace(/(^|[^\w`/])@(?=\w)/g, `$1@${ZWSP}`)
     .replace(/#(?=\d)/g, `#${ZWSP}`);
-  return cleaned.length > max ? cleaned.slice(0, max) + '\n\n(truncated)' : cleaned;
+  return truncate(cleaned, max);
 }
 
 // One line of text that can sit in a table cell or list item.

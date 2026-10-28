@@ -1,23 +1,24 @@
 // Markdown for the 3 sticky PR comments: pipeline report, test author, test reviewer.
-import { unitKey } from './agent-output.ts';
-import type { DefectDecision, Unit } from './agent-output.ts';
+import { isFlaggedDefect, packageRelative, unitKey } from './artifacts.ts';
+import type { Context, Defect, DefectDecision, MutationResult, Results, Run, Unit } from './artifacts.ts';
 import { cell, code, sanitize } from './sanitize.ts';
-import { decide, firstReason, labelSkipNote, PREPARE_FAILED } from './status.ts';
-import type { Context, MutationResult, ReasonRule, Results, Run, StatusState } from './status.ts';
+import { firstReason, labelSkipNote, PREPARE_FAILED } from './status.ts';
+import type { ReasonRule, Status, StatusState } from './status.ts';
 
 export type CommentName = 'report' | 'author' | 'reviewer';
+// What every comment is rendered from: the run's artifacts, its decided status and the repo for links.
+export type Report = { run: Run; status: Status; repo: string };
+type DefectLabel = DefectDecision | 'undecided';
 
-export const MARKERS: Record<CommentName, string> = {
-  report: '<!-- pr-test-engineer:report -->',
-  author: '<!-- pr-test-engineer:author -->',
-  reviewer: '<!-- pr-test-engineer:reviewer -->',
-};
 export const COMMENTS: readonly CommentName[] = ['report', 'author', 'reviewer'];
+// Each comment starts with its marker, so publish finds and updates it instead of adding another.
+export const marker = (name: CommentName) => `<!-- pr-test-engineer:${name} -->`;
 
 const STATUS_EMOJI: Record<StatusState, string> = { success: '🟢', failure: '🔴' };
-const DEFECT_LABELS: Record<DefectDecision, string> = {
+const DEFECT_LABELS: Record<DefectLabel, string> = {
   confirmed: '🔴 confirmed',
   rejected: '⚠️ rejected by reviewer (warning)',
+  undecided: '⚠️ no reviewer decision (warning)',
 };
 const MAX_SURVIVORS = 20;
 
@@ -51,13 +52,13 @@ const unitName = (unit: { path: string; unit: string }, repo: string) => `${code
 // ---- Pipeline report ----
 
 function defectLines(run: Run, repo: string): string[] {
-  const flagged = run.author?.units.filter((unit) => unit.verdict === 'flagged-defect') ?? [];
+  const flagged = run.author?.units.filter(isFlaggedDefect) ?? [];
   if (!flagged.length) return [];
   const lines = flagged.flatMap((unit) => {
     const review = run.reviewer?.defects.find((decision) => unitKey(decision) === unitKey(unit));
     const defect = unit.defect;
     return [
-      `- ${DEFECT_LABELS[review?.decision ?? 'rejected']}: ${code(unit.unit, repo)} in ${code(unit.path, repo)}`,
+      `- ${DEFECT_LABELS[review?.decision ?? 'undecided']}: ${code(unit.unit, repo)} in ${code(unit.path, repo)}`,
       ...(defect
         ? [
             `  - test: ${cell(defect.test, repo)}`,
@@ -95,7 +96,7 @@ function coverageLines(run: Run, repo: string): string[] {
   const change = (before?: number, after?: number) =>
     before === undefined && after === undefined ? 'n/a' : `${before ?? 'n/a'} → ${after ?? 'n/a'}`;
   const rows = (run.scope?.candidates ?? []).map((candidate) => {
-    const key = candidate.path.slice(candidate.package.length + 1);
+    const key = packageRelative(candidate);
     const before = run.results?.coverage.baseline[candidate.package]?.[key];
     const after = run.results?.coverage.final[candidate.package]?.[key];
     return [code(candidate.path, repo), change(before?.lines, after?.lines), change(before?.branches, after?.branches)];
@@ -120,10 +121,9 @@ function mutationLines(results: Results | undefined, repo: string): string[] {
   return ['<details><summary>Mutation (information only)</summary>', '', ...body, '', '</details>'];
 }
 
-export function renderReport(run: Run, repo: string): string {
-  const status = decide(run);
+function renderReport({ run, status, repo }: Report): string {
   return [
-    MARKERS.report,
+    marker('report'),
     `### ${STATUS_EMOJI[status.state]} ${status.description}`,
     header(run.context),
     '',
@@ -142,8 +142,11 @@ function verdictLabel(unit: Unit, rejected: Set<string>): string {
   return unit.verdict === 'not-needed' ? `not-needed (${unit.reason})` : unit.verdict;
 }
 
-export function renderAuthor(run: Run, repo: string): string {
-  const out = [MARKERS.author, '### Test author', header(run.context), ''];
+const flaggedLine = (unit: string, defect: Defect, repo: string) =>
+  `- ${cell(unit, repo)}: expected ${cell(defect.expected, repo)}, received ${cell(defect.received, repo)} (${cell(defect.source, repo)})`;
+
+function renderAuthor({ run, repo }: Report): string {
+  const out = [marker('author'), '### Test author', header(run.context), ''];
   if (!run.author) return [...out, notRun(run, 'Author', whyNoAgent(run))].join('\n');
 
   const rejected = new Set(run.checked?.reviewRejected ?? []);
@@ -154,11 +157,7 @@ export function renderAuthor(run: Run, repo: string): string {
     unit.tests.map((test) => cell(test, repo)).join('<br>'),
     String(unit.attempts),
   ]);
-  const defects = run.author.units.flatMap(({ verdict, unit, defect }) =>
-    verdict === 'flagged-defect' && defect
-      ? [`- ${cell(unit, repo)}: expected ${cell(defect.expected, repo)}, received ${cell(defect.received, repo)} (${cell(defect.source, repo)})`]
-      : [],
-  );
+  const defects = run.author.units.flatMap((unit) => (isFlaggedDefect(unit) && unit.defect ? [flaggedLine(unit.unit, unit.defect, repo)] : []));
   return [
     ...out,
     sanitize(run.author.summary, repo),
@@ -170,8 +169,8 @@ export function renderAuthor(run: Run, repo: string): string {
 
 // ---- Reviewer comment ----
 
-export function renderReviewer(run: Run, repo: string): string {
-  const out = [MARKERS.reviewer, '### Test reviewer', header(run.context), ''];
+function renderReviewer({ run, repo }: Report): string {
+  const out = [marker('reviewer'), '### Test reviewer', header(run.context), ''];
   if (!run.reviewer) {
     const why = run.author ? 'the author produced no tests or defects to review' : whyNoAgent(run);
     return [...out, notRun(run, 'Reviewer', why)].join('\n');
@@ -199,3 +198,9 @@ export function renderReviewer(run: Run, repo: string): string {
     ...table(['Test', 'Severity', 'Reason', 'Note'], findings, 'No findings.'),
   ].join('\n');
 }
+
+export const RENDERERS: Record<CommentName, (report: Report) => string> = {
+  report: renderReport,
+  author: renderAuthor,
+  reviewer: renderReviewer,
+};

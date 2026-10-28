@@ -1,4 +1,5 @@
 // Minimal GitHub REST client (Node 24 global fetch, no dependencies).
+import { die } from './cli.ts';
 
 export type GitHubOptions = { token: string; baseUrl?: string };
 export type RequestOptions = { method?: string; body?: unknown };
@@ -9,7 +10,7 @@ export type GitHub = {
 };
 
 const DEFAULT_BASE_URL = 'https://api.github.com';
-const PAGE_SIZE = 100;
+export const PAGE_SIZE = 100;
 const MAX_ERROR_BODY = 500;
 
 export function github({ token, baseUrl = DEFAULT_BASE_URL }: GitHubOptions): GitHub {
@@ -31,7 +32,7 @@ export function github({ token, baseUrl = DEFAULT_BASE_URL }: GitHubOptions): Gi
       const body = (await response.text()).slice(0, MAX_ERROR_BODY);
       throw new Error(`GitHub API ${method} ${path} -> ${response.status}: ${body}`);
     }
-    return (response.status === 204 ? undefined : await response.json()) as T;
+    return (await response.json()) as T;
   }
 
   async function paginate<T>(path: string, maxPages: number): Promise<T[]> {
@@ -46,4 +47,10 @@ export function github({ token, baseUrl = DEFAULT_BASE_URL }: GitHubOptions): Gi
   }
 
   return { request, paginate };
+}
+
+// The client a script builds from the Actions environment; dies if the token is missing.
+export function githubFromEnv(script: string, env: Record<string, string | undefined>): GitHub {
+  const token = env.GITHUB_TOKEN?.trim() || die(script, 'GITHUB_TOKEN is not set');
+  return github({ token, baseUrl: env.GITHUB_API_URL?.trim() || undefined });
 }

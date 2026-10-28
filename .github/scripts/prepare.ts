@@ -4,40 +4,22 @@
 // Env: the 5 TEST_AGENT_* variables, GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER, GITHUB_EVENT_NAME,
 //      EVENT_ACTION and EVENT_LABEL (label events only), TEST_AGENT_SKIP_ACTORS (optional fallback).
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
+import type { Budgets, FileStatus, Hunk, Scope } from './artifacts.ts';
 import { die } from './cli.ts';
-import { github } from './github.ts';
+import { githubFromEnv, PAGE_SIZE } from './github.ts';
 import type { GitHub } from './github.ts';
+import { writeJson } from './json.ts';
 import { classify, LABEL_SKIP_PHRASE, SKIP_LABEL, STATUS_CONTEXT } from './rules.ts';
-import type { Pkg, SkipReason } from './rules.ts';
 import { scanLines } from './scan.ts';
 import type { LineRule } from './scan.ts';
 
-export type Hunk = { start: number; count: number };
-export type CandidateStatus = 'added' | 'modified';
-export type FileStatus = CandidateStatus | 'deleted';
-export type DiffFile = { path: string; status: FileStatus; hunks: Hunk[] };
-export type Candidate = { path: string; package: Pkg; status: CandidateStatus; hunks: Hunk[] };
-export type Skipped = { path: string; reason: SkipReason };
-export type Budgets = {
-  model: string;
-  reviewerModel: string;
-  maxTurns: number;
-  timeoutMinutes: number;
-  maxAttempts: number;
-};
-export type Scope = {
-  base: string;
-  head: string;
-  budgets: Budgets;
-  candidates: Candidate[];
-  skipped: Skipped[];
-};
-
 type Env = Record<string, string | undefined>;
+type DiffFile = { path: string; status: FileStatus; hunks: Hunk[] };
 type LabelEvent = { action: string; label: string };
 type LabelDecision = { actor: string; honoured: boolean };
+type PrEnv = { repo: string; prNumber: string; eventName: string; labelEvent: LabelEvent; fallbackActors: string[] };
 
 // The parts of GitHub API responses this script reads.
 type PullRequest = {
@@ -108,12 +90,13 @@ const DIFF_LINES: readonly LineRule<DiffFile[]>[] = [
 
 const parseDiff = (diff: string): DiffFile[] => scanLines(diff, DIFF_LINES, []);
 
-function buildScope(base: string, head: string, budgets: Budgets): Scope {
-  const diff = execFileSync(
-    'git',
-    ['-c', 'core.quotePath=false', 'diff', '-U0', '--no-color', '--no-renames', `${base}...${head}`],
-    { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 },
-  );
+const gitDiff = (base: string, head: string) =>
+  execFileSync('git', ['-c', 'core.quotePath=false', 'diff', '-U0', '--no-color', '--no-renames', `${base}...${head}`], {
+    encoding: 'utf8',
+    maxBuffer: 256 * 1024 * 1024,
+  });
+
+function scopeFromDiff(diff: string, base: string, head: string, budgets: Budgets): Scope {
   const scope: Scope = { base, head, budgets, candidates: [], skipped: [] };
   for (const file of parseDiff(diff)) {
     if (file.status === 'deleted') {
@@ -152,12 +135,12 @@ async function labelDecision(gh: GitHub, repo: string, prNumber: string, fallbac
     return { actor, honoured: MAINTAINER_ROLES.includes(permission.role_name ?? permission.permission) };
   } catch (error) {
     console.error(`${SCRIPT}: cannot read label actor or permission (${(error as Error).message}); using TEST_AGENT_SKIP_ACTORS`);
-    return { actor, honoured: actor !== '' && fallbackActors.includes(actor) };
+    return { actor, honoured: fallbackActors.includes(actor) };
   }
 }
 
 async function headIsLabelSkip(gh: GitHub, repo: string, sha: string): Promise<boolean> {
-  const statuses = await gh.request<CommitStatus[]>(`/repos/${repo}/commits/${sha}/statuses?per_page=100`);
+  const statuses = await gh.request<CommitStatus[]>(`/repos/${repo}/commits/${sha}/statuses?per_page=${PAGE_SIZE}`);
   const latest = statuses.find((status) => status.context === STATUS_CONTEXT);
   return Boolean(latest?.description?.includes(LABEL_SKIP_PHRASE));
 }
@@ -188,8 +171,9 @@ function revParse(ref: string): string {
 // Local trial run: same budgets and rules as CI, but no PR, label or status logic.
 function local(base: string, out: string, env: Env) {
   const budgets = readBudgets(env);
-  const scope = buildScope(revParse(base), revParse('HEAD'), budgets);
-  writeFileSync(out, JSON.stringify(scope, null, 2) + '\n');
+  const [baseSha, headSha] = [revParse(base), revParse('HEAD')];
+  const scope = scopeFromDiff(gitDiff(baseSha, headSha), baseSha, headSha, budgets);
+  writeJson(out, scope);
   console.log(`${SCRIPT}: ${scope.candidates.length} candidates, ${scope.skipped.length} skipped → ${out}`);
 }
 
@@ -199,23 +183,34 @@ function writeOutputs(outputFile: string | undefined, outputs: Record<string, st
   console.log(lines.join('\n'));
 }
 
+function readPrEnv(env: Env): PrEnv {
+  const read = (name: string) => (env[name] ?? '').trim();
+  return {
+    repo: read('GITHUB_REPOSITORY') || die(SCRIPT, 'GITHUB_REPOSITORY is not set'),
+    prNumber: read('PR_NUMBER') || die(SCRIPT, 'PR_NUMBER is not set'),
+    eventName: read('GITHUB_EVENT_NAME'),
+    labelEvent: { action: read('EVENT_ACTION'), label: read('EVENT_LABEL') },
+    fallbackActors: read('TEST_AGENT_SKIP_ACTORS').split(',').map((login) => login.trim()).filter(Boolean),
+  };
+}
+
+// The agent runs only on a same-repo, ready PR with something to test, unless a label event or skip label says otherwise.
+type RunFacts = { stop: boolean; hasCandidates: boolean; sameRepo: boolean; draft: boolean; labelSkip: boolean };
+const shouldRunAgent = ({ stop, hasCandidates, sameRepo, draft, labelSkip }: RunFacts) =>
+  !stop && hasCandidates && sameRepo && !draft && !labelSkip;
+
 async function main(env: Env) {
   const { values } = parseArgs({ options: { out: { type: 'string', default: 'scope.json' }, local: { type: 'string' } } });
   if (values.local !== undefined) return local(values.local, values.out, env);
-  const read = (name: string) => (env[name] ?? '').trim();
   const budgets = readBudgets(env);
-  const repo = read('GITHUB_REPOSITORY') || die(SCRIPT, 'GITHUB_REPOSITORY is not set');
-  const prNumber = read('PR_NUMBER') || die(SCRIPT, 'PR_NUMBER is not set');
-  const labelEvent: LabelEvent = { action: read('EVENT_ACTION'), label: read('EVENT_LABEL') };
-  const fallbackActors = read('TEST_AGENT_SKIP_ACTORS').split(',').map((login) => login.trim());
-  const token = read('GITHUB_TOKEN') || die(SCRIPT, 'GITHUB_TOKEN is not set');
-  const gh = github({ token, baseUrl: read('GITHUB_API_URL') || undefined });
+  const { repo, prNumber, eventName, labelEvent, fallbackActors } = readPrEnv(env);
+  const gh = githubFromEnv(SCRIPT, env);
 
   const pr = await gh.request<PullRequest>(`/repos/${repo}/pulls/${prNumber}`);
   const head = pr.head.sha;
   const base = pr.base.sha;
   const sameRepo = pr.head.repo?.full_name === repo;
-  if (read('GITHUB_EVENT_NAME') === 'workflow_dispatch' && !sameRepo) {
+  if (eventName === 'workflow_dispatch' && !sameRepo) {
     die(SCRIPT, `PR #${prNumber} comes from a fork; dispatch is not allowed`);
   }
 
@@ -226,8 +221,8 @@ async function main(env: Env) {
   const stop = await stopForLabelEvent(gh, repo, head, labelEvent, labelSkip);
   if (stop) console.log(`${SCRIPT}: ${labelEvent.action} ${labelEvent.label} on #${prNumber} needs no run`);
 
-  const scope = buildScope(base, head, budgets);
-  writeFileSync(values.out, JSON.stringify(scope, null, 2) + '\n');
+  const scope = scopeFromDiff(gitDiff(base, head), base, head, budgets);
+  writeJson(values.out, scope);
 
   const hasCandidates = scope.candidates.length > 0;
   writeOutputs(env.GITHUB_OUTPUT, {
@@ -239,7 +234,7 @@ async function main(env: Env) {
     label_skip: labelSkip,
     label_actor: labelSkip ? decision.actor : '',
     has_candidates: hasCandidates,
-    run_agent: !stop && hasCandidates && sameRepo && !pr.draft && !labelSkip,
+    run_agent: shouldRunAgent({ stop, hasCandidates, sameRepo, draft: pr.draft, labelSkip }),
   });
 }
 

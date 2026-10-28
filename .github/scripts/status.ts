@@ -1,45 +1,11 @@
 // The final test-agent/verify status, decided from the run's artifacts.
-import { unitKey, writesTests } from './agent-output.ts';
-import type { AuthorOutput, Checked, ReviewerOutput, Unit } from './agent-output.ts';
-import type { Scope } from './prepare.ts';
+import { isFlaggedDefect, unitKey, writesTests } from './artifacts.ts';
+import type { Context, Run, Unit } from './artifacts.ts';
 import { LABEL_SKIP_PHRASE } from './rules.ts';
 
-export type JobResult = 'success' | 'failure' | 'cancelled' | 'skipped';
-export type Job = 'prepare' | 'engineer' | 'commit' | 'verify';
 export type StatusState = 'success' | 'failure';
 export type Status = { state: StatusState; description: string };
-export type Context = {
-  pr: number;
-  analyzed_sha: string;
-  final_sha: string;
-  run_url: string;
-  same_repo: boolean;
-  label_skip: boolean;
-  label_actor: string;
-  run_agent: boolean;
-  jobs: Record<Job, JobResult>;
-};
-export type Check = 'pass' | 'fail' | 'skipped';
-export type CoverageFigures = { lines: number; branches: number };
-export type Coverage = Record<string, Record<string, CoverageFigures>>;
-export type SuiteResult = { status: Check; passed: number; failed: number };
-export type Mutant = { file: string; line: number; mutator: string };
-export type MutationResult = { score: number; survived: Mutant[] };
-export type Results = {
-  typecheck: Record<string, Check>;
-  tests: Record<string, SuiteResult>;
-  coverage: { baseline: Coverage; final: Coverage };
-  mutation: Record<string, MutationResult | null>;
-};
-// Everything one pipeline run produced; each artifact is missing if its job did not get that far.
-export type Run = {
-  context: Context;
-  scope?: Scope;
-  author?: AuthorOutput;
-  reviewer?: ReviewerOutput;
-  checked?: Checked;
-  results?: Results;
-};
+
 // An ordered list of conditions; the first one that holds gives the reason.
 export type ReasonRule = { when: (run: Run) => boolean; reason: (run: Run) => string };
 
@@ -53,7 +19,7 @@ export const labelSkipNote = (context: Context) => `${LABEL_SKIP_PHRASE} (@${con
 
 function confirmedDefects(run: Run): Unit[] {
   const confirmed = new Set((run.reviewer?.defects ?? []).filter((defect) => defect.decision === 'confirmed').map(unitKey));
-  return (run.author?.units ?? []).filter((unit) => unit.verdict === 'flagged-defect' && confirmed.has(unitKey(unit)));
+  return (run.author?.units ?? []).filter((unit) => isFlaggedDefect(unit) && confirmed.has(unitKey(unit)));
 }
 
 // The first agent step that failed explains the agent part.

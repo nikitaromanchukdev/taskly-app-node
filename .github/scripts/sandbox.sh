@@ -19,7 +19,7 @@ shift 2
 
 # Mount the repo root wherever the script is called from.
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-cache="${SANDBOX_NPM_CACHE:-${HOME:?HOME is not set}/.cache/test-agent-npm}"
+cache="${HOME:?HOME is not set}/.cache/test-agent-npm"
 mkdir -p "$cache"
 modules="test-agent-$(printf %s "$root" | cksum | cut -d' ' -f1)-$package-modules"
 user="$(id -u):$(id -g)"
