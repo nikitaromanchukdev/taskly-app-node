@@ -31,6 +31,10 @@ describe('computeTodoStats', () => {
     expect(computeTodoStats([{ ...todo, due_date: '2026-10-14' }], today).overdue).toBe(1);
   });
 
+  it('does not count a todo due today as overdue', () => {
+    expect(computeTodoStats([{ ...todo, due_date: '2026-10-15' }], today).overdue).toBe(0);
+  });
+
   it('does not count a todo due after today as overdue', () => {
     expect(computeTodoStats([{ ...todo, due_date: '2026-10-16' }], today).overdue).toBe(0);
   });
