@@ -43,7 +43,8 @@ need-pr-body:
 	@test -f "$(PR_BODY)" || { echo "make: write the PR description to $(PR_BODY) first" >&2; exit 64; }
 
 scope:
-	@git diff --quiet HEAD || { echo "make: commit the change under test first (working tree is not clean)" >&2; exit 1; }
+	@git diff --quiet HEAD && test -z "$$(git ls-files --others --exclude-standard)" || \
+	  { echo "make: commit the change under test first (working tree is not clean)" >&2; exit 1; }
 	@mkdir -p $(OUT)
 	$(SCRIPTS)/prepare.ts --local $(BASE) --out $(OUT)/scope.json
 
@@ -58,6 +59,7 @@ author: need-pr-body
 patch:
 	git add --intent-to-add --all
 	git diff --binary HEAD > $(OUT)/tests.patch
+	git reset -q  # drop the intent-to-add marks, so new test files stay untracked
 	$(SCRIPTS)/guard.ts patch $(OUT)/tests.patch
 
 review: need-pr-body

@@ -35,11 +35,11 @@ export type SkipReason =
 export type SkipRule = { reason: SkipReason; patterns: readonly string[] };
 
 // First match wins. `tests` is derived from TEST_PATHS and checked before this list.
+// `config` comes before `docs`, so markdown under .claude/ and .github/ counts as agent or CI config.
 export const SKIP_RULES: readonly SkipRule[] = [
   { reason: 'stories', patterns: ['**/*.stories.tsx', '**/*.stories.ts'] },
   { reason: 'generated', patterns: ['backend/src/generated/**'] },
   { reason: 'lockfiles', patterns: ['**/package-lock.json', '**/*.lock'] },
-  { reason: 'docs', patterns: ['**/*.md', 'docs/**'] },
   {
     reason: 'config',
     patterns: [
@@ -57,6 +57,7 @@ export const SKIP_RULES: readonly SkipRule[] = [
       'frontend/index.html',
     ],
   },
+  { reason: 'docs', patterns: ['**/*.md', 'docs/**'] },
   { reason: 'type-only', patterns: ['**/types.ts', '**/*.types.ts', '**/*.d.ts'] },
   { reason: 'barrel', patterns: ['**/index.ts'] },
 ];
