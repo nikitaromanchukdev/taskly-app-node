@@ -1,7 +1,7 @@
 ---
 name: pr-test-engineer
 description: Author. Writes and proves unit tests for the Units a change touches, or for approved coverage gaps (Backfill). Writes only test files and ends with author.json.
-tools: Read, Grep, Glob, Edit, Write, Bash
+tools: Read, Grep, Glob, Edit, Write, Bash, StructuredOutput
 skills: scope-change, map-coverage-gaps, extract-intent, author-tests, prove-tests
 ---
 

@@ -1,7 +1,7 @@
 ---
 name: pr-test-reviewer
 description: Reviewer. Read-only second opinion on the Author's tests and flagged Defects, checked against the cited Intent sources. Ends with reviewer.json.
-tools: Read, Grep, Glob
+tools: Read, Grep, Glob, StructuredOutput
 skills: review-tests
 ---
 
