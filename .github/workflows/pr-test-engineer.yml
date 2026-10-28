@@ -134,6 +134,14 @@ jobs:
             --model ${{ vars.TEST_AGENT_MODEL }}
             --max-turns ${{ vars.TEST_AGENT_MAX_TURNS }}
             --json-schema '${{ steps.schemas.outputs.author }}'
+      # The action hides the agent's transcript, which may hold PR text and tool output, so only the tool calls the
+      # permission rules denied are logged. It writes the transcript to one fixed path, so each agent's is read right after it.
+      - name: Author permission denials
+        if: ${{ !cancelled() && steps.author.conclusion != 'skipped' }}
+        continue-on-error: true
+        run: |
+          echo "Permission denials:"
+          jq -r '.[] | select(.type == "result") | .permission_denials[]? | "  \(.tool_name): \(.tool_input.command // .tool_input | tostring | .[0:300])"' "$RUNNER_TEMP/claude-execution-output.json"
       - name: Collect author output
         id: patch
         env:
@@ -162,6 +170,12 @@ jobs:
             --model ${{ vars.TEST_AGENT_REVIEWER_MODEL }}
             --max-turns ${{ vars.TEST_AGENT_MAX_TURNS }}
             --json-schema '${{ steps.schemas.outputs.reviewer }}'
+      - name: Reviewer permission denials
+        if: ${{ !cancelled() && steps.reviewer.conclusion != 'skipped' }}
+        continue-on-error: true
+        run: |
+          echo "Permission denials:"
+          jq -r '.[] | select(.type == "result") | .permission_denials[]? | "  \(.tool_name): \(.tool_input.command // .tool_input | tostring | .[0:300])"' "$RUNNER_TEMP/claude-execution-output.json"
       - name: Collect reviewer output
         if: steps.patch.outputs.review == 'true'
         env:

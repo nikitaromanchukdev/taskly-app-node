@@ -24,6 +24,7 @@ Fork PRs come from people outside the repo. They must not reach any secret.
 - The model key is meant to stay out of every container, and PR code is meant never to run next to it. To check this, run a probe test through `sandbox.sh test backend`: it should see no `ANTHROPIC_API_KEY`, fail to fetch an external URL, and fail with `EROFS` when it writes to `.git`, `.github` or `.claude`.
 - Known gaps in the isolation are listed under limitations in [SOLUTION.md](../../SOLUTION.md). This ADR does not restate them.
 - `verify` runs PR code on the runner host without secrets. The invariant allows this.
+- Agent transcripts are not published, not even as an artifact, because they carry PR text and tool output. The `engineer` log lists only the tool calls the permission rules denied.
 - Fork PRs get no agent run and no status. A maintainer merges them by pushing the branch into the repo.
 - A PR that changes `.claude/` or `.github/` cannot test its own agent config, because the run uses the base copy. See [ADR 0005](0005-gate-merges-on-test-agent-verify.md) for the skip label used on such PRs.
 
