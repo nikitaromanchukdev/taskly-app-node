@@ -16,9 +16,10 @@ on:
 
 permissions: {}
 
-# One run per PR. Label events other than skip-test-agent get their own group so they cannot cancel a real run.
+# One run per PR. Label events other than skip-test-agent, and runs the Bot commit starts, get their own group so they
+# cannot cancel a real run.
 concurrency:
-  group: pr-test-engineer-${{ github.event.pull_request.number || inputs.pull-request }}${{ github.event.label && github.event.label.name != 'skip-test-agent' && format('-ignored-{0}', github.run_id) || '' }}
+  group: pr-test-engineer-${{ github.event.pull_request.number || inputs.pull-request }}${{ ((github.event.label && github.event.label.name != 'skip-test-agent') || github.actor == 'github-actions[bot]') && format('-ignored-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:
@@ -27,8 +28,11 @@ env:
 
 jobs:
   prepare:
-    # Label events matter only for skip-test-agent.
-    if: ${{ !contains(fromJSON('["labeled","unlabeled"]'), github.event.action) || github.event.label.name == 'skip-test-agent' }}
+    # Label events matter only for skip-test-agent. A push by the Bot commit still creates a run that waits for approval;
+    # it skips every job, because `publish` of the run that made the Bot commit already set its status.
+    if: >-
+      ${{ github.actor != 'github-actions[bot]' &&
+      (!contains(fromJSON('["labeled","unlabeled"]'), github.event.action) || github.event.label.name == 'skip-test-agent') }}
     runs-on: ubuntu-latest
     permissions: { contents: read, statuses: write, pull-requests: read, issues: read }
     outputs:
@@ -230,7 +234,8 @@ jobs:
           path: ${{ env.OUT }}/checked.json
           include-hidden-files: true
           if-no-files-found: ignore
-      # Test files with a blocking finding are left out of the patch. A plain push is rejected if the branch moved past the analyzed head.
+      # Test files with a blocking finding, and new files holding a flagged Defect's test, are left out of the patch.
+      # A plain push is rejected if the branch moved past the analyzed head.
       - id: push
         working-directory: head
         env:
