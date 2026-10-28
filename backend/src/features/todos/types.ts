@@ -5,10 +5,18 @@ import type { PrismaClient, Todo as PrismaTodo } from '../../generated/prisma/cl
 export type TodoCreate = z.infer<typeof createSchema>;
 export type TodoUpdate = z.infer<typeof updateSchema>;
 export type Todo = z.infer<typeof todoSchema>;
+export interface TodoStats {
+  total: number;
+  open: number;
+  completed: number;
+  by_priority: Record<Todo['priority'], number>;
+  overdue: number;
+}
 export type TodoRecord = PrismaTodo;
 export type Database = PrismaClient;
 export interface TodoStore {
   list(): Promise<Todo[]>;
+  stats(): Promise<TodoStats>;
   get(id: number): Promise<Todo | null>;
   create(payload: TodoCreate): Promise<Todo>;
   update(id: number, payload: TodoUpdate): Promise<Todo | null>;
