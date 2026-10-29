@@ -185,7 +185,7 @@ The owner decided each Suspected Defect. The details are in each PR's Defects co
 
 - The Reviewer is a model too. It lowers the rate of false Defects; it does not remove them.
 - A blocking Finding drops its whole test file from the Bot commit, good tests included ([ADR 0003](docs/adr/0003-derive-expectations-from-intent-and-review-defects.md)).
-- The agents do not always follow procedure. In demo runs the Author used shell commands for file work and tried commands its rules deny; the guard hook now blocks every shell command outside `AGENT_COMMANDS` and names the tool to use instead. One summary named a Unit that does not exist while the Units table was right. Read the tables, not only the summary. Rendering summaries from the structured output is planned.
+- The agents do not always follow procedure. In demo runs the Author used shell commands for file work and tried commands its rules deny; the guard hook now blocks every shell command outside `AGENT_COMMANDS` and names the tool to use instead. One summary named a Unit that does not exist while the Units table was right. `agent-output.ts` now rejects a Unit whose name is not in its file and a test whose file does not exist, and flags in the comment each backticked name in a summary that no Unit, test or file of the run contains. A flagged name does not change the status, and a drifted name in plain text is not caught: read the tables, not only the summary. Rendering summaries from the structured output is planned.
 
 **Workflow**
 

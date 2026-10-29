@@ -60,11 +60,16 @@ export type Gaps = { summary: string; recommendations: Recommendation[]; unreach
 
 // ---- checked.json ----
 
+export type SummaryAgent = 'author' | 'reviewer';
+// Per agent: backticked names in its summary that no Unit, test or file of the run contains (report-only).
+export type UnknownNames = Record<SummaryAgent, string[]>;
+
 export type Checked = {
   ok: boolean;
   errors: string[];
   dropFiles: string[]; // test files with a blocking finding, and new files holding a flagged Defect's failing test
   reviewRejected: string[]; // unitKey of units whose tests live in a file with a blocking finding (report-only state)
+  unknownNames: UnknownNames;
 };
 
 // ---- results.json ----

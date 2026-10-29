@@ -2,7 +2,7 @@
 // Every comment has the same shape: marker, `### {name} · {outcome}`, the meta line, what needs a person,
 // the tables, then collapsed details and the agent's free text last. The outcome is counted by script.
 import { isFlaggedDefect, packageRelative, unitKey, unitTests, writesTests } from '../lib/artifacts.ts';
-import type { Check, Context, Defect, DefectDecision, Kind, MutationResult, Results, ReviewerOutput, Run, Severity, Unit } from '../lib/artifacts.ts';
+import type { Check, Context, Defect, DefectDecision, Kind, MutationResult, Results, ReviewerOutput, Run, Severity, SummaryAgent, Unit } from '../lib/artifacts.ts';
 import { cell, code, sanitize } from './sanitize.ts';
 import { labelSkipNote, plural, SCOPE_FAILED } from './status.ts';
 import type { ReasonRule, Status, StatusState } from './status.ts';
@@ -56,6 +56,14 @@ const details = (summary: string, body: string[]) => [`<details><summary>${summa
 // The agent's free-text summary, after the tables. Model text is never the first thing a reader sees.
 const notes = (who: string, text: string, repo: string) =>
   text.trim() ? ['', ...details(`${who}'s notes (free text, not checked)`, [sanitize(text, repo)])] : [];
+
+// A warning after the tables when a summary names something agent-output.ts found in no Unit, test or file.
+function unknownNamesLines(run: Run, agent: SummaryAgent, repo: string): string[] {
+  const unknown = run.checked?.unknownNames?.[agent] ?? [];
+  const names = unknown.map((name) => code(name, repo)).join(', ');
+  const warning = `⚠️ The ${agent === 'author' ? 'Author' : 'Reviewer'}'s notes name ${names}, which no Unit, test or file of this run contains. The tables are checked; the notes are not.`;
+  return unknown.length ? ['', warning] : [];
+}
 
 function header(context: Context): string {
   const final = context.analyzed_sha === context.final_sha ? '' : ` · final \`${short(context.final_sha)}\``;
@@ -246,6 +254,7 @@ function renderAuthor({ run, repo }: Report): string {
     ...top(authorOutcome(run.author.units, rejected)),
     ...table(['Unit', 'Verdict', 'Kind', 'Tests', 'Attempts'], rows, 'No Units.'),
     ...(defects.length ? ['', '#### Defects flagged', ...defects] : []),
+    ...unknownNamesLines(run, 'author', repo),
     ...notes('Author', run.author.summary, repo),
   ].join('\n');
 }
@@ -283,6 +292,7 @@ function renderReviewer({ run, repo }: Report): string {
     '',
     '#### Findings',
     ...table(['Test', 'Severity', 'Reason', 'Note'], findings, 'No Findings.'),
+    ...unknownNamesLines(run, 'reviewer', repo),
     ...notes('Reviewer', run.reviewer.summary, repo),
   ].join('\n');
 }
