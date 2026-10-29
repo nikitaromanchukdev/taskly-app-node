@@ -168,6 +168,7 @@ Limitations:
 - The Reviewer is also a model. It lowers the rate of false Defects; it does not remove them.
 - A same-repo writer can edit the workflow file in a PR. PR runs use the head copy of the workflow, so the budgets and the guard steps in it can be changed. The team mitigation is CODEOWNERS on `.github/` and `.claude/`, with a ruleset that requires code-owner review. It is not applied, because the sole maintainer cannot approve their own PRs.
 - Fork PRs get no agent run and no status. The branch must be pushed into the repo to merge.
+- A Backfill's gap list does not know what earlier Backfills decided. Those decisions live only in the PR descriptions, so a new run proposes settled gaps again: in a test run on the frontend, 4 of 5 Recommendations had been decided in #25.
 - No CI run proves a Backfill's agent results. Its PR description is put together by hand from the tables `make backfill-tests` renders from `author.json` and `reviewer.json`, so the prose around them can drift ([ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md)).
 - The script tests cover the scripts that decide what reaches the PR: `guard.ts`, `sanitize.ts`, `agent-output.ts`, `status.ts`, and the not-run notes of `render.ts`. The scripts that call GitHub (`prepare.ts`, `context.ts`, `report.ts`) have no tests.
 - The output types in `agent-output.ts` repeat the schema enums by hand, so they can drift from the schemas.
@@ -200,3 +201,4 @@ Items a production version would add:
 - API smoke tests against Postgres, and a frontend build, in `verify`.
 - Citation checks on the Intent sources in the tests.
 - A script that renders the whole Backfill PR description from the `make backfill-tests` output, not only its tables.
+- Decided Backfill gaps recorded in the repo, so `map-coverage-gaps` lists them as decided instead of recommending them again.
