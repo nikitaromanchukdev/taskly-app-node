@@ -24,7 +24,7 @@ function setAllBut(missing: string) {
   }
 }
 
-it.each(Object.keys(postgresVars))('throws when %s is missing and no URL is set', (missing) => {
+it.each(Object.keys(postgresVars))('characterization: throws when %s is missing and no URL is set', (missing) => {
   setAllBut(missing);
   expect(() => resolveDatabaseUrl()).toThrow();
 });
@@ -36,7 +36,7 @@ it('characterization: an explicit override wins over DATABASE_URL', () => {
   process.env.DATABASE_URL = 'postgresql://env@localhost/env';
   expect(resolveDatabaseUrl('postgresql://override@localhost/override')).toBe('postgresql://override@localhost/override');
 });
-it('characterization: DATABASE_URL is returned unchanged when no override is given', () => {
+it('uses DATABASE_URL instead of building the URL when it is set', () => {
   process.env.DATABASE_URL = 'postgresql://app:pw@db.internal:6543/app';
   expect(resolveDatabaseUrl()).toBe('postgresql://app:pw@db.internal:6543/app');
 });
