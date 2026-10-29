@@ -15,7 +15,7 @@ The agents of the PR workflow and the Backfill follow their own agent files, whi
 ## Reading the PR comments
 
 - **Report** (`### <status>`): the status, the counts of confirmed Defects and Suspected Defects with a link to their review comments, skipped files, test results, coverage of changed files, and mutation results (information only).
-- **Test author**: what the Author tested. Each Unit has a Verdict, a kind, its tests and the number of attempts. Each Defect the Author flagged is one line, with a link to its review comment.
+- **Test author**: what the Author tested. Each Unit has a Verdict, a kind (intent, characterization, or mixed with the number of tests of each), its tests and the number of attempts. Each Defect the Author flagged is one line, with a link to its review comment.
 - **Test reviewer**: the Reviewer's decision on each Defect, with a link to its review comment, and its Findings.
 - **Review comments on the code**: one per Defect or Suspected Defect, on the line where it was found, with expected and received values (or what looks wrong), the Intent source quote, the Reviewer's decision or note, and a suggested fix. This is the only place with a Defect's details. See [ADR 0007](docs/adr/0007-report-defects-next-to-the-code-with-a-suggested-fix.md).
 

@@ -23,4 +23,4 @@ Turn Expectations into tests. Test files only.
 9. Do not run the tests here. `prove-tests` does.
 
 ## Output
-The test files in the working tree, and per Unit the Verdict (`added` or `amended`), the tests as `file > test name`, and the Expectations they cover.
+The test files in the working tree, and per Unit the Verdict (`added` or `amended`) and its Expectations, each with the tests that check it as `file > test name`. One test checks one Expectation.

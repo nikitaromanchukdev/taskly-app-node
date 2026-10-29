@@ -31,16 +31,14 @@ export type Kind = 'intent' | 'characterization';
 export type Severity = 'blocking' | 'advisory';
 export type DefectDecision = 'confirmed' | 'rejected';
 
-export type Expectation = { text: string; source: string };
+export type Expectation = { text: string; source: string; kind: Kind; tests: string[] };
 export type Defect = { test: string; expected: string; received: string; source: string };
 export type Unit = {
   path: string;
   unit: string;
   verdict: Verdict;
   reason?: string;
-  kind: Kind;
   expectations: Expectation[];
-  tests: string[];
   attempts: number;
   defect?: Defect;
 };
@@ -117,6 +115,15 @@ export const VERDICT_RULES: Record<Verdict, VerdictRule> = {
 
 export const writesTests = (verdict: Verdict) => VERDICT_RULES[verdict].writesTests;
 export const isFlaggedDefect = (unit: Unit) => unit.verdict === 'flagged-defect';
+
+// A test checks one Expectation, so a Unit's tests are its Expectations' tests.
+export const unitTests = (unit: Unit) => unit.expectations.flatMap((expectation) => expectation.tests);
+
+// Tests are named `file > test name`; the name is the last part.
+export const testName = (test: string) => test.split(' > ').at(-1) ?? test;
+
+// A Characterization test says so in its name, so a reader of the test file knows no Intent source backs it.
+export const CHARACTERIZATION_PREFIX = 'characterization: ';
 
 // Unit names repeat across files (`initialize`, `default`), so a unit is identified by path and name together.
 export const unitKey = (unit: { path: string; unit: string }) => `${unit.path}#${unit.unit}`;

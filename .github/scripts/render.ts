@@ -1,6 +1,6 @@
 // Markdown for the 3 sticky PR comments: report, test author, test reviewer.
-import { isFlaggedDefect, packageRelative, unitKey } from './artifacts.ts';
-import type { Context, Defect, DefectDecision, MutationResult, Results, Run, Unit } from './artifacts.ts';
+import { isFlaggedDefect, packageRelative, unitKey, unitTests } from './artifacts.ts';
+import type { Context, Defect, DefectDecision, Kind, MutationResult, Results, Run, Unit } from './artifacts.ts';
 import { cell, code, sanitize } from './sanitize.ts';
 import { firstReason, labelSkipNote, PREPARE_FAILED } from './status.ts';
 import type { ReasonRule, Status, StatusState } from './status.ts';
@@ -163,6 +163,22 @@ function verdictLabel(unit: Unit, rejected: Set<string>): string {
   return unit.verdict === 'not-needed' ? `not-needed (${unit.reason})` : unit.verdict;
 }
 
+const KINDS: readonly Kind[] = ['intent', 'characterization'];
+
+// One kind when every test shares it, else "mixed" with the number of tests of each kind.
+function kindLabel(unit: Unit): string {
+  const counts = KINDS.map((kind) => ({ kind, tests: unit.expectations.filter((e) => e.kind === kind).flatMap((e) => e.tests).length }));
+  const present = counts.filter(({ tests }) => tests > 0);
+  switch (present.length) {
+    case 0:
+      return '—';
+    case 1:
+      return present[0].kind;
+    default:
+      return `mixed (${present.map(({ kind, tests }) => `${tests} ${kind}`).join(', ')})`;
+  }
+}
+
 const flaggedLine = (unit: string, defect: Defect, repo: string) =>
   `- ${cell(unit, repo)}: expected ${cell(defect.expected, repo)}, received ${cell(defect.received, repo)} (${cell(defect.source, repo)})`;
 
@@ -174,8 +190,8 @@ function renderAuthor({ run, repo }: Report): string {
   const rows = run.author.units.map((unit) => [
     unitName(unit, repo),
     verdictLabel(unit, rejected),
-    unit.kind,
-    unit.tests.map((test) => cell(test, repo)).join('<br>'),
+    kindLabel(unit),
+    unitTests(unit).map((test) => cell(test, repo)).join('<br>'),
     String(unit.attempts),
   ]);
   const defects = run.author.units.flatMap((unit) => (isFlaggedDefect(unit) && unit.defect ? [flaggedLine(unit.unit, unit.defect, repo)] : []));
