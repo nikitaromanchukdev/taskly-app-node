@@ -11,7 +11,7 @@ There are two kinds of "write" in a PR run, and no job has both kinds together w
 | Kind of write | Where it lands | Who does it |
 |---|---|---|
 | To the runner's disk | a temporary checkout on the GitHub runner, deleted when the job ends | the Author, test files only |
-| To the repo on GitHub | the PR branch, as a commit | the `commit` job, which runs no model |
+| To the repo on GitHub | the PR branch, as a commit | the `bot_commit` job, which runs no model |
 
 ---
 
@@ -19,21 +19,21 @@ There are two kinds of "write" in a PR run, and no job has both kinds together w
 
 ```mermaid
 flowchart LR
-  P[prepare] -->|scope.json| E[engineer]
-  E -->|tests.patch, author.json, reviewer.json| C[commit]
-  C -->|Bot commit on the PR branch| V[verify]
-  P -->|scope.json| V
-  C -->|checked.json| X[publish]
-  V -->|results.json| X
+  S[scope] -->|scope.json| A[agents]
+  A -->|tests.patch, author.json, reviewer.json| B[bot_commit]
+  B -->|Bot commit on the PR branch| T[suites]
+  S -->|scope.json| T
+  B -->|checked.json| X[publish]
+  T -->|results.json| X
   X -->|status + comments| PR((PR))
 ```
 
 | Job | GitHub token | Model key | Runs PR code | Reads | Produces |
 |---|---|---|---|---|---|
-| `prepare` | contents, pull requests, issues read; statuses write | no | no | the live PR, the diff | `scope.json`: changed files to test, skipped files with a reason; the pending status |
-| `engineer` | contents read | yes | only in Docker containers | `scope.json`, the PR description | `tests.patch`, `author.json`, `reviewer.json` |
-| `commit` | contents write | no | no | the `engineer` files | the Bot commit; `checked.json` |
-| `verify` | contents read | no | yes, with no secrets | the final commit | `results.json`: typecheck, suites, coverage, mutation |
+| `scope` | contents, pull requests, issues read; statuses write | no | no | the live PR, the diff | `scope.json`: changed files to test, skipped files with a reason; the pending status |
+| `agents` | contents read | yes | only in Docker containers | `scope.json`, the PR description | `tests.patch`, `author.json`, `reviewer.json` |
+| `bot_commit` | contents write | no | no | the `agents` files | the Bot commit; `checked.json` |
+| `suites` | contents read | no | yes, with no secrets | the final commit | `results.json`: typecheck, suites, coverage, mutation |
 | `publish` | statuses write, pull-requests write | no | no | every file above | the `test-agent/verify` status and the three comments |
 
 Files pass between jobs as workflow artifacts. A job never reads another job's disk.
@@ -42,14 +42,14 @@ Files pass between jobs as workflow artifacts. A job never reads another job's d
 
 ## Step by step
 
-1. **`prepare` decides the Scope.** It reads the live PR and its diff. `.github/scripts/contracts/rules.ts` sorts each changed file into a candidate or a skipped file with a reason. With no candidates, or on a draft or fork PR, the agents do not run.
-2. **The Author writes tests on the runner's disk.** In `engineer`, the Author follows its skills: [`scope-change`](../.claude/skills/scope-change/SKILL.md), [`extract-intent`](../.claude/skills/extract-intent/SKILL.md), [`author-tests`](../.claude/skills/author-tests/SKILL.md), [`prove-tests`](../.claude/skills/prove-tests/SKILL.md). It may write only test files: a hook (`guard.ts hook`) blocks every other path. It runs the tests in a Docker container that has no access to the model key.
-3. **`engineer` saves the change as a patch.** Everything the Author left in the checkout becomes `tests.patch`. The Reviewer then reads the patch, read-only, following [`review-tests`](../.claude/skills/review-tests/SKILL.md), and writes `reviewer.json`. The job uploads the three files. Its token is read-only, so it cannot push.
-4. **`commit` checks the patch, then pushes it.** It runs the base branch's scripts, never the PR's:
+1. **`scope` decides the Scope.** It reads the live PR and its diff. `.github/scripts/contracts/rules.ts` sorts each changed file into a candidate or a skipped file with a reason. With no candidates, or on a draft or fork PR, the agents do not run.
+2. **The Author writes tests on the runner's disk.** In `agents`, the Author follows its skills: [`scope-change`](../.claude/skills/scope-change/SKILL.md), [`extract-intent`](../.claude/skills/extract-intent/SKILL.md), [`author-tests`](../.claude/skills/author-tests/SKILL.md), [`prove-tests`](../.claude/skills/prove-tests/SKILL.md). It may write only test files: a hook (`guard.ts hook`) blocks every other path. It runs the tests in a Docker container that has no access to the model key.
+3. **`agents` saves the change as a patch.** Everything the Author left in the checkout becomes `tests.patch`. The Reviewer then reads the patch, read-only, following [`review-tests`](../.claude/skills/review-tests/SKILL.md), and writes `reviewer.json`. The job uploads the three files. Its token is read-only, so it cannot push.
+4. **`bot_commit` checks the patch, then pushes it.** It runs the base branch's scripts, never the PR's:
    - `guard.ts patch` rejects a patch that touches any non-test path, renames into source, or adds a symlink.
    - `agent-output.ts` checks both agents' output against the schemas and lists the files to drop: test files with a blocking Finding, and new files that hold a flagged Defect's failing test.
    - It applies the rest and commits it as `github-actions[bot]`. The push is a plain push to the head the run analyzed. If the author pushed in the meantime, the push is rejected and the newer run takes over.
-5. **`verify` runs the suites on the final commit.** That is the Bot commit, or the PR head if there was none. It has no secrets, so PR code can run here on the host.
+5. **`suites` runs the suites on the final commit.** That is the Bot commit, or the PR head if there was none. It has no secrets, so PR code can run here on the host.
 6. **`publish` posts the result.** It decides `test-agent/verify` and writes the Report, Test author and Test reviewer comments.
 
 ---
@@ -58,12 +58,12 @@ Files pass between jobs as workflow artifacts. A job never reads another job's d
 
 | Risk | What stops it | Where |
 |---|---|---|
-| The Author edits source code | the write hook blocks the edit; `guard.ts patch` rejects the patch | `engineer`, `commit` |
-| The PR description steers the Author into pushing something | the Author has no write token and no `gh` or `git push` | `engineer` |
-| PR code reads the model key | PR code runs only in a container without the key, or in `verify`, which has no secrets | `engineer`, `verify` |
-| A failing test reaches the branch | `prove-tests` moves it to its own file; `agent-output.ts` drops that file | `engineer`, `commit` |
-| A wrong test reaches the branch | a blocking Finding from the Reviewer drops its file | `commit` |
-| The bot overwrites a newer push | the push targets the analyzed head only, without force | `commit` |
+| The Author edits source code | the write hook blocks the edit; `guard.ts patch` rejects the patch | `agents`, `bot_commit` |
+| The PR description steers the Author into pushing something | the Author has no write token and no `gh` or `git push` | `agents` |
+| PR code reads the model key | PR code runs only in a container without the key, or in `suites`, which has no secrets | `agents`, `suites` |
+| A failing test reaches the branch | `prove-tests` moves it to its own file; `agent-output.ts` drops that file | `agents`, `bot_commit` |
+| A wrong test reaches the branch | a blocking Finding from the Reviewer drops its file | `bot_commit` |
+| The bot overwrites a newer push | the push targets the analyzed head only, without force | `bot_commit` |
 
 ---
 

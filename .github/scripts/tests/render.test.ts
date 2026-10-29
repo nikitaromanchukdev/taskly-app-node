@@ -21,7 +21,7 @@ const context = (overrides: Partial<Context> = {}): Context => ({
   label_skip: false,
   label_actor: '',
   run_agent: false,
-  jobs: { prepare: 'success', engineer: 'skipped', commit: 'skipped', verify: 'success' },
+  jobs: { scope: 'success', agents: 'skipped', bot_commit: 'skipped', suites: 'success' },
   ...overrides,
 });
 
@@ -84,13 +84,13 @@ describe('agent comments when the agents did not run', () => {
     assert.equal(note('reviewer', run), `Reviewer not run on \`abcdef1\`: the author produced no tests or defects to review. ${SCOPE_ADR}`);
   });
 
-  it('links no ADR when prepare failed, since a crash is not a decision', () => {
-    const run: Run = { context: context({ jobs: { prepare: 'failure', engineer: 'skipped', commit: 'skipped', verify: 'skipped' } }) };
-    for (const comment of ['author', 'reviewer'] as const) assert.equal(note(comment, run), `${AGENT[comment]} not run on \`abcdef1\`: prepare failed.`);
+  it('links no ADR when the scope job failed, since a crash is not a decision', () => {
+    const run: Run = { context: context({ jobs: { scope: 'failure', agents: 'skipped', bot_commit: 'skipped', suites: 'skipped' } }) };
+    for (const comment of ['author', 'reviewer'] as const) assert.equal(note(comment, run), `${AGENT[comment]} not run on \`abcdef1\`: scope job failed.`);
   });
 
   it('links no ADR when the agent step failed', () => {
-    const run: Run = { context: context({ run_agent: true, jobs: { prepare: 'success', engineer: 'failure', commit: 'skipped', verify: 'success' } }), scope: scope([candidate]) };
+    const run: Run = { context: context({ run_agent: true, jobs: { scope: 'success', agents: 'failure', bot_commit: 'skipped', suites: 'success' } }), scope: scope([candidate]) };
     assert.equal(note('author', run), 'Author not run on `abcdef1`: the agent step failed or timed out.');
   });
 });

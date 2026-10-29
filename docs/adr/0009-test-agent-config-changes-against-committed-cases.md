@@ -16,7 +16,7 @@ Agent runs cost model tokens, and the models do not give the same answer every t
    - `change.patch`: a code change with a known Defect;
    - `pr-body.md`: the intended behaviour the change breaks, written by a person;
    - `expected.json`: what the run must produce: the Verdict for each Unit, the Reviewer's decision for each Defect, the Findings the Reviewer must record, and the exact list of dropped test files. A case lists only what it checks.
-   - for a review-only case, `tests.patch` and `author.json`: the Author's work, written by a person, so the case tests the Reviewer and `commit`'s checks without an Author run.
+   - for a review-only case, `tests.patch` and `author.json`: the Author's work, written by a person, so the case tests the Reviewer and `bot_commit`'s checks without an Author run.
 2. `make demo` runs every case; `make demo CASE=<name>` runs one. For each case it creates a throwaway worktree and copies in the agent config from disk, committed or not, using the same paths CI takes from the base branch. It applies the case's change there, runs the trial steps, and compares the result with `expected.json`. It prints PASS or FAIL with each mismatch, then removes the worktree.
 3. The cases:
    - `truncate`: text of exactly `max` characters is cut when it should not be. It must end as `flagged-defect`, and the Reviewer must confirm it.

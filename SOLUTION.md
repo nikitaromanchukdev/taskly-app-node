@@ -53,7 +53,7 @@ The same steps with raw `gh` commands:
    gh secret set ANTHROPIC_API_KEY
    ```
 
-2. **Five repo variables.** Budgets, with no defaults. A run fails in `prepare` if one is missing or invalid. See [ADR 0006](docs/adr/0006-set-budgets-as-admin-only-repo-variables.md).
+2. **Five repo variables.** Budgets, with no defaults. A run fails in `scope` if one is missing or invalid. See [ADR 0006](docs/adr/0006-set-budgets-as-admin-only-repo-variables.md).
 
    ```sh
    gh variable set TEST_AGENT_MODEL --body '<model id>'
@@ -107,13 +107,17 @@ The same steps with raw `gh` commands:
 
 | Job | Runs a model | Write access | Runs PR code | What it does |
 |---|---|---|---|---|
-| `prepare` | no | commit status | no | Reads the live PR. Checks the budget variables. Writes `scope.json`. Sets the status to pending. |
-| `engineer` | yes: Author, then Reviewer | none (read-only token) | only in containers | Restores base-branch config. Installs dependencies in the sandbox. Runs the agents. Saves `author.json`, `reviewer.json` and `tests.patch`. |
-| `commit` | no | repo contents | no | Checks the patch and the agent output. Drops test files with blocking Findings, and new files that hold a flagged Defect's test. Pushes the Bot commit. |
-| `verify` | no | none (read-only token) | yes, on the host, with no secrets | Typecheck and suites with coverage on the final commit, and the tests of the workflow's own scripts. Mutation testing for information only. |
+| `scope` | no | commit status | no | Reads the live PR. Checks the budget variables. Writes `scope.json`. Sets the status to pending. |
+| `agents` | yes: Author, then Reviewer | none (read-only token) | only in containers | Restores base-branch config. Installs dependencies in the sandbox. Runs the agents. Saves `author.json`, `reviewer.json` and `tests.patch`. |
+| `bot_commit` | no | repo contents | no | Checks the patch and the agent output. Drops test files with blocking Findings, and new files that hold a flagged Defect's test. Pushes the Bot commit. |
+| `suites` | no | none (read-only token) | yes, on the host, with no secrets | Typecheck and suites with coverage on the final commit, and the tests of the workflow's own scripts. Mutation testing for information only. |
 | `publish` | no | commit status, PR comments | no | Decides the status. Renders the three comments, the review comments on the code, and the job summary. |
 
-Agents never post. Only `prepare` (the pending status) and `publish` (the final status and the comments) post to the PR. `commit` pushes the Bot commit.
+Agents never post. Only `scope` (the pending status) and `publish` (the final status and the comments) post to the PR. `bot_commit` pushes the Bot commit.
+
+The PR checks list shows each job by its `name:`, such as "Suites: typecheck, coverage, mutation". The status the run ends in is still `test-agent/verify`: the ruleset requires that name. Before the rename, the jobs were `prepare`, `engineer`, `commit` and `verify`; `context.ts` still reads those ids, for PRs branched before the rename. Remove that, and the copy of `needs` under the old ids in `publish`, once no open PR predates it.
+
+In the `suites` log, `head` is the analyzed PR head and `final` is the Bot commit, or the head when there is none. The first step names both commits. Each package's install, typecheck, tests and mutation sit in a folded group named `<package> · <head|final> · <what>`, and each step ends with one summary line per package.
 
 ## Example run
 
@@ -173,7 +177,7 @@ The owner decided each Suspected Defect. The details are in each PR's Defects co
 
 **Trust boundary**
 
-- Same-repo PR code is trusted more than fork code. A PR can edit the workflow file it runs with, including its budgets and guard steps. `verify` runs the PR's own test setup (`npm ci`, configs, tests) on the host, without secrets. PR code in the sandbox can write files the Author later reads, such as a nested `CLAUDE.md`. The controls are a person reading the diff and the limits in [ADR 0004](docs/adr/0004-isolate-pr-code-from-secrets.md). CODEOWNERS would add a required review, which a sole maintainer cannot give.
+- Same-repo PR code is trusted more than fork code. A PR can edit the workflow file it runs with, including its budgets and guard steps. `suites` runs the PR's own test setup (`npm ci`, configs, tests) on the host, without secrets. PR code in the sandbox can write files the Author later reads, such as a nested `CLAUDE.md`. The controls are a person reading the diff and the limits in [ADR 0004](docs/adr/0004-isolate-pr-code-from-secrets.md). CODEOWNERS would add a required review, which a sole maintainer cannot give.
 - Fork PRs get no agent run and no status. A maintainer pushes the branch into the repo to merge it.
 - The owner is the only admin, so they can merge past the gate with the bypass. Every bypass shows on the PR and in the audit log, and [ADR 0005](docs/adr/0005-gate-merges-on-test-agent-verify.md) limits when it is used.
 
@@ -206,7 +210,7 @@ The owner decided each Suspected Defect. The details are in each PR's Defects co
 
 ### Not verified on the live repo yet
 
-- The `skip-test-agent` label from a user without maintain rights, which must be ignored. This needs a second GitHub account. The admin half is proven: run 40949797997 shows "skipped by label", with `verify` still run.
+- The `skip-test-agent` label from a user without maintain rights, which must be ignored. This needs a second GitHub account. The admin half is proven: run 40949797997 shows "skipped by label", with the suites job (then named `verify`) still run.
 - A tautological test dropped from a real Bot commit. The same chain is proven locally: the `tautology` case of `make demo` gets a blocking `tautology` Finding from the Reviewer, and `agent-output.ts` drops exactly that test file ([ADR 0009](docs/adr/0009-test-agent-config-changes-against-committed-cases.md)).
 
 ## Production version
@@ -215,7 +219,7 @@ Items a production version would add.
 
 **Security**
 
-- Container isolation for every job that runs PR code, `verify` included, with no host fallback.
+- Container isolation for every job that runs PR code, `suites` included, with no host fallback.
 - CODEOWNERS on `.github/`, `.claude/` and the test run config (`**/package.json`, the vitest and vite configs, test setup files), with a ruleset that requires code-owner review. This needs a team, and a release-manager team as the only bypass actor.
 - Budgets and config read from the base branch only.
 - A fork PR flow, where a maintainer applies a label to start a run.
@@ -236,10 +240,10 @@ Items a production version would add.
 - An interactive setup wizard with guided steps, links to the console pages, and a summary of skipped steps, in place of the plain setup script.
 - Run modes and triggers, read from the base branch. For example, a strict mode with a local pre-push hook, and a manual trigger by label.
 - Optional human approval before the Bot commit, through a GitHub Environment with required reviewers.
-- Coverage and mutation in the local `make trial`, which today stops before `verify`.
+- Coverage and mutation in the local `make trial`, which today stops before `suites`.
 - Cost telemetry for each run.
 
 **App and checks outside this task**
 
 - The due moment stored as a UTC instant (`timestamptz`), so the badge and the counter both check `now > due` and agree.
-- API smoke tests against Postgres, and a frontend build, in `verify`.
+- API smoke tests against Postgres, and a frontend build, in `suites`.

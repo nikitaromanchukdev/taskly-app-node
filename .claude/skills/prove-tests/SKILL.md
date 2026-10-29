@@ -78,7 +78,7 @@ Stop retrying a Unit when it passes, or when its attempts reach the budget. A te
 
    **If it is anywhere else:** move the test with Write into a new file next to the original, named after the Unit and the Defect, then remove it from the original with Edit.
 
-`commit` drops a new file that holds a flagged Defect's test, so the failing test never reaches the Bot commit. Never delete or empty files; you have no tool for it.
+`bot_commit` drops a new file that holds a flagged Defect's test, so the failing test never reaches the Bot commit. Never delete or empty files; you have no tool for it.
 
 ---
 

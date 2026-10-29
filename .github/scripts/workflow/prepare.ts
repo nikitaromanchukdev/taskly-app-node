@@ -1,4 +1,4 @@
-// prepare job: validate budget variables, read the live PR, decide label skip, write scope.json.
+// scope job: validate budget variables, read the live PR, decide label skip, write scope.json.
 // Usage: node prepare.ts [--out scope.json]
 //        node prepare.ts --local <base> [--out scope.json]   scope for `git diff <base>...HEAD`, no GitHub calls
 // Env: the 5 TEST_AGENT_* variables, GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER, GITHUB_EVENT_NAME,

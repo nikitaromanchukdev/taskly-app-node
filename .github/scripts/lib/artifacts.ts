@@ -1,5 +1,5 @@
 // The files one PR run passes between jobs, and small pure helpers over them.
-// scope.json (prepare) · author.json, reviewer.json (engineer) · checked.json (commit) · results.json (verify) · context.json (publish)
+// scope.json (scope) · author.json, reviewer.json (agents) · checked.json (bot_commit) · results.json (suites) · context.json (publish)
 // Backfill only: gaps.json (the Author's gap list) · approved.json (the owner's choice)
 import type { Pkg, SkipReason } from '../contracts/rules.ts';
 
@@ -85,7 +85,7 @@ export type Results = {
 // ---- context.json ----
 
 export type JobResult = 'success' | 'failure' | 'cancelled' | 'skipped';
-export type Job = 'prepare' | 'engineer' | 'commit' | 'verify';
+export type Job = 'scope' | 'agents' | 'bot_commit' | 'suites';
 export type Context = {
   pr: number;
   analyzed_sha: string;
