@@ -15,7 +15,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, wri
 import { join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { parseArgs } from 'node:util';
-import type { AuthorOutput, Checked, DefectDecision, Gaps, Recommendation, ReviewerOutput, Verdict } from '../lib/artifacts.ts';
+import type { AuthorOutput, Checked, DefectDecision, Gaps, Recommendation, ReviewerOutput, Severity, Verdict } from '../lib/artifacts.ts';
 import { unitKey } from '../lib/artifacts.ts';
 import { die } from '../lib/cli.ts';
 import { readJson, readJsonIfExists, writeJson } from '../lib/json.ts';
@@ -25,8 +25,14 @@ type Command = 'dir' | 'intent' | 'clean' | 'check' | 'approve';
 type SourceId = 'pr' | 'commits' | 'type' | 'editor' | 'skip';
 type Source = { id: SourceId; label: string; text?: string };
 type UnitRef = { path: string; unit: string };
-// What a demo run must produce: each Unit's Verdict and each Defect's Reviewer decision.
-type Expected = { units: (UnitRef & { verdict: Verdict })[]; defects: (UnitRef & { decision: DefectDecision })[] };
+type ExpectedFinding = { test: string; severity: Severity; reason: string };
+// What a demo run must produce; a case lists only what it checks. dropFiles, when given, must match exactly.
+type Expected = {
+  units?: (UnitRef & { verdict: Verdict })[];
+  defects?: (UnitRef & { decision: DefectDecision })[];
+  findings?: ExpectedFinding[];
+  dropFiles?: string[];
+};
 
 const SCRIPT = 'trial.ts';
 const ROOT = '.test-agent';
@@ -148,14 +154,24 @@ async function clean(out?: string): Promise<void> {
 function mismatches(expected: Expected, author?: AuthorOutput, reviewer?: ReviewerOutput, checked?: Checked): string[] {
   const verdicts = new Map((author?.units ?? []).map((unit) => [unitKey(unit), unit.verdict]));
   const decisions = new Map((reviewer?.defects ?? []).map((defect) => [unitKey(defect), defect.decision]));
+  const found = (finding: ExpectedFinding) =>
+    (reviewer?.findings ?? []).some((actual) => actual.test === finding.test && actual.severity === finding.severity && actual.reason === finding.reason);
+  const dropped = [...(checked?.dropFiles ?? [])].sort();
+  const expectedDrops = expected.dropFiles && [...expected.dropFiles].sort();
   return [
     ...(checked?.ok ? [] : [`agent output check: ${checked ? checked.errors.join('; ') : 'checked.json missing'}`]),
-    ...expected.units
+    ...(expected.units ?? [])
       .filter((unit) => verdicts.get(unitKey(unit)) !== unit.verdict)
       .map((unit) => `${unitKey(unit)}: Verdict ${verdicts.get(unitKey(unit)) ?? 'missing'}, expected ${unit.verdict}`),
-    ...expected.defects
+    ...(expected.defects ?? [])
       .filter((defect) => decisions.get(unitKey(defect)) !== defect.decision)
       .map((defect) => `${unitKey(defect)}: Reviewer ${decisions.get(unitKey(defect)) ?? 'no decision'}, expected ${defect.decision}`),
+    ...(expected.findings ?? [])
+      .filter((finding) => !found(finding))
+      .map((finding) => `${finding.test}: no ${finding.severity} ${finding.reason} Finding`),
+    ...(expectedDrops && expectedDrops.join() !== dropped.join()
+      ? [`dropped files: ${dropped.join(', ') || 'none'}, expected ${expectedDrops.join(', ') || 'none'}`]
+      : []),
   ];
 }
 

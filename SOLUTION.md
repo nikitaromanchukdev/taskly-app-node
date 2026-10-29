@@ -19,7 +19,7 @@ This repo adds two ways to get tests written, both by the same agents and skills
 | Budgets are admin-only repo variables, with no defaults; agents skip draft PRs | [0006](docs/adr/0006-set-budgets-as-admin-only-repo-variables.md) |
 | Found bugs appear as review comments on the changed code (in the Backfill, one PR comment), each with a suggested fix that a person applies (proposed) | [0007](docs/adr/0007-report-defects-next-to-the-code-with-a-suggested-fix.md) |
 | The Backfill runs locally and reports in its PR description; on a PR that changes only tests, the agent comments say why the agents did not run | [0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md) |
-| A change to the agent config is tested before the merge with `make demo`, against committed cases with a planted Defect and the expected result | [0009](docs/adr/0009-test-agent-config-changes-against-committed-cases.md) |
+| A change to the agent config is tested before the merge with `make demo`, against committed cases (a planted Defect, a tautology) and their expected results | [0009](docs/adr/0009-test-agent-config-changes-against-committed-cases.md) |
 
 ## How to run the PR workflow
 
@@ -31,7 +31,7 @@ This repo adds two ways to get tests written, both by the same agents and skills
   ```
 
   Use this after a failed run, after a budget variable changes, or after a cancelled run. It fails on a fork PR.
-- **Locally.** `make trial` runs the same steps on your branch, and asks for the intended behaviour the first time. `make demo` runs them on a committed example with a planted Defect and prints PASS or FAIL; it is the check for a PR that changes the agent config, which its own PR run cannot test. Prerequisites and the other local commands are in [AGENTS.md](AGENTS.md).
+- **Locally.** `make trial` runs the same steps on your branch, and asks for the intended behaviour the first time. `make demo` runs them on committed cases (a planted Defect, and a tautology the Reviewer must block) and prints PASS or FAIL; it is the check for a PR that changes the agent config, which its own PR run cannot test. Prerequisites and the other local commands are in [AGENTS.md](AGENTS.md).
 - **Concurrency.** A newer push cancels the older run for the same PR. Label events other than `skip-test-agent` run in their own group, so they cannot cancel a real run.
 
 Results appear as one status (`test-agent/verify`) and three PR comments, plus review comments on the code for each Defect and Suspected Defect. On a PR that changes only tests and config, such as a Backfill PR, the agent comments say why the agents did not run: there is nothing new to test, and a Backfill PR lists its agent results in its description ([ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md)). How to read them is in [AGENTS.md](AGENTS.md).
@@ -188,7 +188,7 @@ The owner decided each Suspected Defect. The details are in each PR's Defects co
 - Each push costs two agent runs. Local demo runs on a one-function change cost about $0.30 together; larger changes cost more. Each agent step is capped by `TEST_AGENT_MAX_TURNS` and `TEST_AGENT_TIMEOUT_MINUTES`. With `CLAUDE_CODE_OAUTH_TOKEN`, runs share the subscriber's usage limits.
 - The final status waits for mutation testing, up to 8 minutes per package. The mutation score is reported, not enforced.
 - Each Bot commit leaves a PR run waiting for approval, because GitHub holds runs started by a `GITHUB_TOKEN` push. The run skips every job.
-- A PR that changes the agent config runs with the base copy, so CI cannot test the change. `make demo` tests it locally against one planted Defect ([ADR 0009](docs/adr/0009-test-agent-config-changes-against-committed-cases.md)); nothing requires that it ran.
+- A PR that changes the agent config runs with the base copy, so CI cannot test the change. `make demo` tests it locally against two committed cases, a planted Defect and a tautology the Reviewer must block ([ADR 0009](docs/adr/0009-test-agent-config-changes-against-committed-cases.md)); nothing requires that it ran.
 
 **Backfill**
 
@@ -206,8 +206,8 @@ The owner decided each Suspected Defect. The details are in each PR's Defects co
 
 ### Not verified on the live repo yet
 
-- The `skip-test-agent` label: honoured for an admin, ignored for a user without maintain rights.
-- A crafted tautological test that a blocking Finding drops from the Bot commit.
+- The `skip-test-agent` label from a user without maintain rights, which must be ignored. This needs a second GitHub account. The admin half is proven: run 40949797997 shows "skipped by label", with `verify` still run.
+- A tautological test dropped from a real Bot commit. The same chain is proven locally: the `tautology` case of `make demo` gets a blocking `tautology` Finding from the Reviewer, and `agent-output.ts` drops exactly that test file ([ADR 0009](docs/adr/0009-test-agent-config-changes-against-committed-cases.md)).
 
 ## Production version
 

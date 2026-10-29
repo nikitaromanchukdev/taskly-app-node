@@ -118,9 +118,9 @@ describe('trial.ts check', () => {
   const okCheck: Checked = { ok: true, errors: [], dropFiles: [], reviewRejected: [] };
 
   // Writes a run's output and the expected outcome, then checks one against the other.
-  function check(run: { author?: AuthorOutput; reviewer?: ReviewerOutput; checked?: Checked }) {
+  function check(run: { author?: AuthorOutput; reviewer?: ReviewerOutput; checked?: Checked }, outcome: object = expected) {
     const dir = tempDir();
-    writeFileSync(join(dir, 'expected.json'), JSON.stringify(expected));
+    writeFileSync(join(dir, 'expected.json'), JSON.stringify(outcome));
     for (const [name, value] of Object.entries(run)) writeFileSync(join(dir, `${name}.json`), JSON.stringify(value));
     return runScript('local/trial.ts', ['check', '--out', dir, '--expected', join(dir, 'expected.json')]);
   }
@@ -143,6 +143,32 @@ describe('trial.ts check', () => {
     const result = check({ author: author('flagged-defect'), reviewer: reviewer('confirmed'), checked: { ...okCheck, ok: false, errors: ['patch rejected'] } });
     assert.equal(result.code, 1);
     assert.match(result.stderr, /agent output check: patch rejected/);
+  });
+
+  // A review-only case: the Reviewer must block the tautology, and only its file is dropped.
+  const TAUTOLOGY = 'backend/tests/truncate.limits.test.ts > keeps short text';
+  const blocking = { test: TAUTOLOGY, severity: 'blocking', reason: 'tautology' };
+  const tautologyCase = { findings: [blocking], dropFiles: ['backend/tests/truncate.limits.test.ts'] };
+  const reviewed = (findings: object[]): ReviewerOutput => ({ summary: '', findings: findings as never, defects: [] });
+  const dropping = (dropFiles: string[]): Checked => ({ ...okCheck, dropFiles });
+
+  it('passes when the expected Finding is there and exactly its file is dropped', () => {
+    const result = check({ reviewer: reviewed([{ ...blocking, note: 'cannot fail' }]), checked: dropping(tautologyCase.dropFiles) }, tautologyCase);
+    assert.equal(result.code, 0);
+  });
+
+  it('fails when the Finding is only advisory', () => {
+    const result = check({ reviewer: reviewed([{ ...blocking, severity: 'advisory', note: '' }]), checked: dropping([]) }, tautologyCase);
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /keeps short text: no blocking tautology Finding/);
+    assert.match(result.stderr, /dropped files: none, expected backend\/tests\/truncate\.limits\.test\.ts/);
+  });
+
+  it('fails when a good file is dropped too', () => {
+    const files = ['backend/tests/truncate.limits.test.ts', 'backend/tests/truncate.test.ts'];
+    const result = check({ reviewer: reviewed([{ ...blocking, note: '' }]), checked: dropping(files) }, tautologyCase);
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /dropped files: backend\/tests\/truncate\.limits\.test\.ts, backend\/tests\/truncate\.test\.ts/);
   });
 
   it('fails when the run left no output', () => {
