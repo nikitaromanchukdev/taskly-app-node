@@ -1,0 +1,36 @@
+diff --git a/backend/tests/truncate.limits.test.ts b/backend/tests/truncate.limits.test.ts
+new file mode 100644
+index 0000000..5ecbacc
+--- /dev/null
++++ b/backend/tests/truncate.limits.test.ts
+@@ -0,0 +1,8 @@
++import { describe, expect, it, vi } from 'vitest';
++
++describe('truncate limits', () => {
++  it('keeps short text', () => {
++    const truncate = vi.fn((text: string, _max: number) => text);
++    expect(truncate('abc', 5)).toBe('abc');
++  });
++});
+diff --git a/backend/tests/truncate.test.ts b/backend/tests/truncate.test.ts
+new file mode 100644
+index 0000000..6b4fb27
+--- /dev/null
++++ b/backend/tests/truncate.test.ts
+@@ -0,0 +1,16 @@
++import { describe, expect, it } from 'vitest';
++import { truncate } from '../src/core/truncate.ts';
++
++describe('truncate', () => {
++  it('returns text of exactly max characters unchanged', () => {
++    expect(truncate('abcde', 5)).toBe('abcde');
++  });
++
++  it('cuts longer text to max characters, ending with an ellipsis', () => {
++    expect(truncate('abcdef', 5)).toBe('abcd…');
++  });
++
++  it('throws a RangeError when max is below 1', () => {
++    expect(() => truncate('a', 0)).toThrow(RangeError);
++  });
++});

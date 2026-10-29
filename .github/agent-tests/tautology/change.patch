@@ -1,0 +1,12 @@
+diff --git a/backend/src/core/truncate.ts b/backend/src/core/truncate.ts
+new file mode 100644
+index 0000000..43989bb
+--- /dev/null
++++ b/backend/src/core/truncate.ts
+@@ -0,0 +1,6 @@
++// Shortens long text for log lines.
++export function truncate(text: string, max: number): string {
++  if (max < 1) throw new RangeError('max must be at least 1');
++  if (text.length <= max) return text;
++  return `${text.slice(0, max - 1)}…`;
++}

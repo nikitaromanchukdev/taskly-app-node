@@ -1,0 +1,37 @@
+{
+  "summary": "Added tests for `truncate`: the exact-max boundary, cutting longer text, the RangeError, and short text.",
+  "units": [
+    {
+      "path": "backend/src/core/truncate.ts",
+      "unit": "truncate",
+      "verdict": "added",
+      "attempts": 0,
+      "expectations": [
+        {
+          "text": "when text has exactly max characters, then it is returned unchanged",
+          "source": "PR body: \"Text of exactly `max` characters is NOT shortened.\"",
+          "kind": "intent",
+          "tests": ["backend/tests/truncate.test.ts > truncate > returns text of exactly max characters unchanged"]
+        },
+        {
+          "text": "when text is longer than max, then the result is the first max - 1 characters followed by an ellipsis",
+          "source": "PR body: \"Longer text is cut so the result is exactly `max` characters\"",
+          "kind": "intent",
+          "tests": ["backend/tests/truncate.test.ts > truncate > cuts longer text to max characters, ending with an ellipsis"]
+        },
+        {
+          "text": "when max is below 1, then it throws a RangeError",
+          "source": "PR body: \"`max` below 1 throws a `RangeError`.\"",
+          "kind": "intent",
+          "tests": ["backend/tests/truncate.test.ts > truncate > throws a RangeError when max is below 1"]
+        },
+        {
+          "text": "when text is shorter than max, then it is returned unchanged",
+          "source": "PR body: \"Text of at most `max` characters is returned unchanged.\"",
+          "kind": "intent",
+          "tests": ["backend/tests/truncate.limits.test.ts > truncate limits > keeps short text"]
+        }
+      ]
+    }
+  ]
+}

@@ -24,7 +24,7 @@ Map the request to a command:
 | The user wants | Command | Uses model tokens |
 |---|---|---|
 | Run the agents on the committed change of this branch | `make trial` | yes |
-| Check that the agent config on disk still catches a known Defect | `make demo` | yes |
+| Check that the agent config on disk still catches a known Defect and blocks a known tautology | `make demo` | yes |
 | See the write guard block an edit to source code | `make hook-demo` | yes, a little |
 | Find and rank the coverage gaps of one package (Backfill, part 1) | `make backfill-gaps PACKAGE={package}` | yes |
 | Pick or change the approved gaps | `make backfill-approve PACKAGE={package} APPROVE={items}` | no |
@@ -99,7 +99,7 @@ Use AskUserQuestion with:
 
 ### Path B: `make demo`
 
-No preparation. It uses the committed example in `.github/agent-tests/truncate/` and the agent config as it is on disk.
+No preparation. It runs every case in `.github/agent-tests/` against the agent config as it is on disk; `CASE={name}` runs one. The `tautology` case is review-only: one Reviewer run, no Author run.
 
 ### Path C: `make clean`
 
@@ -137,7 +137,7 @@ Run the command in the background, so a long run does not hit the shell timeout,
 | Command | Read | Success |
 |---|---|---|
 | `make trial` | `{folder}/report.md`, `author.md`, `reviewer.md`, `checked.json` | `checked.json` has `"ok": true` |
-| `make demo` | the last lines of the output, then `.test-agent/demo/out/` | `trial: demo PASS` |
+| `make demo` | the `== demo case:` sections of the output, then `.test-agent/demo/{case}/` | `trial: demo PASS` for every case |
 | `make backfill-gaps` | `{folder}/gaps.md` | the three lists are there |
 | `make backfill-tests` | `{folder}/author.md`, `reviewer.md`, `checked.json`, `coverage-before.json`, `coverage-after.json` | `checked.json` has `"ok": true` |
 | `make hook-demo` | the output | `hook-demo: backend/src unchanged` |

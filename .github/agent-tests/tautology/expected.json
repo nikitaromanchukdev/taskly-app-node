@@ -1,0 +1,6 @@
+{
+  "findings": [
+    { "test": "backend/tests/truncate.limits.test.ts > truncate limits > keeps short text", "severity": "blocking", "reason": "tautology" }
+  ],
+  "dropFiles": ["backend/tests/truncate.limits.test.ts"]
+}

@@ -4,7 +4,7 @@
 #
 #   make trial        all steps in CI order
 #   make review       one step again (scope, intent, install, author, patch, review, check, report)
-#   make demo         the agent config on disk against a planted Defect (.github/agent-tests/truncate/); prints PASS or FAIL
+#   make demo         the agent config on disk against the cases in .github/agent-tests/ (CASE=<name> for one); PASS or FAIL
 #   make hook-demo    ask an agent to edit backend/src and show the hook blocking it
 #   make script-tests the tests of the workflow's own scripts (no agent, no install)
 #   make clean        remove this branch's run output, keep its PR description; without one, pick a folder
@@ -48,7 +48,7 @@ run_agent = $(CLAUDE) --agent $(1) --model $(2) --json-schema "$$(cat $(SCRIPTS_
 # Units the reviewer has something to look at: tests written or a defect flagged.
 REVIEWABLE := [.units[] | select(.verdict != "not-needed")] | length > 0
 
-.PHONY: trial preflight clean-tree scope intent install author patch review check report demo hook-demo script-tests clean \
+.PHONY: trial preflight clean-tree scope intent install author patch review check report demo demo-case hook-demo script-tests clean \
   need-package need-approved backfill-gaps backfill-approve backfill-tests coverage-before coverage-after
 
 trial: preflight scope intent install author patch review check report
@@ -120,17 +120,29 @@ script-tests:
 clean:
 	@$(SCRIPTS)/local/trial.ts clean $(if $(filter command line,$(origin OUT)),--out $(OUT))
 
-# The demo runs in a throwaway worktree at a fixed path, so the sandbox install is reused between runs.
+# Each folder in .github/agent-tests/ is one case (ADR 0009). `make demo` runs every case; CASE=<name> runs one.
+# A case runs in a throwaway worktree at a fixed path, so the sandbox install is reused between runs.
 # The worktree gets the agent config as it is on disk, committed or not: the same paths CI takes from
-# the base branch (ADR 0004). Then it commits the fixture change and runs the trial steps against it.
+# the base branch (ADR 0004). Then it commits the case's change and runs the trial steps against it.
+# A case with its own tests.patch and author.json is review-only: they stand in for the Author's work.
+CASES := $(notdir $(wildcard .github/agent-tests/*))
 DEMO := .test-agent/demo
 DEMO_TREE := $(DEMO)/tree
-DEMO_OUT := $(CURDIR)/$(DEMO)/out
-# One committed case: a change with a planted Defect, its intent, and the expected Verdict and decision (ADR 0009).
-FIXTURE := $(CURDIR)/.github/agent-tests/truncate
+DEMO_OUT := $(CURDIR)/$(DEMO)/$(CASE)
+FIXTURE := $(CURDIR)/.github/agent-tests/$(CASE)
+REVIEW_ONLY := $(wildcard $(FIXTURE)/tests.patch)
 DEMO_GIT := git -C $(DEMO_TREE) -c user.name=demo -c user.email=demo@localhost
+# Trial steps inside the case worktree, with this Makefile; scope and install run before a review-only case's tests are applied.
+DEMO_MAKE := $(MAKE) --no-print-directory -C $(DEMO_TREE) -f $(CURDIR)/Makefile
 
 demo: preflight
+	@status=0; for c in $(or $(CASE),$(CASES)); do \
+	  $(MAKE) --no-print-directory demo-case CASE=$$c || status=1; \
+	done; exit $$status
+
+demo-case:
+	@test -n "$(CASE)" -a -d "$(FIXTURE)" || { echo "make: no case '$(CASE)' in .github/agent-tests/" >&2; exit 64; }
+	@echo "== demo case: $(CASE)"
 	@rm -rf $(DEMO_OUT) && mkdir -p $(DEMO_OUT)
 	@git worktree remove --force $(DEMO_TREE) 2> /dev/null || rm -rf $(DEMO_TREE)
 	@git worktree prune
@@ -141,9 +153,12 @@ demo: preflight
 	$(DEMO_GIT) add -A && $(DEMO_GIT) commit -q --allow-empty -m "demo: agent config under test"
 	$(DEMO_GIT) apply $(FIXTURE)/change.patch && $(DEMO_GIT) add -A && $(DEMO_GIT) commit -q -m "demo: change under test"
 	cp $(FIXTURE)/pr-body.md $(DEMO_OUT)/pr-body.md
-	@status=0; \
-	$(MAKE) --no-print-directory -C $(DEMO_TREE) -f $(CURDIR)/Makefile scope install author patch review check report \
-	  OUT=$(DEMO_OUT) BASE=$$(git rev-parse HEAD) || status=$$?; \
+	@status=0; steps="$(DEMO_MAKE) OUT=$(DEMO_OUT) BASE=$$(git rev-parse HEAD)"; \
+	$$steps scope install || status=$$?; \
+	if [ $$status = 0 ] && [ -n "$(REVIEW_ONLY)" ]; then \
+	  $(DEMO_GIT) apply $(FIXTURE)/tests.patch && cp $(FIXTURE)/author.json $(DEMO_OUT)/author.json || status=1; \
+	fi; \
+	[ $$status != 0 ] || $$steps $(if $(REVIEW_ONLY),,author) patch review check report || status=$$?; \
 	git worktree remove --force $(DEMO_TREE); \
 	$(SCRIPTS)/local/trial.ts check --out $(DEMO_OUT) --expected $(FIXTURE)/expected.json || status=1; \
 	echo "Output: $(DEMO_OUT)"; exit $$status
