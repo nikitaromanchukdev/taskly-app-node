@@ -11,7 +11,7 @@ A test that fails against the code can mean two things: the code has a real bug,
 ## Decision
 
 1. Expectations come from Intent sources, looked up in this order: the PR title and body; `backend/openapi.json`; neighbouring existing tests; README and docs. A file generated from the code is the code, not an Intent source. The steps are in `.claude/skills/extract-intent/SKILL.md`.
-2. An Expectation with no Intent source may still get a Characterization test. The Author says so, and the report labels it.
+2. An Expectation with no Intent source may still get a Characterization test. Its name starts with `characterization: `. Each Expectation lists its kind and its tests, and `agent-output.ts` rejects the Author's output when a test's name and its Expectation's kind disagree. The report labels each Unit intent, characterization or mixed.
 3. A test that still fails after the attempt budget becomes a flagged Defect. It is not committed. The other tests of its Unit are.
    An existing test that the change broke is updated only when the break is in its setup (fakes, mocks, providers, types), or when an Intent source states the new behaviour. Otherwise it is a possible regression: it stays as it is, failing, and is reported as a Defect.
 4. A second agent, the Reviewer, runs in a fresh session, on its own model set by its own repo variable. It checks each test against the Intent source the test cites. A tautology is a test that cannot fail when the Unit is wrong. One assertion that another assertion in the same test already covers is only redundant and is not a Finding: it often checks the outcome, while the other checks the mechanism. It confirms or rejects every flagged Defect. A confirmed Defect must quote an Intent source.

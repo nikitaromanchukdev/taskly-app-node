@@ -32,7 +32,7 @@ A test counts only after it has run green, or been reported as a Defect.
    - Anywhere else: move the test with Write into a new file next to the original, named after the Unit and the Defect, and remove it from the original with Edit.
    `commit` drops a new file that holds a flagged Defect's test, so the failing test never reaches the Bot commit. Never delete or empty files; you have no tool for it.
 7. Run every test file you wrote or changed once more, except the files holding only a Defect's test. It must pass, apart from existing tests left failing as Defects. Typecheck must show no error in those files.
-8. Report each Unit's final Verdict, tests, Expectations, `kind` and `attempts`. Use the Verdict and reason values from `.github/scripts/author.schema.json`. A Unit with any Defect gets `flagged-defect`.
+8. Report each Unit's final Verdict and `attempts`, and each Expectation with its source, `kind` and tests. Use the Verdict and reason values from `.github/scripts/author.schema.json`. A Unit with any Defect gets `flagged-defect`.
 
 ## Output
 Green tests in the working tree, no failing test left behind except existing tests reported as Defects and the files holding only a Defect's test, and the data for `author.json`.

@@ -46,7 +46,7 @@ Avoid: bug, owner note, open question.
 
 ## Characterization test
 
-A test that records what the code does now. It is used only when no Intent source states the behaviour. The Author marks it as a Characterization test, and the report says so.
+A test that records what the code does now. It is used only when no Intent source states the behaviour. Its name starts with `characterization: `. `agent-output.ts` rejects the Author's output when a test's name and its Expectation's kind disagree, and the report shows each Unit's kind.
 
 Avoid: snapshot test, golden test, intent test (for a test that is not backed by an Intent source).
 

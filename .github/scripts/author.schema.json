@@ -9,7 +9,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["path", "unit", "verdict", "kind", "expectations", "tests", "attempts"],
+        "required": ["path", "unit", "verdict", "expectations", "attempts"],
         "properties": {
           "path": { "type": "string", "maxLength": 300 },
           "unit": { "type": "string", "maxLength": 200 },
@@ -19,24 +19,28 @@
             "description": "Required when verdict is not-needed.",
             "enum": ["already-covered", "no-logic", "trivial", "not-unit-testable", "unreachable"]
           },
-          "kind": {
-            "type": "string",
-            "description": "characterization when no Intent source states the behaviour, else intent.",
-            "enum": ["intent", "characterization"]
-          },
           "expectations": {
             "type": "array",
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["text", "source"],
+              "required": ["text", "source", "kind", "tests"],
               "properties": {
                 "text": { "type": "string", "maxLength": 500 },
-                "source": { "type": "string", "maxLength": 300 }
+                "source": { "type": "string", "maxLength": 300 },
+                "kind": {
+                  "type": "string",
+                  "description": "characterization when no Intent source states the behaviour, else intent. A characterization test's name starts with \"characterization: \".",
+                  "enum": ["intent", "characterization"]
+                },
+                "tests": {
+                  "type": "array",
+                  "description": "The tests that check this Expectation, as file > test name. A test checks one Expectation.",
+                  "items": { "type": "string", "maxLength": 300 }
+                }
               }
             }
           },
-          "tests": { "type": "array", "items": { "type": "string", "maxLength": 300 } },
           "attempts": { "type": "integer" },
           "defect": {
             "type": "object",

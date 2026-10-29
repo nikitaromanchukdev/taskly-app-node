@@ -3,8 +3,8 @@
 // Exit 1 if anything is invalid; --out is written either way so `publish` can read it.
 import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
-import { isFlaggedDefect, unitKey, VERDICT_RULES, writesTests } from './artifacts.ts';
-import type { AuthorOutput, Checked, ReviewerOutput, Unit } from './artifacts.ts';
+import { CHARACTERIZATION_PREFIX, isFlaggedDefect, testName, unitKey, unitTests, VERDICT_RULES, writesTests } from './artifacts.ts';
+import type { AuthorOutput, Checked, Kind, ReviewerOutput, Unit } from './artifacts.ts';
 import { die, EXIT_CODES } from './cli.ts';
 import { readJson, writeJson } from './json.ts';
 import { readSchema, validate } from './schema.ts';
@@ -13,6 +13,7 @@ import type { LineRule } from './scan.ts';
 
 type PatchFiles = { file: string; added: Map<string, string[]>; created: Set<string> };
 type DefectTests = { errors: string[]; dropFiles: string[] };
+type NameRule = { prefixed: boolean; must: string };
 
 const SCRIPT = 'agent-output';
 
@@ -24,8 +25,28 @@ function checkUnit(unit: Unit, maxAttempts: number): string[] {
   const name = `${unit.path} ${unit.unit}`;
   const rule = VERDICT_RULES[unit.verdict];
   const errors = rule.requires.filter((field) => unit[field] === undefined).map((field) => `${name}: ${unit.verdict} needs ${field}`);
-  if (rule.writesTests && unit.tests.length === 0) errors.push(`${name}: ${unit.verdict} lists no tests`);
+  if (rule.writesTests && unitTests(unit).length === 0) errors.push(`${name}: ${unit.verdict} lists no tests`);
   if (unit.attempts < 0 || unit.attempts > maxAttempts) errors.push(`${name}: attempts ${unit.attempts} outside 0..${maxAttempts}`);
+  return [...errors, ...checkTestKinds(unit)];
+}
+
+// The test name must say what its Expectation's kind says, so neither the file nor the report claims intent
+// that no source states.
+const NAME_RULES: Record<Kind, NameRule> = {
+  intent: { prefixed: false, must: 'must not start with' },
+  characterization: { prefixed: true, must: 'must start with' },
+};
+
+function checkTestKinds(unit: Unit): string[] {
+  const name = `${unit.path} ${unit.unit}`;
+  const tests = unitTests(unit);
+  const repeated = new Set(tests.filter((test, index) => tests.indexOf(test) !== index));
+  const errors = [...repeated].map((test) => `${name}: test "${test}" is listed under more than one Expectation`);
+  for (const { kind, tests: listed } of unit.expectations) {
+    const rule = NAME_RULES[kind];
+    const wrong = listed.filter((test) => testName(test).startsWith(CHARACTERIZATION_PREFIX) !== rule.prefixed);
+    errors.push(...wrong.map((test) => `${name}: test "${test}" checks an Expectation of kind ${kind}, so its name ${rule.must} "${CHARACTERIZATION_PREFIX}"`));
+  }
   return errors;
 }
 
@@ -36,7 +57,7 @@ function checkDuplicates(units: Unit[]): string[] {
 }
 
 function checkFindings(units: Unit[], review: ReviewerOutput): string[] {
-  const known = new Set(units.flatMap((u) => u.tests));
+  const known = new Set(units.flatMap(unitTests));
   return review.findings.filter((f) => !known.has(f.test)).map((f) => `finding refers to unknown test "${f.test}"`);
 }
 
@@ -64,7 +85,7 @@ const patchFiles = (patch: string) =>
 function defectTests(units: Unit[], patch: string): DefectTests {
   const { added, created } = patchFiles(patch);
   const leftIn = (test: string) => {
-    const name = test.split(' > ').at(-1) ?? test;
+    const name = testName(test);
     return (added.get(testFile(test)) ?? []).some((line) => line.includes(name));
   };
   const left = units.flatMap((unit) => (unit.defect ? [unit.defect.test] : [])).filter(leftIn);
@@ -105,7 +126,7 @@ function check(author: unknown, reviewer: unknown, patch: string | undefined, ma
 
   const blocking = blockingFiles(review);
   const reviewRejected = units
-    .filter((u) => writesTests(u.verdict) && u.tests.some((t) => blocking.has(testFile(t))))
+    .filter((u) => writesTests(u.verdict) && unitTests(u).some((t) => blocking.has(testFile(t))))
     .map(unitKey);
   return { ok: true, errors: [], dropFiles: [...new Set([...blocking, ...defects.dropFiles])], reviewRejected };
 }
