@@ -58,7 +58,7 @@ Avoid: test agent (that name covers the whole workflow), engineer (the name of t
 
 ## Reviewer
 
-The second agent in a PR run. It runs in a fresh session, reads the Author's tests and flagged Defects, and cannot edit files or run commands. Its agent file is `.claude/agents/pr-test-reviewer.md`.
+The second agent in a PR run and in a Backfill. It runs in a fresh session, reads the Author's tests and flagged Defects, and cannot edit files or run commands. Its agent file is `.claude/agents/pr-test-reviewer.md`.
 
 Avoid: critic, checker, verifier (verify is a workflow job).
 
@@ -100,6 +100,6 @@ Avoid: diff, change set, changeset.
 
 ## Backfill
 
-A one-off local pass that adds tests for existing, untested code. The owner approves a ranked list of gaps before any test is written. Backfill PRs go through the same merge gate as any other PR.
+A one-off local pass that adds tests for existing, untested code. The owner approves a ranked list of gaps before any test is written. The Author writes the tests, and the Reviewer reviews them, as in a PR run. Backfill PRs go through the same merge gate as any other PR.
 
 Avoid: Part A, catch-up, retroactive tests, gap fill.

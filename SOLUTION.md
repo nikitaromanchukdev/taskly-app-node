@@ -5,7 +5,7 @@ For reviewers: what this repo adds, how to run it, what to set up, and what is s
 This repo adds two ways to get tests written, both by the same agents and skills:
 
 - **PR workflow:** adds or updates tests for the Units a PR changes. GitHub Actions runs it on every PR.
-- **Backfill:** adds tests for existing, untested code, in one pass. The owner runs it locally.
+- **Backfill:** adds tests for existing, untested code, in one pass. The owner runs it locally: the Author, then the Reviewer, as in a PR run. The results go in the PR description, because the PR workflow has nothing to test on a PR that only adds tests.
 
 ## Key decisions
 
