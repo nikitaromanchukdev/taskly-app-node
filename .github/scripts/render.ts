@@ -4,6 +4,7 @@ import type { Context, Defect, DefectDecision, MutationResult, Results, Run, Uni
 import { cell, code, sanitize } from './sanitize.ts';
 import { firstReason, labelSkipNote, PREPARE_FAILED } from './status.ts';
 import type { ReasonRule, Status, StatusState } from './status.ts';
+import type { SkipReason } from './rules.ts';
 
 export type CommentName = 'report' | 'author' | 'reviewer';
 // What every comment is rendered from: the run's artifacts, its decided status and the repo for links.
@@ -37,10 +38,21 @@ function header(context: Context): string {
   return `Analyzed \`${short(context.analyzed_sha)}\`${final} · [run](${context.run_url})`;
 }
 
+// Skip reasons of a PR that only adds tests, such as a Backfill PR: its tests and their coverage floors.
+const TESTS_ONLY_REASONS: ReadonlySet<SkipReason> = new Set(['tests', 'config']);
+const TESTS_ONLY =
+  'this PR changes only tests and config, so there is nothing new to test. A Backfill PR lists its Author and Reviewer results in its description';
+
+function testsOnly(run: Run): boolean {
+  const skipped = run.scope?.skipped ?? [];
+  return skipped.some((file) => file.reason === 'tests') && skipped.every((file) => TESTS_ONLY_REASONS.has(file.reason));
+}
+
 const NO_AGENT_REASONS: readonly ReasonRule[] = [
   { when: (run) => run.context.label_skip, reason: (run) => labelSkipNote(run.context) },
   { when: (run) => !run.context.same_repo, reason: () => 'fork pull request' },
   { when: (run) => run.context.jobs.prepare !== 'success', reason: () => PREPARE_FAILED },
+  { when: (run) => !run.scope?.candidates.length && testsOnly(run), reason: () => TESTS_ONLY },
   { when: (run) => !run.scope?.candidates.length, reason: () => 'no testable changes' },
   { when: (run) => run.context.jobs.engineer !== 'success', reason: () => 'the agent step failed or timed out' },
 ];
