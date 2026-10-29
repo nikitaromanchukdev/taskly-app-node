@@ -17,7 +17,7 @@ This repo adds two ways to get tests written, both by the same agents and skills
 | PR code never runs next to the model key; agent config comes from the base branch | [0004](docs/adr/0004-isolate-pr-code-from-secrets.md) |
 | Merge gate on `test-agent/verify`, with a `skip-test-agent` label | [0005](docs/adr/0005-gate-merges-on-test-agent-verify.md) |
 | Budgets are admin-only repo variables, with no defaults; agents skip draft PRs | [0006](docs/adr/0006-set-budgets-as-admin-only-repo-variables.md) |
-| Found bugs go in a dedicated comment with a link and a suggested fix; a person applies it (proposed) | [0007](docs/adr/0007-report-defects-in-a-dedicated-comment-with-a-suggested-fix.md) |
+| Found bugs appear as review comments on the changed code (in the Backfill, one PR comment), each with a suggested fix that a person applies (proposed) | [0007](docs/adr/0007-report-defects-next-to-the-code-with-a-suggested-fix.md) |
 
 ## How to run the PR workflow
 
@@ -32,7 +32,7 @@ This repo adds two ways to get tests written, both by the same agents and skills
 - **Locally.** `make trial` runs the same steps on your branch. Its prerequisites and the other local commands are in [AGENTS.md](AGENTS.md).
 - **Concurrency.** A newer push cancels the older run for the same PR. Label events other than `skip-test-agent` run in their own group, so they cannot cancel a real run.
 
-Results appear as one status (`test-agent/verify`) and four PR comments. How to read them is in [AGENTS.md](AGENTS.md).
+Results appear as one status (`test-agent/verify`) and three PR comments, plus review comments on the code for each Defect and Suspected Defect. How to read them is in [AGENTS.md](AGENTS.md).
 
 ## Prerequisites
 
@@ -98,7 +98,7 @@ The same steps with raw `gh` commands:
 | `engineer` | yes: Author, then Reviewer | none (read-only token) | only in containers | Restores base-branch config. Installs dependencies in the sandbox. Runs the agents. Saves `author.json`, `reviewer.json` and `tests.patch`. |
 | `commit` | no | repo contents | no | Checks the patch and the agent output. Drops test files with blocking Findings, and new files that hold a flagged Defect's test. Pushes the Bot commit. |
 | `verify` | no | none (read-only token) | yes, on the host, with no secrets | Typecheck and suites with coverage on the final commit. Mutation testing for information only. |
-| `publish` | no | commit status, PR comments | no | Decides the status. Renders the four comments and the job summary. |
+| `publish` | no | commit status, PR comments | no | Decides the status. Renders the three comments, the review comments on the code, and the job summary. |
 
 Agents never post. Only `prepare` (the pending status) and `publish` (the final status and the comments) post to the PR. `commit` pushes the Bot commit.
 
