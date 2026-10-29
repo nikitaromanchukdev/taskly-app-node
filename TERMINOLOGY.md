@@ -40,7 +40,7 @@ Avoid: bug (a Defect is a claim until it is confirmed), failing test, issue.
 
 ## Suspected Defect
 
-Behaviour that looks wrong but that no Intent source states, so nothing confirms or rejects it. It never changes the status. It waits for the owner to decide which behaviour is intended. See [ADR 0007](docs/adr/0007-report-defects-in-a-dedicated-comment-with-a-suggested-fix.md).
+Behaviour that looks wrong but that no Intent source states, so nothing confirms or rejects it. It never changes the status. It waits for the owner to decide which behaviour is intended. See [ADR 0007](docs/adr/0007-report-defects-next-to-the-code-with-a-suggested-fix.md).
 
 Avoid: bug, owner note, open question.
 
