@@ -4,7 +4,7 @@
 #
 #   make trial        all steps in CI order
 #   make review       one step again (scope, intent, install, author, patch, review, check, report)
-#   make demo         the agent config on disk against a planted Defect (.github/trial/); prints PASS or FAIL
+#   make demo         the agent config on disk against a planted Defect (.github/agent-tests/truncate/); prints PASS or FAIL
 #   make hook-demo    ask an agent to edit backend/src and show the hook blocking it
 #   make script-tests the tests of the workflow's own scripts (no agent, no install)
 #   make clean        remove this branch's run output, keep its PR description; without one, pick a folder
@@ -113,7 +113,8 @@ clean:
 DEMO := .test-agent/demo
 DEMO_TREE := $(DEMO)/tree
 DEMO_OUT := $(CURDIR)/$(DEMO)/out
-FIXTURE := $(CURDIR)/.github/trial
+# One committed case: a change with a planted Defect, its intent, and the expected Verdict and decision (ADR 0009).
+FIXTURE := $(CURDIR)/.github/agent-tests/truncate
 DEMO_GIT := git -C $(DEMO_TREE) -c user.name=demo -c user.email=demo@localhost
 
 demo: preflight

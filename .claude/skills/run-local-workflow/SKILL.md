@@ -96,7 +96,7 @@ Use AskUserQuestion with:
 
 ### Path B: `make demo`
 
-No preparation. It uses the committed example in `.github/trial/` and the agent config as it is on disk.
+No preparation. It uses the committed example in `.github/agent-tests/truncate/` and the agent config as it is on disk.
 
 ### Path C: `make clean`
 
