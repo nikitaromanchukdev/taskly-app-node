@@ -206,7 +206,7 @@ The owner decided each Suspected Defect. The details are in each PR's Defects co
 
 ### Not verified on the live repo yet
 
-- The `skip-test-agent` label: honoured for an admin, ignored for a user without maintain rights.
+- The `skip-test-agent` label from a user without maintain rights, which must be ignored. This needs a second GitHub account. The admin half is proven: run 40949797997 shows "skipped by label", with `verify` still run.
 - A tautological test dropped from a real Bot commit. The same chain is proven locally: the `tautology` case of `make demo` gets a blocking `tautology` Finding from the Reviewer, and `agent-output.ts` drops exactly that test file ([ADR 0009](docs/adr/0009-test-agent-config-changes-against-committed-cases.md)).
 
 ## Production version
