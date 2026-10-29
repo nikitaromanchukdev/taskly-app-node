@@ -5,7 +5,7 @@ For reviewers: what this repo adds, how to run it, what to set up, and what is s
 This repo adds two ways to get tests written, both by the same agents and skills:
 
 - **PR workflow:** adds or updates tests for the Units a PR changes. GitHub Actions runs it on every PR.
-- **Backfill:** adds tests for existing, untested code, in one pass. The owner runs it locally: the Author, then the Reviewer, as in a PR workflow. The results go in the PR description, because the PR workflow has nothing to test on a PR that only adds tests. See [ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md).
+- **Backfill:** adds tests for existing, untested code, in one pass. The owner runs it locally with `make backfill-gaps` and `make backfill-tests`: the Author, then the Reviewer, as in a PR workflow. The results go in the PR description, because the PR workflow has nothing to test on a PR that only adds tests. See [ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md).
 
 ## Key decisions
 
@@ -168,7 +168,7 @@ Limitations:
 - The Reviewer is also a model. It lowers the rate of false Defects; it does not remove them.
 - A same-repo writer can edit the workflow file in a PR. PR runs use the head copy of the workflow, so the budgets and the guard steps in it can be changed. The team mitigation is CODEOWNERS on `.github/` and `.claude/`, with a ruleset that requires code-owner review. It is not applied, because the sole maintainer cannot approve their own PRs.
 - Fork PRs get no agent run and no status. The branch must be pushed into the repo to merge.
-- No CI run proves a Backfill's agent results. Its PR description is written by hand from the local `author.json` and `reviewer.json`, so it can drift from them ([ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md)).
+- No CI run proves a Backfill's agent results. Its PR description is put together by hand from the tables `make backfill-tests` renders from `author.json` and `reviewer.json`, so the prose around them can drift ([ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md)).
 - The script tests cover the scripts that decide what reaches the PR: `guard.ts`, `sanitize.ts`, `agent-output.ts`, `status.ts`, and the not-run notes of `render.ts`. The scripts that call GitHub (`prepare.ts`, `context.ts`, `report.ts`) have no tests.
 - The output types in `agent-output.ts` repeat the schema enums by hand, so they can drift from the schemas.
 - The mutation score is reported, not enforced.
@@ -199,4 +199,4 @@ Items a production version would add:
 - An identical local run of the PR workflow, as a single entry point.
 - API smoke tests against Postgres, and a frontend build, in `verify`.
 - Citation checks on the Intent sources in the tests.
-- A script that renders a Backfill PR description from `author.json` and `reviewer.json`.
+- A script that renders the whole Backfill PR description from the `make backfill-tests` output, not only its tables.

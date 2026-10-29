@@ -72,15 +72,17 @@ describe('trial.ts intent', () => {
 });
 
 describe('trial.ts clean', () => {
-  it("cleans the current branch's folder and keeps its intent", () => {
+  it("cleans the current branch's folder and keeps the person's input", () => {
     const root = repo();
     file(root, `${FOLDER}/pr-body.md`, 'intent');
     file(root, `${FOLDER}/author.json`, '{}');
     file(root, `${FOLDER}/round1/reviewer.json`, '{}');
+    file(root, `${FOLDER}/approved.json`, '{}');
     const result = trial(root, 'clean');
     assert.equal(result.code, 0);
     assert.doesNotMatch(result.stdout, /no output for this branch/);
     assert.ok(existsSync(join(root, FOLDER, 'pr-body.md')));
+    assert.ok(existsSync(join(root, FOLDER, 'approved.json')));
     assert.ok(!existsSync(join(root, FOLDER, 'author.json')));
     assert.ok(!existsSync(join(root, FOLDER, 'round1')));
   });
@@ -147,6 +149,78 @@ describe('trial.ts check', () => {
     const result = check({});
     assert.equal(result.code, 1);
     assert.match(result.stderr, /checked\.json missing[\s\S]*Verdict missing[\s\S]*no decision/);
+  });
+});
+
+describe('trial.ts approve', () => {
+  const recommendation = (unit: string) => ({
+    path: `frontend/src/${unit}.ts`,
+    unit,
+    lines: '50',
+    branches: '25',
+    expectations: [{ text: `when ${unit} fails, then it shows an error`, source: 'README', kind: 'intent' }],
+  });
+  const gaps = {
+    summary: 'Three gaps.',
+    recommendations: [recommendation('useA'), recommendation('useB'), recommendation('useC')],
+    unreachable: [{ path: 'frontend/src/main.tsx', unit: 'root', reason: 'runs on import' }],
+    out_of_scope: [{ path: 'frontend/src/types.ts', reason: 'type-only' }],
+  };
+
+  // Writes gaps.json and runs approve without a terminal.
+  function approve(items: string | undefined, content: unknown = gaps) {
+    const dir = tempDir();
+    writeFileSync(join(dir, 'gaps.json'), JSON.stringify(content));
+    const result = runScript('trial.ts', ['approve', '--out', dir, ...(items === undefined ? [] : ['--items', items])]);
+    const approved = existsSync(join(dir, 'approved.json')) ? JSON.parse(readFileSync(join(dir, 'approved.json'), 'utf8')) : undefined;
+    return { ...result, dir, approved };
+  }
+
+  it('renders gaps.md with numbered Recommendations and the other two lists', () => {
+    const { dir } = approve('all');
+    const markdown = readFileSync(join(dir, 'gaps.md'), 'utf8');
+    assert.match(markdown, /## Recommendations\n1\. `frontend\/src\/useA\.ts` useA — lines 50%, branches 25%/);
+    assert.match(markdown, /3\. `frontend\/src\/useC\.ts` useC/);
+    assert.match(markdown, /## Unreachable\n- `frontend\/src\/main\.tsx` root — runs on import/);
+    assert.match(markdown, /## Out of scope\n- `frontend\/src\/types\.ts` — type-only/);
+  });
+
+  it('keeps only the picked Recommendations, plus every Unreachable and out-of-scope item', () => {
+    const { code, approved, stdout } = approve('3,1');
+    assert.equal(code, 0);
+    assert.deepEqual(approved.recommendations.map((item: { unit: string }) => item.unit), ['useC', 'useA']);
+    assert.deepEqual(approved.unreachable, gaps.unreachable);
+    assert.deepEqual(approved.out_of_scope, gaps.out_of_scope);
+    assert.match(stdout, /approved 2 of 3 Recommendations/);
+  });
+
+  for (const [items, count] of [['all', 3], ['none', 0], ['2,2', 1]] as const) {
+    it(`approves ${count} Recommendations for "${items}"`, () => {
+      assert.equal(approve(items).approved.recommendations.length, count);
+    });
+  }
+
+  for (const items of ['4', '0', 'a', '']) {
+    it(`rejects "${items}" with exit 64 and writes nothing`, () => {
+      const { code, approved } = approve(items);
+      assert.equal(code, 64);
+      assert.equal(approved, undefined);
+    });
+  }
+
+  it('only renders gaps.md and says how to approve when there is no terminal and no items', () => {
+    const { code, stdout, approved, dir } = approve(undefined);
+    assert.equal(code, 0);
+    assert.ok(existsSync(join(dir, 'gaps.md')));
+    assert.equal(approved, undefined);
+    assert.match(stdout, /not approved yet[\s\S]*make backfill-approve/);
+  });
+
+  it('rejects a gap list that breaks the schema', () => {
+    const { code, stderr, approved } = approve('all', { ...gaps, out_of_scope: [{ path: 'x.ts', reason: 'boring' }] });
+    assert.equal(code, 1);
+    assert.match(stderr, /gaps\.json is invalid[\s\S]*"boring" not one of/);
+    assert.equal(approved, undefined);
   });
 });
 

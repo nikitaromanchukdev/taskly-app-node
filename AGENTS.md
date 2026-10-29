@@ -70,7 +70,7 @@ Claude Code sessions in this repo can load these skills from `.claude/skills/`. 
 | Branch, run the checks, get a review, commit, push, clean up after the merge | `ship-change` |
 | Open or edit a PR, comment, close an issue, read the bot comments, re-run the workflow | `github-ops` |
 | Prove a new test in `.github/scripts/tests/` catches what it claims | `prove-script-test` |
-| Run `make trial`, `make demo`, `make hook-demo` or `make clean` for you, with the intent question and a summary | `run-local-workflow` |
+| Run `make trial`, `make demo`, the Backfill, `make hook-demo` or `make clean` for you, with the intent or approval question and a summary | `run-local-workflow` |
 | Write a Backfill PR description and its Defects comment | `report-backfill` |
 
 ## Commands
@@ -90,8 +90,9 @@ The workflow's own scripts in `.github/scripts/` have their own tests: run `make
 - `make trial` runs the PR workflow's steps locally against `main`. Set `BASE=<branch>` to compare with another branch. Commit your change first: the trial tests `git diff main...HEAD`.
 - The first run on a branch asks where the intended behaviour comes from: the open PR's description, the branch's commit messages, typed in, your editor, or none. Without intent, Defects can only come from `openapi.json`, existing tests or docs. The answer is saved and reused for that branch. Delete `.test-agent/<branch>/pr-body.md` to be asked again.
 - `make demo` checks the agent config on disk, committed or not, against a planted Defect in [`.github/agent-tests/truncate/`](.github/agent-tests/truncate/). It prints `demo: PASS` when the Author flags the Defect and the Reviewer confirms it. Run it before you open a PR that changes `.claude/` or `.github/scripts/`: that PR's own run uses `main`'s copy ([ADR 0004](docs/adr/0004-isolate-pr-code-from-secrets.md)), so nothing else tests the new config before the merge ([ADR 0009](docs/adr/0009-test-agent-config-changes-against-committed-cases.md)).
+- **Backfill**, one package at a time: `make backfill-gaps PACKAGE=<backend|frontend>` has the Author rank the coverage gaps and asks which to approve; `make backfill-approve PACKAGE=… APPROVE=1,3` picks or changes them without a new agent run; `make backfill-tests PACKAGE=…` tests the approved items, reviews the tests, and measures coverage before and after. Commit your changes first. See [ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md).
 - `make hook-demo` asks an agent to edit `backend/src`, and checks that the write guard blocks it.
-- Output goes to `.test-agent/<branch>/`, which git ignores. Nothing is pushed or posted. `make clean` removes the current branch's output and keeps its PR description; if the branch has none, it lists the other folders to pick from.
+- Output goes to `.test-agent/<branch>/`, which git ignores. Nothing is pushed or posted. `make clean` removes the current branch's output and keeps its PR description and approved gap list; if the branch has none, it lists the other folders to pick from.
 - Needs Node 24, `make`, `jq`, `rsync`, Docker running, and a logged-in Claude Code CLI. `make trial` and `make demo` use model tokens.
 
 The steps are in the [Makefile](Makefile).

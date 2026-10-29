@@ -1,6 +1,6 @@
 ---
 name: report-backfill
-description: Turn a finished local Backfill run (author.json, reviewer.json, coverage, Stryker) into the Backfill PR description and its Defects comment, and record the owner's decisions on Suspected Defects in SOLUTION.md. Use after the Author and Reviewer finish a Backfill for one package, or when the owner decides a Finding or Suspected Defect, e.g. "write the backfill PR", "report the backfill", "owner decided the suspected defects". Running the agents is not part of this skill; posting goes through github-ops.
+description: Turn a finished local Backfill run (make backfill-tests output: author.json, reviewer.json, coverage; plus Stryker) into the Backfill PR description and its Defects comment, and record the owner's decisions on Suspected Defects in SOLUTION.md. Use after the Author and Reviewer finish a Backfill for one package, or when the owner decides a Finding or Suspected Defect, e.g. "write the backfill PR", "report the backfill", "owner decided the suspected defects". Running the agents is run-local-workflow's job; posting goes through github-ops.
 allowed-tools:
   - Bash(node .github/scripts/agent-output.ts:*)
   - Bash(make report:*)
@@ -20,14 +20,16 @@ Write the Backfill PR description and the Defects comment from the run's artifac
 | Input | Default | Notes |
 |---|---|---|
 | Package | ask | `backend` or `frontend`, never both in one PR |
-| Artifacts dir | `.test-agent/backfill-{package}/` | `author.json`, `tests.patch`, `reviewer.json`; one subdir per Reviewer round |
-| Approved gap list | `{dir}/approved-gaps.md` | from `map-coverage-gaps` and the owner's approval |
-| Coverage before and after | `{dir}/coverage-before.json`, `{dir}/coverage-after.json` | `json-summary` reports |
+| Artifacts dir | the branch's folder: `node .github/scripts/trial.ts dir` | written by `make backfill-gaps` and `make backfill-tests` (the `run-local-workflow` skill runs them) |
+| Approved gap list | `{dir}/approved.json`, rendered in `{dir}/gaps.md` | the owner's choice from `make backfill-approve` |
+| Coverage before and after | `{dir}/coverage-before.json`, `{dir}/coverage-after.json` | `json-summary` reports from `make backfill-tests` |
 | Attempt budget | the one the run used | for `agent-output.ts` |
 
 ---
 
 ## Step 1: Check the Agents' Output
+
+`make backfill-tests` already wrote `{dir}/checked.json`. Run the check again only after the owner edited tests by hand (a new Reviewer round):
 
 ```bash
 node .github/scripts/agent-output.ts {dir}/author.json --patch {dir}/tests.patch \
@@ -39,6 +41,8 @@ node .github/scripts/agent-output.ts {dir}/author.json --patch {dir}/tests.patch
 ---
 
 ## Step 2: Render the Tables
+
+`make backfill-tests` already rendered them. After a new Reviewer round, render them again:
 
 ```bash
 make report OUT={dir}

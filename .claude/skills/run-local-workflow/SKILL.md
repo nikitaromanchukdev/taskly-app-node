@@ -1,6 +1,6 @@
 ---
 name: run-local-workflow
-description: Run this repo's local make commands for the user - make trial (the PR workflow's agents on the current branch), make demo (the agent config against a planted Defect, PASS or FAIL), make hook-demo, make clean, single steps - including the setup each needs, and summarize the result. Use when the user wants to try the agents locally, test a change before opening a PR, check that changed agents or skills still work, see the write guard block an edit, or clean up local output, e.g. "run the trial", "run the demo", "does the new skill still catch the defect", "test this locally", "clean test-agent". For CI runs on a PR, use github-ops.
+description: Run this repo's local make commands for the user - make trial (the PR workflow's agents on the current branch), make demo (the agent config against a planted Defect, PASS or FAIL), the Backfill (make backfill-gaps, backfill-approve, backfill-tests), make hook-demo, make clean, single steps - including the setup each needs, and summarize the result. Use when the user wants to try the agents locally, test a change before opening a PR, check that changed agents or skills still work, run a Backfill, see the write guard block an edit, or clean up local output, e.g. "run the trial", "run the demo", "run the backfill for frontend", "does the new skill still catch the defect", "test this locally", "clean test-agent". For CI runs on a PR, use github-ops.
 allowed-tools:
   - Bash(make -n:*)
   - Bash(node .github/scripts/trial.ts dir:*)
@@ -26,6 +26,9 @@ Map the request to a command:
 | Run the agents on the committed change of this branch | `make trial` | yes |
 | Check that the agent config on disk still catches a known Defect | `make demo` | yes |
 | See the write guard block an edit to source code | `make hook-demo` | yes, a little |
+| Find and rank the coverage gaps of one package (Backfill, part 1) | `make backfill-gaps PACKAGE={package}` | yes |
+| Pick or change the approved gaps | `make backfill-approve PACKAGE={package} APPROVE={items}` | no |
+| Test the approved gaps and review the tests (Backfill, part 2) | `make backfill-tests PACKAGE={package}` | yes |
 | Repeat one step of the last trial | `make {scope\|intent\|install\|author\|patch\|review\|check\|report}` | `author`, `review` only |
 | Run the workflow scripts' own tests | `make script-tests` | no |
 | Remove local output | `make clean` | no |
@@ -102,6 +105,21 @@ No preparation. It uses the committed example in `.github/agent-tests/truncate/`
 
 Run `node .github/scripts/trial.ts dir`. **If that folder does NOT exist:** `make clean` only lists the other folders, because it has no terminal to ask. Ask the user which one, then run `make clean OUT=.test-agent/{folder}`.
 
+### Path D: The Backfill
+
+1. **Check the working tree** - as in Path A; `tests.patch` must hold only the Author's tests.
+2. **Package** - never default it. Ask: `backend` or `frontend`. One package per run and per PR.
+3. **Part 1** - run `make backfill-gaps PACKAGE={package}`. Without a terminal it ends with "not approved yet": that is expected, not a failure.
+4. **Approve** - show the user `{folder}/gaps.md`, then ask which Recommendations to approve, by number, `all` or `none`. Free text: ask in the reply, not with options. Then run:
+
+   ```bash
+   make backfill-approve PACKAGE={package} APPROVE={1,3|all|none}
+   ```
+
+5. **Part 2** - after approval, confirm the cost (Step 2), then run `make backfill-tests PACKAGE={package}`.
+
+Never approve items yourself. **Why:** the owner decides what the Backfill tests (ADR 0008).
+
 ---
 
 ## Step 4: Run
@@ -120,6 +138,8 @@ Run the command in the background, so a long run does not hit the shell timeout,
 |---|---|---|
 | `make trial` | `{folder}/report.md`, `author.md`, `reviewer.md`, `checked.json` | `checked.json` has `"ok": true` |
 | `make demo` | the last lines of the output, then `.test-agent/demo/out/` | `trial: demo PASS` |
+| `make backfill-gaps` | `{folder}/gaps.md` | the three lists are there |
+| `make backfill-tests` | `{folder}/author.md`, `reviewer.md`, `checked.json`, `coverage-before.json`, `coverage-after.json` | `checked.json` has `"ok": true` |
 | `make hook-demo` | the output | `hook-demo: backend/src unchanged` |
 | `make script-tests` | `ℹ pass` and `ℹ fail` lines | `ℹ fail 0` |
 
