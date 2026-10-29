@@ -27,8 +27,9 @@ Map the request to a command:
 | Check that the agent config on disk still catches a known Defect and blocks a known tautology | `make demo` | yes |
 | See the write guard block an edit to source code | `make hook-demo` | yes, a little |
 | Find and rank the coverage gaps of one package (Backfill, part 1) | `make backfill-gaps PACKAGE={package}` | yes |
-| Pick or change the approved gaps | `make backfill-approve PACKAGE={package} APPROVE={items}` | no |
+| Pick or change the approved gaps, and decline others | `make backfill-approve PACKAGE={package} APPROVE={items} [DECLINE={items} REASON="{why}"]` | no |
 | Test the approved gaps and review the tests (Backfill, part 2) | `make backfill-tests PACKAGE={package}` | yes |
+| Record the Backfill's decided gaps, once its PR is open | `make backfill-record PACKAGE={package} PR={n}` | no |
 | Repeat one step of the last trial | `make {scope\|intent\|install\|author\|patch\|review\|check\|report}` | `author`, `review` only |
 | Run the workflow scripts' own tests | `make script-tests` | no |
 | Remove local output | `make clean` | no |
@@ -110,11 +111,13 @@ Run `node .github/scripts/local/trial.ts dir`. **If that folder does NOT exist:*
 1. **Check the working tree** - as in Path A; `tests.patch` must hold only the Author's tests.
 2. **Package** - never default it. Ask: `backend` or `frontend`. One package per run and per PR.
 3. **Part 1** - run `make backfill-gaps PACKAGE={package}`. Without a terminal it ends with "not approved yet": that is expected, not a failure.
-4. **Approve** - show the user `{folder}/gaps.md`, then ask which Recommendations to approve, by number, `all` or `none`. Free text: ask in the reply, not with options. Then run:
+4. **Approve** - show the user `{folder}/gaps.md`, then ask which Recommendations to approve, by number, `all` or `none`, and which of the others to decline as not worth testing, with one reason. Free text: ask in the reply, not with options. Gaps under **Decided earlier** are already left out. Then run:
 
    ```bash
-   make backfill-approve PACKAGE={package} APPROVE={1,3|all|none}
+   make backfill-approve PACKAGE={package} APPROVE={1,3|all|none} DECLINE={2,4} REASON="{reason}"
    ```
+
+   Leave out `DECLINE` and `REASON` when the user declines nothing. One `REASON` covers every item in `DECLINE`, and each run replaces `declined.json`. For a reason per item, ask the user to run `! make backfill-approve PACKAGE={package}` on a terminal: it asks for each one.
 
 5. **Part 2** - after approval, confirm the cost (Step 2), then run `make backfill-tests PACKAGE={package}`.
 
@@ -138,7 +141,7 @@ Run the command in the background, so a long run does not hit the shell timeout,
 |---|---|---|
 | `make trial` | `{folder}/report.md`, `author.md`, `reviewer.md`, `checked.json` | `checked.json` has `"ok": true` |
 | `make demo` | the `== demo case:` sections of the output, then `.test-agent/demo/{case}/` | `trial: demo PASS` for every case |
-| `make backfill-gaps` | `{folder}/gaps.md` | the three lists are there |
+| `make backfill-gaps` | `{folder}/gaps.md` | the three lists and **Decided earlier** are there |
 | `make backfill-tests` | `{folder}/author.md`, `reviewer.md`, `checked.json`, `coverage-before.json`, `coverage-after.json` | `checked.json` has `"ok": true` |
 | `make hook-demo` | the output | `hook-demo: backend/src unchanged` |
 | `make script-tests` | `ℹ pass` and `ℹ fail` lines | `ℹ fail 0` |

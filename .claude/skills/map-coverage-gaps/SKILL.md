@@ -75,6 +75,8 @@ End the run with the report as the structured output. Write no tests.
 
 `make backfill-gaps` renders the report as `gaps.md` and asks the owner. The approved list comes back as `approved.json` in the same shape, for the next run.
 
+Report every gap, including ones an earlier Backfill decided. `trial.ts approve` leaves out each gap recorded in `docs/backfill-decisions.json` whose file is unchanged, and lists it under **Decided earlier**. **Why:** a script matches the record the same way every time, and a changed file brings its gap back for a new decision (ADR 0008).
+
 ---
 
 ## Output Format
@@ -84,6 +86,6 @@ The structured output required by `.github/scripts/contracts/gaps.schema.json`:
 | Field | Holds |
 |---|---|
 | `summary` | short markdown: what was measured and the biggest gaps |
-| `recommendations` | ranked as in Step 5; each with `path`, `unit`, `lines` and `branches` as percent strings (e.g., `"61.25"`), and `expectations` (`text`, `source`, `kind`) |
+| `recommendations` | ranked as in Step 5; each with `path` from the repo root, `unit` as the bare name (no notes such as "(failure path)"), `lines` and `branches` as percent strings (e.g., `"61.25"`), and `expectations` (`text`, `source`, `kind`) |
 | `unreachable` | `path`, `unit`, and the `reason` no unit test can exercise it |
 | `out_of_scope` | `path`, and the skip rule's `reason` id from `rules.ts` |

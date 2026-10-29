@@ -1,6 +1,7 @@
 // The files one PR run passes between jobs, and small pure helpers over them.
 // scope.json (scope) · author.json, reviewer.json (agents) · checked.json (bot_commit) · results.json (suites) · context.json (publish)
-// Backfill only: gaps.json (the Author's gap list) · approved.json (the owner's choice)
+// Backfill only: gaps.json (the Author's gap list) · approved.json, declined.json (the owner's choice)
+// · docs/backfill-decisions.json (committed: the gaps earlier Backfills decided)
 import type { Pkg, SkipReason } from '../contracts/rules.ts';
 
 // ---- scope.json ----
@@ -31,6 +32,7 @@ export type Verdict = 'added' | 'amended' | 'not-needed' | 'flagged-defect';
 export type Kind = 'intent' | 'characterization';
 export type Severity = 'blocking' | 'advisory';
 export type DefectDecision = 'confirmed' | 'rejected';
+export type NotNeededReason = 'already-covered' | 'no-logic' | 'trivial' | 'not-unit-testable' | 'unreachable';
 
 export type Expectation = { text: string; source: string; kind: Kind; tests: string[] };
 export type Defect = { test: string; expected: string; received: string; source: string };
@@ -38,7 +40,7 @@ export type Unit = {
   path: string;
   unit: string;
   verdict: Verdict;
-  reason?: string;
+  reason?: NotNeededReason;
   expectations: Expectation[];
   attempts: number;
   defect?: Defect;
@@ -57,6 +59,25 @@ export type UnreachableGap = { path: string; unit: string; reason: string };
 export type OutOfScopeFile = { path: string; reason: SkipReason };
 // approved.json has the same shape, with only the Recommendations the owner approved.
 export type Gaps = { summary: string; recommendations: Recommendation[]; unreachable: UnreachableGap[]; out_of_scope: OutOfScopeFile[] };
+// declined.json: Recommendations the owner declined at approval. The PR number is not known yet, so they wait here.
+export type DeclinedGap = { path: string; unit: string; reason: string };
+
+// ---- docs/backfill-decisions.json (enum mirrors backfill-decisions.schema.json) ----
+
+export type GapDecision = 'declined' | 'unreachable' | 'kept-as-is';
+// One gap the owner decided. Without a unit it covers every Unit of the file. blob is the file's git blob id
+// when decided: once the file changes, the decision is stale and the gap is shown again.
+export type DecidedGap = {
+  package: Pkg;
+  path: string;
+  unit?: string;
+  lines?: string;
+  decision: GapDecision;
+  reason: string;
+  pr: number;
+  blob: string;
+};
+export type BackfillDecisions = { decisions: DecidedGap[] };
 
 // ---- checked.json ----
 

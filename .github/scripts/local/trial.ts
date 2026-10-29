@@ -5,23 +5,49 @@
 //        node trial.ts clean [--out <dir>]          clean <dir>, else the current branch's folder, or pick one
 //        node trial.ts check --out <dir> --expected <file>
 //                                                   compare a run with the outcome the demo expects
-//        node trial.ts approve --out <dir> [--items <1,3|all|none>]
-//                                                   Backfill: render <dir>/gaps.json as gaps.md, then write the
-//                                                   Recommendations the owner approves to <dir>/approved.json
+//        node trial.ts approve --out <dir> --package <p> [--items <1,3|all|none>] [--decline <2,4> --reason <text>]
+//                                                   Backfill: render <dir>/gaps.json as gaps.md without the gaps
+//                                                   decided earlier, then write the Recommendations the owner
+//                                                   approves to <dir>/approved.json and declines to declined.json
+//        node trial.ts record --out <dir> --package <p> --pr <n>
+//                                                   Backfill: add <dir>/declined.json and the not-needed Units of
+//                                                   <dir>/author.json to docs/backfill-decisions.json
+//        node trial.ts decide --package <p> --path <file> [--unit <name>] [--lines <a-b>]
+//                             --decision <declined|unreachable|kept-as-is> --reason <text> --pr <n>
+//                                                   Backfill: add or replace one decision in the record
+// record and decide take --decisions <file> to use another record than docs/backfill-decisions.json.
 // Questions are asked only on a terminal. Without one, intent takes the first source found, clean lists folders,
 // and approve without --items only renders gaps.md.
 import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { parseArgs } from 'node:util';
-import type { AuthorOutput, Checked, DefectDecision, Gaps, Recommendation, ReviewerOutput, Severity, Verdict } from '../lib/artifacts.ts';
+import type {
+  AuthorOutput,
+  BackfillDecisions,
+  Checked,
+  DecidedGap,
+  DeclinedGap,
+  DefectDecision,
+  GapDecision,
+  Gaps,
+  NotNeededReason,
+  Recommendation,
+  ReviewerOutput,
+  Severity,
+  UnreachableGap,
+  Verdict,
+} from '../lib/artifacts.ts';
 import { unitKey } from '../lib/artifacts.ts';
 import { die } from '../lib/cli.ts';
 import { readJson, readJsonIfExists, writeJson } from '../lib/json.ts';
 import { readSchema, validate } from '../lib/schema.ts';
+import type { Pkg } from '../contracts/rules.ts';
+import { PACKAGES } from '../contracts/rules.ts';
 
-type Command = 'dir' | 'intent' | 'clean' | 'check' | 'approve';
+type Command = 'dir' | 'intent' | 'clean' | 'check' | 'approve' | 'record' | 'decide';
 type SourceId = 'pr' | 'commits' | 'type' | 'editor' | 'skip';
 type Source = { id: SourceId; label: string; text?: string };
 type UnitRef = { path: string; unit: string };
@@ -38,8 +64,9 @@ const SCRIPT = 'trial.ts';
 const ROOT = '.test-agent';
 const PR_BODY = 'pr-body.md';
 const APPROVED = 'approved.json';
+const DECLINED = 'declined.json';
 // Kept by clean: the person's input, not run output.
-const KEPT = new Set([PR_BODY, APPROVED]);
+const KEPT = new Set([PR_BODY, APPROVED, DECLINED]);
 const NO_INTENT_WARNING =
   'trial: no intent given. Defects can only come from openapi.json, existing tests or docs; the rest becomes Characterization tests.';
 
@@ -186,27 +213,123 @@ async function check(out: string, expectedFile: string): Promise<void> {
   console.log('trial: demo PASS');
 }
 
+// ---- Backfill decisions: gaps the owner decided in an earlier Backfill (docs/backfill-decisions.json) ----
+
+// A recorded decision that covers a gap. It is fresh while the file is the one the owner decided on.
+type Match = { record: DecidedGap; fresh: boolean };
+type Matcher = (gap: UnitRef) => Match | undefined;
+type Decided = { gap: UnitRef; match: Match };
+type DecisionInput = { pkg: Pkg; pr: number; path: string; unit?: string; lines?: string; decision: GapDecision; reason: string };
+
+const DECISIONS = 'docs/backfill-decisions.json';
+const DECISIONS_SCHEMA = '../contracts/backfill-decisions.schema.json';
+const GAP_DECISIONS: readonly GapDecision[] = ['declined', 'unreachable', 'kept-as-is'];
+// A not-needed Verdict in a Backfill is the owner's decision once the PR merges.
+const NOT_NEEDED_DECISIONS: Record<NotNeededReason, GapDecision> = {
+  'already-covered': 'declined',
+  'no-logic': 'declined',
+  trivial: 'declined',
+  'not-unit-testable': 'declined',
+  unreachable: 'unreachable',
+};
+
+const bullets = (lines: string[]) => lines.map((line) => `  - ${line}`).join('\n');
+// Gap lists and author.json may give a path from the package folder (src/x.ts); the record keeps it from the repo root.
+const fromRoot = (path: string, pkg: Pkg) => (path.startsWith(`${pkg}/`) ? path : `${pkg}/${path}`);
+// Agents decorate Unit names ("start (failure path)", "`createApp`"); the record keeps and compares the bare name.
+const bareUnit = (unit: string) => unit.replaceAll('`', '').trim().split(/\s+/)[0];
+// One Unit can hold several decisions, one per line range.
+const decisionKey = (gap: { path: string; unit?: string; lines?: string }) => `${gap.path}#${gap.unit ?? ''}#${gap.lines ?? ''}`;
+
+// The file's git blob id, as `git hash-object` prints it; undefined when the file is gone.
+function blobId(path: string): string | undefined {
+  if (!existsSync(path)) return undefined;
+  const content = readFileSync(path);
+  return createHash('sha1').update(`blob ${content.length}\0`).update(content).digest('hex');
+}
+
+function readDecisions(file: string): DecidedGap[] {
+  const record = readJsonIfExists<BackfillDecisions>(file) ?? { decisions: [] };
+  const errors = validate(record, readSchema(DECISIONS_SCHEMA));
+  if (errors.length) die(SCRIPT, `${file} is invalid:\n${bullets(errors)}`);
+  return record.decisions;
+}
+
+// Adds or replaces each entry by path and Unit, sorted, so the committed file's diff stays small.
+function saveDecisions(file: string, entries: DecidedGap[]): void {
+  const merged = new Map(readDecisions(file).map((gap) => [decisionKey(gap), gap]));
+  for (const entry of entries) merged.set(decisionKey(entry), entry);
+  const decisions = [...merged.values()].sort((a, b) => decisionKey(a).localeCompare(decisionKey(b)));
+  const errors = validate({ decisions }, readSchema(DECISIONS_SCHEMA));
+  if (errors.length) die(SCRIPT, `nothing recorded, an entry is invalid:\n${bullets(errors)}`);
+  writeJson(file, { decisions });
+}
+
+function decidedGap(input: DecisionInput): DecidedGap {
+  const path = fromRoot(input.path, input.pkg);
+  const blob = blobId(path) ?? die(SCRIPT, `${path} does not exist; run from the repo root`);
+  return {
+    package: input.pkg,
+    path,
+    ...(input.unit ? { unit: bareUnit(input.unit) } : {}),
+    ...(input.lines ? { lines: input.lines } : {}),
+    decision: input.decision,
+    reason: input.reason,
+    pr: input.pr,
+    blob,
+  };
+}
+
+// A record without a Unit covers the whole file. A fresh decision wins over a stale one for the same gap.
+function matcher(records: DecidedGap[], pkg: Pkg): Matcher {
+  return (gap) => {
+    const path = fromRoot(gap.path, pkg);
+    const blob = blobId(path);
+    const found = records
+      .filter((entry) => entry.path === path && (entry.unit === undefined || entry.unit === bareUnit(gap.unit)))
+      .map((entry) => ({ record: entry, fresh: entry.blob === blob }));
+    return found.find((match) => match.fresh) ?? found[0];
+  };
+}
+
 // ---- Backfill approval ----
 
-const recommendationLines = (item: Recommendation, i: number) => [
+const decidedAs = ({ record }: Match) => `${record.decision} in #${record.pr}: ${record.reason}`;
+const staleNotes = (match?: Match) =>
+  match && !match.fresh ? [`decided earlier (${decidedAs(match)}), but the file changed since: decide again`] : [];
+
+const recommendationLines = (match: Matcher) => (item: Recommendation, i: number) => [
   `${i + 1}. \`${item.path}\` ${item.unit} — lines ${item.lines}%, branches ${item.branches}%`,
   ...item.expectations.map((e) => `   - ${e.text} (${e.kind}; ${e.source})`),
+  ...staleNotes(match(item)).map((note) => `   - ${note}`),
 ];
 
-function gapsMarkdown(gaps: Gaps): string {
+const unreachableLine = (match: Matcher) => (item: UnreachableGap) =>
+  `- \`${item.path}\` ${item.unit} — ${item.reason}${staleNotes(match(item)).map((note) => ` (${note})`).join('')}`;
+
+const decidedLines = (decided: Decided[]) => [
+  `Left out of the lists above: each file is unchanged since the decision. Remove an entry from \`${DECISIONS}\` to see its gap again.`,
+  '',
+  ...decided.map(({ gap, match }) => `- \`${gap.path}\` ${gap.unit} — ${decidedAs(match)}`),
+];
+
+function gapsMarkdown(gaps: Gaps, match: Matcher, decided: Decided[]): string {
   return [
     '# Coverage gaps',
     '',
     gaps.summary,
     '',
     '## Recommendations',
-    ...(gaps.recommendations.length ? gaps.recommendations.flatMap(recommendationLines) : ['None.']),
+    ...(gaps.recommendations.length ? gaps.recommendations.flatMap(recommendationLines(match)) : ['None.']),
     '',
     '## Unreachable',
-    ...(gaps.unreachable.length ? gaps.unreachable.map((item) => `- \`${item.path}\` ${item.unit} — ${item.reason}`) : ['None.']),
+    ...(gaps.unreachable.length ? gaps.unreachable.map(unreachableLine(match)) : ['None.']),
     '',
     '## Out of scope',
     ...(gaps.out_of_scope.length ? gaps.out_of_scope.map((item) => `- \`${item.path}\` — ${item.reason}`) : ['None.']),
+    '',
+    '## Decided earlier',
+    ...(decided.length ? decidedLines(decided) : ['None.']),
     '',
   ].join('\n');
 }
@@ -226,45 +349,155 @@ function picked(answer: string, count: number): number[] {
   return [...new Set(numbers)].map((n) => n - 1);
 }
 
-async function askItems(): Promise<string> {
+async function askLine(question: string): Promise<string> {
   const prompt = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    return await prompt.question('Approve which Recommendations? (e.g. 1,3,5, all, or none) > ');
+    return await prompt.question(question);
   } finally {
     prompt.close();
   }
 }
 
-async function approve(out: string, items?: string): Promise<void> {
+type ApproveOptions = { out: string; pkg: Pkg; decisions: string; items?: string; decline?: string; reason?: string };
+
+// The Recommendations the owner declines, each with a reason: from --decline and --reason, or asked on a terminal.
+async function declinedGaps(open: Recommendation[], chosen: number[], options: ApproveOptions): Promise<DeclinedGap[]> {
+  const asking = options.decline === undefined && process.stdin.isTTY && open.length > chosen.length;
+  const answer = options.decline ?? (asking ? await askLine('Decline which of the others, so later Backfills skip them? (e.g. 2,4, or Enter for none) > ') : '');
+  if (!answer.trim()) return [];
+  const indexes = picked(answer, open.length);
+  const both = indexes.filter((i) => chosen.includes(i)).map((i) => i + 1);
+  if (both.length) die(SCRIPT, `approve: ${both.join(',')} cannot be approved and declined`, 'usage');
+  const declined: DeclinedGap[] = [];
+  for (const i of indexes) {
+    const reason = options.reason ?? (asking ? await askLine(`Why is ${i + 1} (${open[i].unit}) not worth testing? One line > `) : '');
+    if (!reason.trim()) die(SCRIPT, 'approve: a declined Recommendation needs a reason (--reason)', 'usage');
+    declined.push({ path: open[i].path, unit: open[i].unit, reason: reason.trim() });
+  }
+  return declined;
+}
+
+async function approve(options: ApproveOptions): Promise<void> {
+  const { out, pkg } = options;
   const gaps = readJson<Gaps>(join(out, 'gaps.json'));
   const errors = validate(gaps, readSchema('../contracts/gaps.schema.json'));
-  if (errors.length) die(SCRIPT, `gaps.json is invalid:\n${errors.map((error) => `  - ${error}`).join('\n')}`);
-  const markdown = gapsMarkdown(gaps);
+  if (errors.length) die(SCRIPT, `gaps.json is invalid:\n${bullets(errors)}`);
+  // Gaps decided earlier leave the lists before the owner sees them; a stale decision only adds a note.
+  const match = matcher(readDecisions(options.decisions), pkg);
+  const isOpen = (gap: UnitRef) => match(gap)?.fresh !== true;
+  const decided: Decided[] = [...gaps.recommendations, ...gaps.unreachable].flatMap((gap) => {
+    const found = match(gap);
+    return found?.fresh ? [{ gap, match: found }] : [];
+  });
+  const open: Gaps = { ...gaps, recommendations: gaps.recommendations.filter(isOpen), unreachable: gaps.unreachable.filter(isOpen) };
+  const markdown = gapsMarkdown(open, match, decided);
   writeFileSync(join(out, 'gaps.md'), markdown);
   console.log(markdown);
-  if (items === undefined && !process.stdin.isTTY) {
-    return console.log(`trial: not approved yet. Pick the items with: make backfill-approve PACKAGE=<package> APPROVE=<1,3|all|none>`);
+  if (decided.length) console.log(`trial: ${decided.length} gaps decided earlier are left out (${DECISIONS})`);
+  if (options.items === undefined && !process.stdin.isTTY) {
+    return console.log(`trial: not approved yet. Pick the items with: make backfill-approve PACKAGE=${pkg} APPROVE=<1,3|all|none>`);
   }
-  const chosen = picked(items ?? (await askItems()), gaps.recommendations.length);
+  const count = open.recommendations.length;
+  const chosen = picked(options.items ?? (await askLine('Approve which Recommendations? (e.g. 1,3,5, all, or none) > ')), count);
+  const declined = await declinedGaps(open.recommendations, chosen, options);
   // Unreachable and out-of-scope items always go along: the Author records them as not-needed.
-  writeJson(join(out, APPROVED), { ...gaps, recommendations: chosen.map((i) => gaps.recommendations[i]) });
-  console.log(`trial: approved ${chosen.length} of ${gaps.recommendations.length} Recommendations; saved to ${join(out, APPROVED)}`);
+  writeJson(join(out, APPROVED), { ...open, recommendations: chosen.map((i) => open.recommendations[i]) });
+  writeJson(join(out, DECLINED), declined);
+  console.log(`trial: approved ${chosen.length} of ${count} Recommendations; saved to ${join(out, APPROVED)}`);
+  if (declined.length) {
+    console.log(`trial: declined ${declined.length}; once the PR is open, record them with: make backfill-record PACKAGE=${pkg} PR=<n>`);
+  }
+}
+
+// ---- Backfill record ----
+
+type RecordOptions = { out: string; pkg: Pkg; pr: number; decisions: string };
+
+// The owner's decisions from one Backfill: the declined Recommendations and the Author's not-needed Units.
+function record({ out, pkg, pr, decisions }: RecordOptions): void {
+  const declined = readJsonIfExists<DeclinedGap[]>(join(out, DECLINED)) ?? [];
+  const units = readJsonIfExists<AuthorOutput>(join(out, 'author.json'))?.units ?? [];
+  const unreachable = readJsonIfExists<Gaps>(join(out, APPROVED))?.unreachable ?? [];
+  const sameGap = (a: UnitRef, b: UnitRef) => fromRoot(a.path, pkg) === fromRoot(b.path, pkg) && bareUnit(a.unit) === bareUnit(b.unit);
+  // The gap list says why a gap is unreachable; a Verdict only names its reason.
+  const reasonText = (unit: UnitRef, reason: NotNeededReason) =>
+    unreachable.find((gap) => reason === 'unreachable' && sameGap(gap, unit))?.reason ?? `Verdict not-needed (${reason})`;
+  const entries = [
+    ...declined.map((gap) => decidedGap({ pkg, pr, path: gap.path, unit: gap.unit, decision: 'declined', reason: gap.reason })),
+    ...units.flatMap(({ verdict, reason, ...unit }) =>
+      verdict === 'not-needed' && reason
+        ? [decidedGap({ pkg, pr, path: unit.path, unit: unit.unit, decision: NOT_NEEDED_DECISIONS[reason], reason: reasonText(unit, reason) })]
+        : [],
+    ),
+  ];
+  if (!entries.length) return console.log(`trial: nothing to record in ${out}`);
+  saveDecisions(decisions, entries);
+  for (const entry of entries) console.log(`  - ${entry.path} ${entry.unit ?? '(whole file)'}: ${entry.decision}, ${entry.reason}`);
+  console.log(`trial: recorded ${entries.length} decisions from #${pr} in ${decisions}; commit it with the Backfill PR`);
+}
+
+// ---- CLI ----
+
+const required = (value: string | undefined, usage: string) => value?.trim() || die(SCRIPT, usage, 'usage');
+const oneOf = <T extends string>(allowed: readonly T[], value: string | undefined, flag: string): T =>
+  allowed.find((item) => item === value) ?? die(SCRIPT, `${flag} must be one of ${allowed.join('|')}`, 'usage');
+function prNumber(value: string | undefined): number {
+  const pr = Number(value);
+  return Number.isInteger(pr) && pr > 0 ? pr : die(SCRIPT, '--pr must be a PR number', 'usage');
 }
 
 async function main(): Promise<void> {
   const { positionals, values } = parseArgs({
     allowPositionals: true,
-    options: { out: { type: 'string' }, base: { type: 'string', default: 'main' }, expected: { type: 'string' }, items: { type: 'string' } },
+    options: {
+      out: { type: 'string' },
+      base: { type: 'string', default: 'main' },
+      expected: { type: 'string' },
+      items: { type: 'string' },
+      package: { type: 'string' },
+      decline: { type: 'string' },
+      reason: { type: 'string' },
+      pr: { type: 'string' },
+      path: { type: 'string' },
+      unit: { type: 'string' },
+      lines: { type: 'string' },
+      decision: { type: 'string' },
+      decisions: { type: 'string', default: DECISIONS },
+    },
   });
+  const pkg = () => oneOf(PACKAGES, values.package, '--package');
   const commands: Record<Command, () => Promise<void>> = {
     dir: async () => console.log(branchFolder()),
     intent: () => intent(values.out ?? die(SCRIPT, 'intent needs --out <dir>', 'usage'), values.base),
     clean: () => clean(values.out),
-    approve: () => approve(values.out ?? die(SCRIPT, 'approve needs --out <dir>', 'usage'), values.items),
+    approve: () =>
+      approve({
+        out: required(values.out, 'approve needs --out <dir>'),
+        pkg: pkg(),
+        decisions: values.decisions,
+        items: values.items,
+        decline: values.decline,
+        reason: values.reason,
+      }),
+    record: async () =>
+      record({ out: required(values.out, 'record needs --out <dir>'), pkg: pkg(), pr: prNumber(values.pr), decisions: values.decisions }),
+    decide: async () => {
+      const entry = decidedGap({
+        pkg: pkg(),
+        pr: prNumber(values.pr),
+        path: required(values.path, 'decide needs --path <file>'),
+        unit: values.unit,
+        lines: values.lines,
+        decision: oneOf(GAP_DECISIONS, values.decision, '--decision'),
+        reason: required(values.reason, 'decide needs --reason <text>').trim(),
+      });
+      saveDecisions(values.decisions, [entry]);
+      console.log(`trial: recorded ${entry.path} ${entry.unit ?? '(whole file)'} as ${entry.decision} in ${values.decisions}`);
+    },
     check: () => check(values.out ?? die(SCRIPT, 'check needs --out <dir>', 'usage'), values.expected ?? die(SCRIPT, 'check needs --expected <file>', 'usage')),
   };
   const name = positionals[0] ?? '';
-  if (!Object.hasOwn(commands, name)) die(SCRIPT, 'usage: trial.ts <dir|intent|clean|check|approve>', 'usage');
+  if (!Object.hasOwn(commands, name)) die(SCRIPT, 'usage: trial.ts <dir|intent|clean|check|approve|record|decide>', 'usage');
   await commands[name as Command]();
 }
 

@@ -96,7 +96,7 @@ The same steps with raw `gh` commands:
 
   | Folder | Holds | Files |
   |---|---|---|
-  | `contracts/` | Rules and output formats, no logic | `rules.ts`, `author.schema.json`, `reviewer.schema.json`, `gaps.schema.json` |
+  | `contracts/` | Rules and output formats, no logic | `rules.ts`, `author.schema.json`, `reviewer.schema.json`, `gaps.schema.json`, `backfill-decisions.schema.json` |
   | `agent/` | Security controls that run inside or around an agent session | `sandbox.sh`, `guard.ts` |
   | `workflow/` | The CI jobs' steps | `prepare.ts`, `agent-output.ts`, `verify.sh`, `results.ts`, `context.ts`, `report.ts`, `render.ts`, `status.ts`, `sanitize.ts`, `github.ts` |
   | `local/` | Local runs only, from the Makefile and contributor skills | `trial.ts` |
@@ -163,6 +163,8 @@ The owner decided each Suspected Defect. The details are in each PR's Defects co
 | Frontend: the overdue badge uses the local date, while the overdue counter uses the UTC date | Kept on purpose, see [limitations](#assumptions-and-limitations). |
 | Frontend: a 422 shows the fixed input-limits message and ignores the server's `detail` | Kept on purpose: the server's validation messages are not written for users. |
 
+These four decisions, and the gaps both Backfills found unreachable or not worth testing, are recorded in `docs/backfill-decisions.json`. Later gap lists leave them out until their file changes ([ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md)).
+
 ## Assumptions and limitations
 
 ### Assumptions
@@ -197,7 +199,7 @@ The owner decided each Suspected Defect. The details are in each PR's Defects co
 **Backfill**
 
 - No CI run proves a Backfill's results. Its PR description is written from the tables `make backfill-tests` renders, so the prose around them can drift ([ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md)).
-- The gap list does not know what earlier Backfills decided, because those decisions live only in PR descriptions. In a test run on the frontend, 4 of 5 Recommendations had been decided in #25.
+- A decided gap is left out of later gap lists only while its file is unchanged and the agent names its Unit the same way. Otherwise the owner decides it again ([ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md)).
 
 **Scripts**
 
@@ -233,7 +235,7 @@ Items a production version would add.
 - A check for gaps in the lines a PR touches, reported as a separate required check.
 - Tests for the scripts that call GitHub, against a fake API.
 - More committed agent-test cases next to `truncate`, such as a tautology the Reviewer must block, run in a scheduled CI job.
-- Decided Backfill gaps recorded in the repo, and the whole Backfill PR description rendered by a script.
+- The whole Backfill PR description rendered by a script.
 
 **Usability and cost**
 

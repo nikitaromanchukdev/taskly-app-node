@@ -1,0 +1,119 @@
+{
+  "decisions": [
+    {
+      "package": "backend",
+      "path": "backend/src/api/health.ts",
+      "unit": "createHealthRouter",
+      "lines": "6-9",
+      "decision": "kept-as-is",
+      "reason": "Suspected Defect: a database failure gets the generic 500 body. Kept on purpose: the client gets no detail about why the server failed.",
+      "pr": 33,
+      "blob": "d8475bf7e8d298ec43363c0fdeee1fe10c8f0567"
+    },
+    {
+      "package": "backend",
+      "path": "backend/src/core/lifespan.ts",
+      "unit": "start",
+      "lines": "12-28",
+      "decision": "unreachable",
+      "reason": "Listen, signal handlers and the shutdown timer need a real port and process listeners.",
+      "pr": 24,
+      "blob": "6ffa6bf335fc96b11fe2888cbd573f5f569c12a7"
+    },
+    {
+      "package": "backend",
+      "path": "backend/src/factory.ts",
+      "unit": "createApp",
+      "lines": "20",
+      "decision": "unreachable",
+      "reason": "res.headersSent: no route sends headers and then fails.",
+      "pr": 24,
+      "blob": "2380453aa19afed84053911c77cf94dcbfcef30c"
+    },
+    {
+      "package": "backend",
+      "path": "backend/src/factory.ts",
+      "unit": "createApp",
+      "lines": "21-24",
+      "decision": "kept-as-is",
+      "reason": "Suspected Defect: body-parser client errors other than bad JSON and too-large bodies return 500. Kept: fixing app code was outside the Backfill.",
+      "pr": 33,
+      "blob": "2380453aa19afed84053911c77cf94dcbfcef30c"
+    },
+    {
+      "package": "backend",
+      "path": "backend/src/main.ts",
+      "decision": "unreachable",
+      "reason": "Process entry point: its only logic runs on import and sets process.exitCode.",
+      "pr": 24,
+      "blob": "4fd83235ab4878a294fe565d1ed4f8c9935094d3"
+    },
+    {
+      "package": "frontend",
+      "path": "frontend/src/app/AppProviders.tsx",
+      "unit": "AppProviders",
+      "decision": "declined",
+      "reason": "Verdict not-needed (trivial)",
+      "pr": 25,
+      "blob": "32e5cc3630bfb4575412689b125546319ed221e8"
+    },
+    {
+      "package": "frontend",
+      "path": "frontend/src/features/todos/components/DeleteTodoDialog.tsx",
+      "unit": "DeleteTodoDialog",
+      "lines": "19",
+      "decision": "unreachable",
+      "reason": "if (pending): unreachable from the UI, the confirm button is disabled while pending.",
+      "pr": 25,
+      "blob": "783ae44f0bbca6409429b5d76fce77cbffd47346"
+    },
+    {
+      "package": "frontend",
+      "path": "frontend/src/features/todos/components/TodoStats.tsx",
+      "unit": "TodoStats",
+      "decision": "declined",
+      "reason": "Verdict not-needed (not-unit-testable)",
+      "pr": 25,
+      "blob": "7b3e9804546d0d79d7b4dfe678ab01a83f8e84a4"
+    },
+    {
+      "package": "frontend",
+      "path": "frontend/src/features/todos/hooks/useDeleteTodoMutation.ts",
+      "unit": "useDeleteTodoMutation",
+      "decision": "declined",
+      "reason": "Verdict not-needed (already-covered)",
+      "pr": 25,
+      "blob": "79bd4247fa6680fae173a49aa9b0f1292f23d4d5"
+    },
+    {
+      "package": "frontend",
+      "path": "frontend/src/features/todos/TodosPage.tsx",
+      "unit": "TodosPage",
+      "lines": "28",
+      "decision": "unreachable",
+      "reason": "if (busy): unreachable from the UI, the checkbox is disabled while busy.",
+      "pr": 25,
+      "blob": "70229bfa1bdd2f9e3adf7781ec2ca6c9ba02b67a"
+    },
+    {
+      "package": "frontend",
+      "path": "frontend/src/features/todos/utils/todos.ts",
+      "unit": "isOverdue",
+      "lines": "59-62",
+      "decision": "kept-as-is",
+      "reason": "Suspected Defect: the badge uses the local date, the counter the UTC date. Kept: due_date has no time or offset; the fix changes the data model.",
+      "pr": 33,
+      "blob": "8624464c32740247fa9aac9c482a62d488ddae7d"
+    },
+    {
+      "package": "frontend",
+      "path": "frontend/src/lib/http.ts",
+      "unit": "request",
+      "lines": "14-17",
+      "decision": "kept-as-is",
+      "reason": "Suspected Defect: a 422 shows the fixed input-limits message. Kept on purpose: the server's validation messages are not written for users.",
+      "pr": 33,
+      "blob": "85d5ee4a4faae95ae08db5aaa0469013d4829f70"
+    }
+  ]
+}

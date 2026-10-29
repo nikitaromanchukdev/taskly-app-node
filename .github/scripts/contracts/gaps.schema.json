@@ -12,8 +12,8 @@
         "additionalProperties": false,
         "required": ["path", "unit", "lines", "branches", "expectations"],
         "properties": {
-          "path": { "type": "string", "maxLength": 300 },
-          "unit": { "type": "string", "maxLength": 200 },
+          "path": { "type": "string", "description": "From the repo root, e.g. frontend/src/lib/http.ts.", "maxLength": 300 },
+          "unit": { "type": "string", "description": "The Unit's name only, e.g. createApp; no notes.", "maxLength": 200 },
           "lines": { "type": "string", "description": "Lines covered now, in percent, e.g. \"61.25\".", "maxLength": 10 },
           "branches": { "type": "string", "description": "Branches covered now, in percent, e.g. \"45.39\".", "maxLength": 10 },
           "expectations": {
@@ -39,8 +39,8 @@
         "additionalProperties": false,
         "required": ["path", "unit", "reason"],
         "properties": {
-          "path": { "type": "string", "maxLength": 300 },
-          "unit": { "type": "string", "maxLength": 200 },
+          "path": { "type": "string", "description": "From the repo root, e.g. backend/src/main.ts.", "maxLength": 300 },
+          "unit": { "type": "string", "description": "The Unit's name only, e.g. start; no notes.", "maxLength": 200 },
           "reason": { "type": "string", "description": "Why no unit test can exercise it.", "maxLength": 500 }
         }
       }
