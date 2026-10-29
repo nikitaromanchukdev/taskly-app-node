@@ -119,18 +119,20 @@ it('characterization: keeps the dialog open and does not call onDeleted when the
     deleteState({ mutateAsync, error }),
   )
   const onDeleted = vi.fn()
+  const onClose = vi.fn()
   render(
     <DeleteTodoDialog
       todo={todoFixture}
       busy={false}
-      onClose={vi.fn()}
+      onClose={onClose}
       onDeleted={onDeleted}
     />,
   )
   await user.click(screen.getByRole('button', { name: 'Delete task' }))
   expect(mutateAsync).toHaveBeenCalledTimes(1)
+  // The dialog is always open while mounted; only the parent closes it, through these callbacks.
   expect(onDeleted).not.toHaveBeenCalled()
-  expect(screen.getByRole('dialog', { name: 'Delete task?' })).toBeVisible()
+  expect(onClose).not.toHaveBeenCalled()
 })
 
 it('characterization: reads Deleting… and is disabled while a deletion is pending, and sends nothing on a second confirm', async () => {

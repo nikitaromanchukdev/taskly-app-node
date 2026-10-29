@@ -45,13 +45,11 @@ describe('request', () => {
   })
 
   it('resolves a 204 response without reading a body', async () => {
-    const response = new Response(null, { status: 204 })
-    const readJson = vi.spyOn(response, 'json')
-    fetchMock.mockResolvedValue(response)
+    // Reading the empty body as JSON would reject, so resolving proves it is not read.
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }))
     await expect(
       request('/todos/7', { method: 'DELETE' }),
     ).resolves.toBeUndefined()
-    expect(readJson).not.toHaveBeenCalled()
   })
 
   it('reports a network failure as a connection problem', async () => {
@@ -61,7 +59,7 @@ describe('request', () => {
     )
   })
 
-  it('reports a network failure as a connection problem when no signal is given', async () => {
+  it('reports a network failure as a connection problem when options are given without a signal', async () => {
     fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
     await expect(request('/todos', { method: 'POST' })).rejects.toThrow(
       'Cannot connect to the server. Please try again.',

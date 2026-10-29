@@ -146,9 +146,9 @@ describe('selectTodos', () => {
 
 describe('validateTodo', () => {
   it('rejects a title longer than 120 characters', () => {
-    expect(validateTodo({ ...input, title: 'x'.repeat(121) })).toEqual({
-      title: 'The title must be at most 120 characters.',
-    })
+    expect(
+      Object.keys(validateTodo({ ...input, title: 'x'.repeat(121) })),
+    ).toEqual(['title'])
   })
 
   it('accepts a title of exactly 120 characters', () => {
@@ -157,10 +157,8 @@ describe('validateTodo', () => {
 
   it('rejects a description longer than 2000 characters', () => {
     expect(
-      validateTodo({ ...input, description: 'x'.repeat(2001) }),
-    ).toEqual({
-      description: 'The description must be at most 2000 characters.',
-    })
+      Object.keys(validateTodo({ ...input, description: 'x'.repeat(2001) })),
+    ).toEqual(['description'])
   })
 
   it('accepts a description of exactly 2000 characters', () => {
@@ -169,7 +167,7 @@ describe('validateTodo', () => {
     ).toEqual({})
   })
 
-  it('measures the title and description length after trimming', () => {
+  it('characterization: measures the title and description length after trimming', () => {
     expect(
       validateTodo({
         ...input,
@@ -182,20 +180,35 @@ describe('validateTodo', () => {
   it.each(['2026-02-30', '2025-02-29'])(
     'rejects the impossible calendar date %s',
     (due_date) => {
-      expect(validateTodo({ ...input, due_date })).toEqual({
-        due_date: 'Enter a valid date.',
-      })
+      expect(Object.keys(validateTodo({ ...input, due_date }))).toEqual([
+        'due_date',
+      ])
     },
   )
 
   it('rejects a date in the right format that does not exist (2026-13-01)', () => {
-    expect(validateTodo({ ...input, due_date: '2026-13-01' })).toEqual({
-      due_date: 'Enter a valid date.',
-    })
+    expect(
+      Object.keys(validateTodo({ ...input, due_date: '2026-13-01' })),
+    ).toEqual(['due_date'])
   })
 
   it('accepts 29 February in a leap year', () => {
     expect(validateTodo({ ...input, due_date: '2024-02-29' })).toEqual({})
+  })
+
+  it('characterization: names the limit or the date problem in each message', () => {
+    expect(
+      validateTodo({
+        ...input,
+        title: 'x'.repeat(121),
+        description: 'x'.repeat(2001),
+        due_date: '2026-02-30',
+      }),
+    ).toEqual({
+      title: 'The title must be at most 120 characters.',
+      description: 'The description must be at most 2000 characters.',
+      due_date: 'Enter a valid date.',
+    })
   })
 })
 
