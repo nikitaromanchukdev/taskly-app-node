@@ -1,5 +1,6 @@
 // The files one PR run passes between jobs, and small pure helpers over them.
 // scope.json (prepare) · author.json, reviewer.json (engineer) · checked.json (commit) · results.json (verify) · context.json (publish)
+// Backfill only: gaps.json (the Author's gap list) · approved.json (the owner's choice)
 import type { Pkg, SkipReason } from './rules.ts';
 
 // ---- scope.json ----
@@ -47,6 +48,15 @@ export type AuthorOutput = { summary: string; units: Unit[] };
 export type Finding = { test: string; severity: Severity; reason: string; note: string };
 export type DefectReview = { path: string; unit: string; decision: DefectDecision; source_quote: string };
 export type ReviewerOutput = { summary: string; findings: Finding[]; defects: DefectReview[] };
+
+// ---- gaps.json, approved.json (Backfill; enums mirror gaps.schema.json) ----
+
+export type GapExpectation = { text: string; source: string; kind: Kind };
+export type Recommendation = { path: string; unit: string; lines: string; branches: string; expectations: GapExpectation[] };
+export type UnreachableGap = { path: string; unit: string; reason: string };
+export type OutOfScopeFile = { path: string; reason: SkipReason };
+// approved.json has the same shape, with only the Recommendations the owner approved.
+export type Gaps = { summary: string; recommendations: Recommendation[]; unreachable: UnreachableGap[]; out_of_scope: OutOfScopeFile[] };
 
 // ---- checked.json ----
 

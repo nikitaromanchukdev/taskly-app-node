@@ -1,6 +1,6 @@
 ---
 name: map-coverage-gaps
-description: Rank the untested behaviour of the whole codebase from coverage reports into Recommendations, Unreachable, and Out of scope, then stop for the owner's approval. Use when starting a Backfill, i.e. adding tests for existing untested code. Backfill only; a PR run starts with scope-change instead. Writes no tests.
+description: Rank the untested behaviour of the whole codebase from coverage reports into Recommendations, Unreachable, and Out of scope (gaps.schema.json), then stop for the owner's approval. Use when starting a Backfill, i.e. adding tests for existing untested code. Backfill only; a PR run starts with scope-change instead. Writes no tests.
 ---
 
 # Map Coverage Gaps
@@ -69,22 +69,21 @@ Group the gaps by Unit. Every logic file under 100% appears exactly once in the 
 
 ## Step 6: Stop for Approval
 
-Show the report to the owner and wait.
+End the run with the report as the structured output. Write no tests.
 
 **Gate — stop here:** write no tests until the owner names the approved items. Only those go on to `extract-intent`. An approved item that still cannot be exercised gets the Verdict `not-needed` with the reason `unreachable`.
+
+`make backfill-gaps` renders the report as `gaps.md` and asks the owner. The approved list comes back as `approved.json` in the same shape, for the next run.
 
 ---
 
 ## Output Format
 
-```markdown
-## Recommendations
-1. {path} {Unit} — lines {n}%, branches {n}%
-   - {Expectation} ({Intent source})
+The structured output required by `.github/scripts/gaps.schema.json`:
 
-## Unreachable
-- {path} {Unit} — {why}
-
-## Out of scope
-- {path} — {reason id}
-```
+| Field | Holds |
+|---|---|
+| `summary` | short markdown: what was measured and the biggest gaps |
+| `recommendations` | ranked as in Step 5; each with `path`, `unit`, `lines` and `branches` as percent strings (e.g., `"61.25"`), and `expectations` (`text`, `source`, `kind`) |
+| `unreachable` | `path`, `unit`, and the `reason` no unit test can exercise it |
+| `out_of_scope` | `path`, and the skip rule's `reason` id from `rules.ts` |

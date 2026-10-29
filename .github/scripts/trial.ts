@@ -5,18 +5,23 @@
 //        node trial.ts clean [--out <dir>]          clean <dir>, else the current branch's folder, or pick one
 //        node trial.ts check --out <dir> --expected <file>
 //                                                   compare a run with the outcome the demo expects
-// Questions are asked only on a terminal. Without one, intent takes the first source found, and clean lists folders.
+//        node trial.ts approve --out <dir> [--items <1,3|all|none>]
+//                                                   Backfill: render <dir>/gaps.json as gaps.md, then write the
+//                                                   Recommendations the owner approves to <dir>/approved.json
+// Questions are asked only on a terminal. Without one, intent takes the first source found, clean lists folders,
+// and approve without --items only renders gaps.md.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { parseArgs } from 'node:util';
-import type { AuthorOutput, Checked, DefectDecision, ReviewerOutput, Verdict } from './artifacts.ts';
+import type { AuthorOutput, Checked, DefectDecision, Gaps, Recommendation, ReviewerOutput, Verdict } from './artifacts.ts';
 import { unitKey } from './artifacts.ts';
 import { die } from './cli.ts';
-import { readJson, readJsonIfExists } from './json.ts';
+import { readJson, readJsonIfExists, writeJson } from './json.ts';
+import { readSchema, validate } from './schema.ts';
 
-type Command = 'dir' | 'intent' | 'clean' | 'check';
+type Command = 'dir' | 'intent' | 'clean' | 'check' | 'approve';
 type SourceId = 'pr' | 'commits' | 'type' | 'editor' | 'skip';
 type Source = { id: SourceId; label: string; text?: string };
 type UnitRef = { path: string; unit: string };
@@ -26,8 +31,9 @@ type Expected = { units: (UnitRef & { verdict: Verdict })[]; defects: (UnitRef &
 const SCRIPT = 'trial.ts';
 const ROOT = '.test-agent';
 const PR_BODY = 'pr-body.md';
+const APPROVED = 'approved.json';
 // Kept by clean: the person's input, not run output.
-const KEPT = new Set([PR_BODY]);
+const KEPT = new Set([PR_BODY, APPROVED]);
 const NO_INTENT_WARNING =
   'trial: no intent given. Defects can only come from openapi.json, existing tests or docs; the rest becomes Characterization tests.';
 
@@ -164,19 +170,85 @@ async function check(out: string, expectedFile: string): Promise<void> {
   console.log('trial: demo PASS');
 }
 
+// ---- Backfill approval ----
+
+const recommendationLines = (item: Recommendation, i: number) => [
+  `${i + 1}. \`${item.path}\` ${item.unit} — lines ${item.lines}%, branches ${item.branches}%`,
+  ...item.expectations.map((e) => `   - ${e.text} (${e.kind}; ${e.source})`),
+];
+
+function gapsMarkdown(gaps: Gaps): string {
+  return [
+    '# Coverage gaps',
+    '',
+    gaps.summary,
+    '',
+    '## Recommendations',
+    ...(gaps.recommendations.length ? gaps.recommendations.flatMap(recommendationLines) : ['None.']),
+    '',
+    '## Unreachable',
+    ...(gaps.unreachable.length ? gaps.unreachable.map((item) => `- \`${item.path}\` ${item.unit} — ${item.reason}`) : ['None.']),
+    '',
+    '## Out of scope',
+    ...(gaps.out_of_scope.length ? gaps.out_of_scope.map((item) => `- \`${item.path}\` — ${item.reason}`) : ['None.']),
+    '',
+  ].join('\n');
+}
+
+// "1,3" picks by number, "all" every item, "none" no item. Anything else is a usage error.
+function picked(answer: string, count: number): number[] {
+  const choices: Record<string, () => number[]> = {
+    all: () => Array.from({ length: count }, (_, i) => i),
+    none: () => [],
+  };
+  const keyword = answer.trim().toLowerCase();
+  if (Object.hasOwn(choices, keyword)) return choices[keyword]();
+  const numbers = keyword.split(',').map((part) => Number(part.trim()));
+  if (!numbers.length || numbers.some((n) => !Number.isInteger(n) || n < 1 || n > count)) {
+    die(SCRIPT, `approve: "${answer}" is not 1..${count}, "all" or "none"`, 'usage');
+  }
+  return [...new Set(numbers)].map((n) => n - 1);
+}
+
+async function askItems(): Promise<string> {
+  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return await prompt.question('Approve which Recommendations? (e.g. 1,3,5, all, or none) > ');
+  } finally {
+    prompt.close();
+  }
+}
+
+async function approve(out: string, items?: string): Promise<void> {
+  const gaps = readJson<Gaps>(join(out, 'gaps.json'));
+  const errors = validate(gaps, readSchema('./gaps.schema.json'));
+  if (errors.length) die(SCRIPT, `gaps.json is invalid:\n${errors.map((error) => `  - ${error}`).join('\n')}`);
+  const markdown = gapsMarkdown(gaps);
+  writeFileSync(join(out, 'gaps.md'), markdown);
+  console.log(markdown);
+  if (items === undefined && !process.stdin.isTTY) {
+    return console.log(`trial: not approved yet. Pick the items with: make backfill-approve PACKAGE=<package> APPROVE=<1,3|all|none>`);
+  }
+  const chosen = picked(items ?? (await askItems()), gaps.recommendations.length);
+  // Unreachable and out-of-scope items always go along: the Author records them as not-needed.
+  writeJson(join(out, APPROVED), { ...gaps, recommendations: chosen.map((i) => gaps.recommendations[i]) });
+  console.log(`trial: approved ${chosen.length} of ${gaps.recommendations.length} Recommendations; saved to ${join(out, APPROVED)}`);
+}
+
 async function main(): Promise<void> {
   const { positionals, values } = parseArgs({
     allowPositionals: true,
-    options: { out: { type: 'string' }, base: { type: 'string', default: 'main' }, expected: { type: 'string' } },
+    options: { out: { type: 'string' }, base: { type: 'string', default: 'main' }, expected: { type: 'string' }, items: { type: 'string' } },
   });
   const commands: Record<Command, () => Promise<void>> = {
     dir: async () => console.log(branchFolder()),
     intent: () => intent(values.out ?? die(SCRIPT, 'intent needs --out <dir>', 'usage'), values.base),
     clean: () => clean(values.out),
+    approve: () => approve(values.out ?? die(SCRIPT, 'approve needs --out <dir>', 'usage'), values.items),
     check: () => check(values.out ?? die(SCRIPT, 'check needs --out <dir>', 'usage'), values.expected ?? die(SCRIPT, 'check needs --expected <file>', 'usage')),
   };
   const name = positionals[0] ?? '';
-  if (!Object.hasOwn(commands, name)) die(SCRIPT, 'usage: trial.ts <dir|intent|clean|check>', 'usage');
+  if (!Object.hasOwn(commands, name)) die(SCRIPT, 'usage: trial.ts <dir|intent|clean|check|approve>', 'usage');
   await commands[name as Command]();
 }
 

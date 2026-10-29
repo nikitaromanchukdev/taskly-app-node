@@ -1,0 +1,65 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "recommendations", "unreachable", "out_of_scope"],
+  "properties": {
+    "summary": { "type": "string", "maxLength": 3000 },
+    "recommendations": {
+      "type": "array",
+      "description": "Ranked: failure paths a user sees, then branches that choose an outcome, then happy paths of untested Units.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "unit", "lines", "branches", "expectations"],
+        "properties": {
+          "path": { "type": "string", "maxLength": 300 },
+          "unit": { "type": "string", "maxLength": 200 },
+          "lines": { "type": "string", "description": "Lines covered now, in percent, e.g. \"61.25\".", "maxLength": 10 },
+          "branches": { "type": "string", "description": "Branches covered now, in percent, e.g. \"45.39\".", "maxLength": 10 },
+          "expectations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["text", "source", "kind"],
+              "properties": {
+                "text": { "type": "string", "description": "when X, then Y", "maxLength": 500 },
+                "source": { "type": "string", "maxLength": 300 },
+                "kind": { "type": "string", "enum": ["intent", "characterization"] }
+              }
+            }
+          }
+        }
+      }
+    },
+    "unreachable": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "unit", "reason"],
+        "properties": {
+          "path": { "type": "string", "maxLength": 300 },
+          "unit": { "type": "string", "maxLength": 200 },
+          "reason": { "type": "string", "description": "Why no unit test can exercise it.", "maxLength": 500 }
+        }
+      }
+    },
+    "out_of_scope": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "reason"],
+        "properties": {
+          "path": { "type": "string", "maxLength": 300 },
+          "reason": {
+            "type": "string",
+            "description": "The skip rule in .github/scripts/rules.ts that matches the file.",
+            "enum": ["tests", "stories", "generated", "lockfiles", "docs", "config", "type-only", "barrel", "deleted", "not-source"]
+          }
+        }
+      }
+    }
+  }
+}
