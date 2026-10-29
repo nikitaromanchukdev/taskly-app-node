@@ -1,9 +1,9 @@
 // render.ts writes the PR comments. When an agent did not run, its comment says why and links the ADR behind that reason.
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import type { Candidate, Context, Run, Scope, Skipped } from '../artifacts.ts';
-import { RENDERERS } from '../render.ts';
-import type { CommentName } from '../render.ts';
+import type { Candidate, Context, Run, Scope, Skipped } from '../lib/artifacts.ts';
+import { RENDERERS } from '../workflow/render.ts';
+import type { CommentName } from '../workflow/render.ts';
 
 const REPO = 'owner/repo';
 const adr = (file: string) => `See [ADR ${file.slice(0, 4)}](https://github.com/${REPO}/blob/main/docs/adr/${file}).`;

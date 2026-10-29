@@ -1,8 +1,8 @@
 // status.ts decides test-agent/verify, the merge gate (ADR 0005).
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import type { AuthorOutput, Context, DefectDecision, Results, ReviewerOutput, Run, Unit } from '../artifacts.ts';
-import { decide } from '../status.ts';
+import type { AuthorOutput, Context, DefectDecision, Results, ReviewerOutput, Run, Unit } from '../lib/artifacts.ts';
+import { decide } from '../workflow/status.ts';
 
 const context = (overrides: Partial<Context> = {}): Context => ({
   pr: 1,

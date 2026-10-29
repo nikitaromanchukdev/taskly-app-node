@@ -1,7 +1,7 @@
 // The files one PR run passes between jobs, and small pure helpers over them.
 // scope.json (prepare) · author.json, reviewer.json (engineer) · checked.json (commit) · results.json (verify) · context.json (publish)
 // Backfill only: gaps.json (the Author's gap list) · approved.json (the owner's choice)
-import type { Pkg, SkipReason } from './rules.ts';
+import type { Pkg, SkipReason } from '../contracts/rules.ts';
 
 // ---- scope.json ----
 

@@ -8,7 +8,7 @@ The agents of the PR workflow and the Backfill follow their own agent files, whi
 
 - **Terms.** Read [TERMINOLOGY.md](TERMINOLOGY.md) and use its terms as written, not the synonyms it lists. If a concept has no term there, say so instead of inventing one.
 - **Decisions.** Read the ADRs in [`docs/adr/`](docs/adr/) that touch the area you change. If your change contradicts one, say which and why in the PR description, and update the ADR in the same PR. Never override an ADR silently.
-- **Rules live in code.** Test paths and skip rules are in [`.github/scripts/rules.ts`](.github/scripts/rules.ts); Verdicts, reasons and kinds in [`author.schema.json`](.github/scripts/author.schema.json) and [`reviewer.schema.json`](.github/scripts/reviewer.schema.json); the status policy in [`status.ts`](.github/scripts/status.ts). Link them; never copy their lists into a doc.
+- **Rules live in code.** Test paths and skip rules are in [`.github/scripts/contracts/rules.ts`](.github/scripts/contracts/rules.ts); Verdicts, reasons and kinds in [`author.schema.json`](.github/scripts/contracts/author.schema.json) and [`reviewer.schema.json`](.github/scripts/contracts/reviewer.schema.json); the status policy in [`status.ts`](.github/scripts/workflow/status.ts). Link them; never copy their lists into a doc.
 - **One home per fact.** Why: an ADR. How to run and what was built: [SOLUTION.md](SOLUTION.md). How to work: this file. Terms: TERMINOLOGY.md. Change a fact in its home and link to it from elsewhere.
 
 ## What happens when you push to a PR
@@ -54,7 +54,7 @@ Use it only as [ADR 0005](docs/adr/0005-gate-merges-on-test-agent-verify.md) des
 
 ## Conventions
 
-- **Tests.** Test paths per package are in `TEST_PATHS` in [`.github/scripts/rules.ts`](.github/scripts/rules.ts). Package playbooks for the Author are in `.claude/skills/author-tests/`.
+- **Tests.** Test paths per package are in `TEST_PATHS` in [`.github/scripts/contracts/rules.ts`](.github/scripts/contracts/rules.ts). Package playbooks for the Author are in `.claude/skills/author-tests/`.
 - **Commits.** Use Conventional Commits with a scope, for example `fix(backend): ...`.
 - **Branches.** `feat/issue-<n>-<slug>`.
 - **PR description.** Write the intended behaviour in it, and end with `Closes #<n>`. The test workflow reads the description as an Intent source.

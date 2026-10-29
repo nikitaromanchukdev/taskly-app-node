@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import type { AuthorOutput, Checked, Finding, ReviewerOutput, Unit } from '../artifacts.ts';
+import type { AuthorOutput, Checked, Finding, ReviewerOutput, Unit } from '../lib/artifacts.ts';
 import { runScript, tempDir } from './run.ts';
 
 type Inputs = { author: unknown; reviewer?: unknown; patch?: string; maxAttempts?: string };
@@ -47,7 +47,7 @@ function check({ author, reviewer, patch, maxAttempts = '3' }: Inputs): Outcome 
   const args = [file('author.json', JSON.stringify(author)), '--max-attempts', maxAttempts, '--out', join(dir, 'checked.json')];
   if (reviewer !== undefined) args.push('--reviewer', file('reviewer.json', JSON.stringify(reviewer)));
   if (patch !== undefined) args.push('--patch', file('tests.patch', patch));
-  const result = runScript('agent-output.ts', args);
+  const result = runScript('workflow/agent-output.ts', args);
   return { code: result.code, stderr: result.stderr, checked: JSON.parse(readFileSync(join(dir, 'checked.json'), 'utf8')) };
 }
 
@@ -162,12 +162,12 @@ describe('agent-output.ts', () => {
 
   it('writes checked.json even when the author file cannot be read', () => {
     const dir = tempDir();
-    const result = runScript('agent-output.ts', [join(dir, 'missing.json'), '--max-attempts', '3', '--out', join(dir, 'checked.json')]);
+    const result = runScript('workflow/agent-output.ts', [join(dir, 'missing.json'), '--max-attempts', '3', '--out', join(dir, 'checked.json')]);
     assert.equal(result.code, 1);
     assert.equal(JSON.parse(readFileSync(join(dir, 'checked.json'), 'utf8')).ok, false);
   });
 
   it('exits 64 without an attempt budget', () => {
-    assert.equal(runScript('agent-output.ts', ['author.json']).code, 64);
+    assert.equal(runScript('workflow/agent-output.ts', ['author.json']).code, 64);
   });
 });

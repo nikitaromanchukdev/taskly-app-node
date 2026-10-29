@@ -20,8 +20,9 @@ Break each defence a script test covers, see the test fail, then restore. The re
 
 | Input | Default | Notes |
 |---|---|---|
-| Test files | `git diff --name-only origin/main -- .github/scripts/tests/` | |
-| Scripts under test | the `import` or `runScript` target of each test file | |
+| `{test file}` | `git diff --name-only origin/main -- .github/scripts/tests/` | one at a time |
+| `{script}` | the `import` or `runScript` target of each test file | path under `.github/scripts/`, e.g., `agent/guard.ts` |
+| `{name}` | the file name of `{script}`, e.g., `guard.ts` | |
 
 ---
 
@@ -34,7 +35,7 @@ For each test file, list the behaviours its tests pin: one row per defence, e.g.
 ## Step 2: Save the Fixed Versions
 
 ```bash
-mkdir -p {scratchpad}/fixed && cp .github/scripts/{script}.ts {scratchpad}/fixed/
+mkdir -p {scratchpad}/fixed && cp .github/scripts/{script} {scratchpad}/fixed/{name}
 ```
 
 ---
@@ -43,10 +44,10 @@ mkdir -p {scratchpad}/fixed && cp .github/scripts/{script}.ts {scratchpad}/fixed
 
 For each defence, one at a time:
 
-1. **Break it** - the smallest edit that removes the defence: delete a check, flip a comparison, return early. For a bug fix, the break is the version before the fix: `git show origin/main:.github/scripts/{script}.ts > .github/scripts/{script}.ts`.
-2. **Run** - `node --test .github/scripts/tests/{name}.test.ts 2>&1 | grep -E "^ℹ (pass|fail)|^✖ "`.
+1. **Break it** - the smallest edit that removes the defence: delete a check, flip a comparison, return early. For a bug fix, the break is the version before the fix: `git show origin/main:.github/scripts/{script} > .github/scripts/{script}`.
+2. **Run** - `node --test {test file} 2>&1 | grep -E "^ℹ (pass|fail)|^✖ "`.
 3. **Record** - the failing test names, or "not caught".
-4. **Restore** - `cp {scratchpad}/fixed/{script}.ts .github/scripts/`.
+4. **Restore** - `cp {scratchpad}/fixed/{name} .github/scripts/{script}`.
 
 The spec reporter prints `ℹ fail {n}` and `✖ {test}`, not TAP's `# fail`.
 

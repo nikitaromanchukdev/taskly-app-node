@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import type { AuthorOutput, Checked, ReviewerOutput } from '../artifacts.ts';
+import type { AuthorOutput, Checked, ReviewerOutput } from '../lib/artifacts.ts';
 import { runScript, tempDir } from './run.ts';
 
 const BRANCH = 'feat/issue-1-truncate';
@@ -22,7 +22,7 @@ function repo(): string {
   return root;
 }
 
-const trial = (root: string, ...args: string[]) => runScript('trial.ts', args, { cwd: root });
+const trial = (root: string, ...args: string[]) => runScript('local/trial.ts', args, { cwd: root });
 const file = (root: string, path: string, content: string) => {
   mkdirSync(join(root, path, '..'), { recursive: true });
   writeFileSync(join(root, path), content);
@@ -122,7 +122,7 @@ describe('trial.ts check', () => {
     const dir = tempDir();
     writeFileSync(join(dir, 'expected.json'), JSON.stringify(expected));
     for (const [name, value] of Object.entries(run)) writeFileSync(join(dir, `${name}.json`), JSON.stringify(value));
-    return runScript('trial.ts', ['check', '--out', dir, '--expected', join(dir, 'expected.json')]);
+    return runScript('local/trial.ts', ['check', '--out', dir, '--expected', join(dir, 'expected.json')]);
   }
 
   it('passes when the Verdict and the Reviewer decision match', () => {
@@ -171,7 +171,7 @@ describe('trial.ts approve', () => {
   function approve(items: string | undefined, content: unknown = gaps) {
     const dir = tempDir();
     writeFileSync(join(dir, 'gaps.json'), JSON.stringify(content));
-    const result = runScript('trial.ts', ['approve', '--out', dir, ...(items === undefined ? [] : ['--items', items])]);
+    const result = runScript('local/trial.ts', ['approve', '--out', dir, ...(items === undefined ? [] : ['--items', items])]);
     const approved = existsSync(join(dir, 'approved.json')) ? JSON.parse(readFileSync(join(dir, 'approved.json'), 'utf8')) : undefined;
     return { ...result, dir, approved };
   }
@@ -226,6 +226,6 @@ describe('trial.ts approve', () => {
 
 describe('trial.ts usage', () => {
   it('exits 64 for an unknown command', () => {
-    assert.equal(runScript('trial.ts', ['toString']).code, 64);
+    assert.equal(runScript('local/trial.ts', ['toString']).code, 64);
   });
 });

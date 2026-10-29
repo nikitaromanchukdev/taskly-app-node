@@ -6,14 +6,14 @@
 import { execFileSync } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
-import type { Budgets, FileStatus, Hunk, Scope } from './artifacts.ts';
-import { die } from './cli.ts';
+import type { Budgets, FileStatus, Hunk, Scope } from '../lib/artifacts.ts';
+import { die } from '../lib/cli.ts';
 import { githubFromEnv, PAGE_SIZE } from './github.ts';
 import type { GitHub } from './github.ts';
-import { writeJson } from './json.ts';
-import { classify, LABEL_SKIP_PHRASE, SKIP_LABEL, STATUS_CONTEXT } from './rules.ts';
-import { scanLines } from './scan.ts';
-import type { LineRule } from './scan.ts';
+import { writeJson } from '../lib/json.ts';
+import { classify, LABEL_SKIP_PHRASE, SKIP_LABEL, STATUS_CONTEXT } from '../contracts/rules.ts';
+import { scanLines } from '../lib/scan.ts';
+import type { LineRule } from '../lib/scan.ts';
 
 type Env = Record<string, string | undefined>;
 type DiffFile = { path: string; status: FileStatus; hunks: Hunk[] };

@@ -55,7 +55,7 @@
           "path": { "type": "string", "maxLength": 300 },
           "reason": {
             "type": "string",
-            "description": "The skip rule in .github/scripts/rules.ts that matches the file.",
+            "description": "The skip rule in .github/scripts/contracts/rules.ts that matches the file.",
             "enum": ["tests", "stories", "generated", "lockfiles", "docs", "config", "type-only", "barrel", "deleted", "not-source"]
           }
         }

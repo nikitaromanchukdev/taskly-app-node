@@ -8,11 +8,11 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { parseArgs } from 'node:util';
-import type { Check, Coverage, CoverageFigures, MutationResult, Results, SuiteResult } from './artifacts.ts';
-import { die } from './cli.ts';
-import { readJson, readJsonIfExists, writeJson } from './json.ts';
-import { PACKAGES } from './rules.ts';
-import type { Pkg } from './rules.ts';
+import type { Check, Coverage, CoverageFigures, MutationResult, Results, SuiteResult } from '../lib/artifacts.ts';
+import { die } from '../lib/cli.ts';
+import { readJson, readJsonIfExists, writeJson } from '../lib/json.ts';
+import { PACKAGES } from '../contracts/rules.ts';
+import type { Pkg } from '../contracts/rules.ts';
 
 type Phase = 'baseline' | 'final';
 type MutantStatus = 'Killed' | 'Timeout' | 'Survived' | 'NoCoverage' | 'Ignored' | 'CompileError' | 'RuntimeError' | 'Pending';

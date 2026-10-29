@@ -42,7 +42,7 @@ Files pass between jobs as workflow artifacts. A job never reads another job's d
 
 ## Step by step
 
-1. **`prepare` decides the Scope.** It reads the live PR and its diff. `.github/scripts/rules.ts` sorts each changed file into a candidate or a skipped file with a reason. With no candidates, or on a draft or fork PR, the agents do not run.
+1. **`prepare` decides the Scope.** It reads the live PR and its diff. `.github/scripts/contracts/rules.ts` sorts each changed file into a candidate or a skipped file with a reason. With no candidates, or on a draft or fork PR, the agents do not run.
 2. **The Author writes tests on the runner's disk.** In `engineer`, the Author follows its skills: [`scope-change`](../.claude/skills/scope-change/SKILL.md), [`extract-intent`](../.claude/skills/extract-intent/SKILL.md), [`author-tests`](../.claude/skills/author-tests/SKILL.md), [`prove-tests`](../.claude/skills/prove-tests/SKILL.md). It may write only test files: a hook (`guard.ts hook`) blocks every other path. It runs the tests in a Docker container that has no access to the model key.
 3. **`engineer` saves the change as a patch.** Everything the Author left in the checkout becomes `tests.patch`. The Reviewer then reads the patch, read-only, following [`review-tests`](../.claude/skills/review-tests/SKILL.md), and writes `reviewer.json`. The job uploads the three files. Its token is read-only, so it cannot push.
 4. **`commit` checks the patch, then pushes it.** It runs the base branch's scripts, never the PR's:

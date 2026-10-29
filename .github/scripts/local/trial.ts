@@ -15,11 +15,11 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, wri
 import { join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { parseArgs } from 'node:util';
-import type { AuthorOutput, Checked, DefectDecision, Gaps, Recommendation, ReviewerOutput, Verdict } from './artifacts.ts';
-import { unitKey } from './artifacts.ts';
-import { die } from './cli.ts';
-import { readJson, readJsonIfExists, writeJson } from './json.ts';
-import { readSchema, validate } from './schema.ts';
+import type { AuthorOutput, Checked, DefectDecision, Gaps, Recommendation, ReviewerOutput, Verdict } from '../lib/artifacts.ts';
+import { unitKey } from '../lib/artifacts.ts';
+import { die } from '../lib/cli.ts';
+import { readJson, readJsonIfExists, writeJson } from '../lib/json.ts';
+import { readSchema, validate } from '../lib/schema.ts';
 
 type Command = 'dir' | 'intent' | 'clean' | 'check' | 'approve';
 type SourceId = 'pr' | 'commits' | 'type' | 'editor' | 'skip';
@@ -221,7 +221,7 @@ async function askItems(): Promise<string> {
 
 async function approve(out: string, items?: string): Promise<void> {
   const gaps = readJson<Gaps>(join(out, 'gaps.json'));
-  const errors = validate(gaps, readSchema('./gaps.schema.json'));
+  const errors = validate(gaps, readSchema('../contracts/gaps.schema.json'));
   if (errors.length) die(SCRIPT, `gaps.json is invalid:\n${errors.map((error) => `  - ${error}`).join('\n')}`);
   const markdown = gapsMarkdown(gaps);
   writeFileSync(join(out, 'gaps.md'), markdown);

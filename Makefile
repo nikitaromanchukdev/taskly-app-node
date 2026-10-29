@@ -22,7 +22,7 @@
 # Budgets below are defaults for local runs; CI reads them from repo variables.
 
 BASE ?= main
-OUT ?= $(shell node .github/scripts/trial.ts dir)
+OUT ?= $(shell node .github/scripts/local/trial.ts dir)
 PR_BODY ?= $(OUT)/pr-body.md
 
 export TEST_AGENT_MODEL ?= claude-sonnet-5-5
@@ -43,7 +43,7 @@ BACKFILL_AUTHOR_PROMPT := Backfill. Package: $(PACKAGE). The owner approved the 
 BACKFILL_REVIEW_PROMPT := Backfill. Review $(OUT)/tests.patch. Author output: $(OUT)/author.json. Approved gap list: $(OUT)/approved.json. There is no PR description.
 
 # $(call run_agent,<agent>,<model>,<role>,<prompt>): one agent run; its structured output goes to $(OUT)/<role>.json.
-run_agent = $(CLAUDE) --agent $(1) --model $(2) --json-schema "$$(cat $(SCRIPTS_DIR)/$(3).schema.json)" "$(4)" \
+run_agent = $(CLAUDE) --agent $(1) --model $(2) --json-schema "$$(cat $(SCRIPTS_DIR)/contracts/$(3).schema.json)" "$(4)" \
   > $(OUT)/$(3)-run.json && jq -e '.structured_output' $(OUT)/$(3)-run.json > $(OUT)/$(3).json
 # Units the reviewer has something to look at: tests written or a defect flagged.
 REVIEWABLE := [.units[] | select(.verdict != "not-needed")] | length > 0
@@ -60,7 +60,7 @@ preflight:
 
 # Asks where the intended behaviour comes from, the first time on a branch; reuses it after that.
 intent:
-	$(SCRIPTS)/trial.ts intent --out $(OUT) --base $(BASE)
+	$(SCRIPTS)/local/trial.ts intent --out $(OUT) --base $(BASE)
 
 # tests.patch is everything the Author leaves in the working tree, so the tree must start clean.
 clean-tree:
@@ -69,12 +69,12 @@ clean-tree:
 
 scope: clean-tree
 	@mkdir -p $(OUT)
-	$(SCRIPTS)/prepare.ts --local $(BASE) --out $(OUT)/scope.json
+	$(SCRIPTS)/workflow/prepare.ts --local $(BASE) --out $(OUT)/scope.json
 
 # Dependencies for the sandbox, kept in Docker volumes (see sandbox.sh); the host's node_modules stay as they are.
 install:
-	$(SCRIPTS_DIR)/sandbox.sh install backend
-	$(SCRIPTS_DIR)/sandbox.sh install frontend
+	$(SCRIPTS_DIR)/agent/sandbox.sh install backend
+	$(SCRIPTS_DIR)/agent/sandbox.sh install frontend
 
 author:
 	$(call run_agent,pr-test-engineer,$(TEST_AGENT_MODEL),author,$(AUTHOR_PROMPT))
@@ -83,7 +83,7 @@ patch:
 	git add --intent-to-add --all
 	git diff --binary HEAD > $(OUT)/tests.patch
 	git reset -q  # drop the intent-to-add marks, so new test files stay untracked
-	$(SCRIPTS)/guard.ts patch $(OUT)/tests.patch
+	$(SCRIPTS)/agent/guard.ts patch $(OUT)/tests.patch
 
 review:
 	@rm -f $(OUT)/reviewer.json
@@ -92,7 +92,7 @@ review:
 	else echo "review: skipped, the author wrote no tests and flagged no defects"; fi
 
 check:
-	$(SCRIPTS)/agent-output.ts $(OUT)/author.json --patch $(OUT)/tests.patch --max-attempts $(TEST_AGENT_MAX_ATTEMPTS) \
+	$(SCRIPTS)/workflow/agent-output.ts $(OUT)/author.json --patch $(OUT)/tests.patch --max-attempts $(TEST_AGENT_MAX_ATTEMPTS) \
 	  --out $(OUT)/checked.json \
 	  $$(test -f $(OUT)/reviewer.json && echo --reviewer $(OUT)/reviewer.json)
 
@@ -101,7 +101,7 @@ report:
 	jq -n --arg sha "$$(git rev-parse HEAD)" '{pr: 0, analyzed_sha: $$sha, final_sha: $$sha, run_url: "local", \
 	  same_repo: true, label_skip: false, label_actor: "", run_agent: true, \
 	  jobs: {prepare: "success", engineer: "success", commit: "success", verify: "skipped"}}' > $(OUT)/context.json
-	$(SCRIPTS)/report.ts --dir $(OUT)
+	$(SCRIPTS)/workflow/report.ts --dir $(OUT)
 	@echo "Comments: $(OUT)/report.md $(OUT)/author.md $(OUT)/reviewer.md"
 
 # Plain session (no agent prompt to refuse first) with edits auto-accepted, so only the hook can stop the edit.
@@ -118,7 +118,7 @@ script-tests:
 
 # OUT set on the command line picks the folder; otherwise the script uses the current branch's.
 clean:
-	@$(SCRIPTS)/trial.ts clean $(if $(filter command line,$(origin OUT)),--out $(OUT))
+	@$(SCRIPTS)/local/trial.ts clean $(if $(filter command line,$(origin OUT)),--out $(OUT))
 
 # The demo runs in a throwaway worktree at a fixed path, so the sandbox install is reused between runs.
 # The worktree gets the agent config as it is on disk, committed or not: the same paths CI takes from
@@ -145,7 +145,7 @@ demo: preflight
 	$(MAKE) --no-print-directory -C $(DEMO_TREE) -f $(CURDIR)/Makefile scope install author patch review check report \
 	  OUT=$(DEMO_OUT) BASE=$$(git rev-parse HEAD) || status=$$?; \
 	git worktree remove --force $(DEMO_TREE); \
-	$(SCRIPTS)/trial.ts check --out $(DEMO_OUT) --expected $(FIXTURE)/expected.json || status=1; \
+	$(SCRIPTS)/local/trial.ts check --out $(DEMO_OUT) --expected $(FIXTURE)/expected.json || status=1; \
 	echo "Output: $(DEMO_OUT)"; exit $$status
 
 # ---- Backfill ----
@@ -158,17 +158,17 @@ need-approved:
 
 backfill-gaps: need-package preflight clean-tree
 	@mkdir -p $(OUT)
-	$(SCRIPTS_DIR)/sandbox.sh install $(PACKAGE)
+	$(SCRIPTS_DIR)/agent/sandbox.sh install $(PACKAGE)
 	$(call run_agent,pr-test-engineer,$(TEST_AGENT_MODEL),gaps,$(GAPS_PROMPT))
 	@$(MAKE) --no-print-directory backfill-approve PACKAGE=$(PACKAGE) OUT=$(OUT)
 
 # Asks on a terminal; without one, APPROVE picks the items (1,3, all or none).
 backfill-approve: need-package
 	@test -f $(OUT)/gaps.json || { echo "make: no gap list in $(OUT); run make backfill-gaps PACKAGE=$(PACKAGE) first" >&2; exit 1; }
-	$(SCRIPTS)/trial.ts approve --out $(OUT) $(if $(APPROVE),--items $(APPROVE))
+	$(SCRIPTS)/local/trial.ts approve --out $(OUT) $(if $(APPROVE),--items $(APPROVE))
 
 # $(call coverage,<before|after>): the package's coverage summary, even when tests or floors fail.
-coverage = $(SCRIPTS_DIR)/sandbox.sh test $(PACKAGE) --coverage --coverage.reportOnFailure > $(OUT)/coverage-$(1).log 2>&1 \
+coverage = $(SCRIPTS_DIR)/agent/sandbox.sh test $(PACKAGE) --coverage --coverage.reportOnFailure > $(OUT)/coverage-$(1).log 2>&1 \
   || echo "make: tests or coverage floors failed for $(1); see $(OUT)/coverage-$(1).log"; \
   cp $(PACKAGE)/coverage/coverage-summary.json $(OUT)/coverage-$(1).json
 

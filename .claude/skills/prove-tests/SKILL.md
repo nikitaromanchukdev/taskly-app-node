@@ -24,8 +24,8 @@ Run every new and affected test until it is green or reported as a Defect.
 Run the new test files and the existing test files of each Unit, only through the sandbox:
 
 ```bash
-.github/scripts/sandbox.sh test {backend|frontend} {test files}
-.github/scripts/sandbox.sh typecheck {backend|frontend}
+.github/scripts/agent/sandbox.sh test {backend|frontend} {test files}
+.github/scripts/agent/sandbox.sh typecheck {backend|frontend}
 ```
 
 **Gate — stop here:** if the sandbox says dependencies are missing → stop and report it. Do not work around it.
@@ -92,7 +92,7 @@ It must pass, apart from existing tests left failing as Defects. Typecheck must 
 
 ## Step 8: Report
 
-For each Unit, report its final Verdict and `attempts`, and each Expectation with its source, `kind`, and tests. Use the Verdict and reason values from `.github/scripts/author.schema.json`. A Unit with any Defect gets `flagged-defect`.
+For each Unit, report its final Verdict and `attempts`, and each Expectation with its source, `kind`, and tests. Use the Verdict and reason values from `.github/scripts/contracts/author.schema.json`. A Unit with any Defect gets `flagged-defect`.
 
 ---
 

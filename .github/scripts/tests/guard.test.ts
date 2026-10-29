@@ -15,7 +15,7 @@ function project(): string {
 }
 
 const hook = (root: string, call: ToolCall | string) =>
-  runScript('guard.ts', ['hook'], {
+  runScript('agent/guard.ts', ['hook'], {
     input: typeof call === 'string' ? call : JSON.stringify({ ...call, cwd: root }),
     env: { CLAUDE_PROJECT_DIR: root },
   });
@@ -29,7 +29,7 @@ describe('guard.ts hook', () => {
     });
   }
 
-  for (const path of ['backend/src/main.ts', 'frontend/src/features/Item.tsx', 'backend/package.json', '.github/scripts/guard.ts', '.claude/agent-settings.json', 'CLAUDE.md']) {
+  for (const path of ['backend/src/main.ts', 'frontend/src/features/Item.tsx', 'backend/package.json', '.github/scripts/agent/guard.ts', '.claude/agent-settings.json', 'CLAUDE.md']) {
     it(`blocks a write to the non-test path ${path} with exit 2`, () => {
       const result = hook(project(), write(path));
       assert.equal(result.code, 2);
@@ -90,7 +90,7 @@ const added = (path: string, mode = '100644') =>
 function checkPatch(patch: string) {
   const file = join(tempDir(), 'tests.patch');
   writeFileSync(file, patch);
-  return runScript('guard.ts', ['patch', file]);
+  return runScript('agent/guard.ts', ['patch', file]);
 }
 
 describe('guard.ts patch', () => {
@@ -135,6 +135,6 @@ describe('guard.ts patch', () => {
   });
 
   it('exits 64 without a patch file', () => {
-    assert.equal(runScript('guard.ts', ['patch']).code, 64);
+    assert.equal(runScript('agent/guard.ts', ['patch']).code, 64);
   });
 });

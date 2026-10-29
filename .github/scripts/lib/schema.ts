@@ -14,7 +14,7 @@ export type Schema = {
 };
 type Validator = (value: unknown, schema: Schema, at: string) => string[];
 
-// Schema files live next to this script.
+// Schema paths resolve relative to this script; the schema files live in contracts/.
 export const readSchema = (name: string): Schema => readJson<Schema>(new URL(name, import.meta.url));
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
