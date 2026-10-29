@@ -2,7 +2,7 @@
 import { isFlaggedDefect, packageRelative, unitKey, unitTests } from './artifacts.ts';
 import type { Context, Defect, DefectDecision, Kind, MutationResult, Results, Run, Unit } from './artifacts.ts';
 import { cell, code, sanitize } from './sanitize.ts';
-import { firstReason, labelSkipNote, PREPARE_FAILED } from './status.ts';
+import { labelSkipNote, PREPARE_FAILED } from './status.ts';
 import type { ReasonRule, Status, StatusState } from './status.ts';
 import type { SkipReason } from './rules.ts';
 
@@ -42,7 +42,15 @@ function header(context: Context): string {
 const TESTS_ONLY_REASONS: ReadonlySet<SkipReason> = new Set(['tests', 'config']);
 const TESTS_ONLY =
   'this PR changes only tests and config, so there is nothing new to test. A Backfill PR runs the Author and Reviewer locally and lists their results in its description';
-const TESTS_ONLY_ADR = 'docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md';
+
+// The ADR, in docs/adr/, that explains each reason an agent did not run.
+const ADR_SCOPE = '0002-test-changed-units-and-write-only-tests.md';
+const ADR_FORKS = '0004-isolate-pr-code-from-secrets.md';
+const ADR_LABEL = '0005-gate-merges-on-test-agent-verify.md';
+const ADR_BACKFILL = '0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md';
+
+type NotRunReason = { why: string; adr?: string };
+type NotRunRule = ReasonRule & { adr?: string };
 
 function testsOnly(run: Run): boolean {
   const skipped = run.scope?.skipped ?? [];
@@ -53,20 +61,23 @@ function testsOnly(run: Run): boolean {
   );
 }
 
-const NO_AGENT_REASONS: readonly ReasonRule[] = [
-  { when: (run) => run.context.label_skip, reason: (run) => labelSkipNote(run.context) },
-  { when: (run) => !run.context.same_repo, reason: () => 'fork pull request' },
+const NO_AGENT_REASONS: readonly NotRunRule[] = [
+  { when: (run) => run.context.label_skip, reason: (run) => labelSkipNote(run.context), adr: ADR_LABEL },
+  { when: (run) => !run.context.same_repo, reason: () => 'fork pull request', adr: ADR_FORKS },
   { when: (run) => run.context.jobs.prepare !== 'success', reason: () => PREPARE_FAILED },
-  { when: testsOnly, reason: () => TESTS_ONLY },
-  { when: (run) => !run.scope?.candidates.length, reason: () => 'no testable changes' },
+  { when: testsOnly, reason: () => TESTS_ONLY, adr: ADR_BACKFILL },
+  { when: (run) => !run.scope?.candidates.length, reason: () => 'no testable changes', adr: ADR_SCOPE },
   { when: (run) => run.context.jobs.engineer !== 'success', reason: () => 'the agent step failed or timed out' },
 ];
 
-const whyNoAgent = (run: Run) => firstReason(NO_AGENT_REASONS, run) ?? 'no agent output';
-// A tests-only PR also links the ADR that separates the Backfill from a PR run.
-function notRun(run: Run, who: string, why: string, repo: string): string {
-  const adr = why === TESTS_ONLY ? ` See [ADR 0008](https://github.com/${repo}/blob/main/${TESTS_ONLY_ADR}).` : '';
-  return `${who} not run on \`${short(run.context.analyzed_sha)}\`: ${why}.${adr}`;
+function whyNoAgent(run: Run): NotRunReason {
+  const rule = NO_AGENT_REASONS.find((candidate) => candidate.when(run));
+  return rule ? { why: rule.reason(run), adr: rule.adr } : { why: 'no agent output' };
+}
+
+const adrLink = (file: string, repo: string) => ` See [ADR ${file.slice(0, 4)}](https://github.com/${repo}/blob/main/docs/adr/${file}).`;
+function notRun(run: Run, who: string, { why, adr }: NotRunReason, repo: string): string {
+  return `${who} not run on \`${short(run.context.analyzed_sha)}\`: ${why}.${adr ? adrLink(adr, repo) : ''}`;
 }
 const unitName = (unit: { path: string; unit: string }, repo: string) => `${code(unit.path, repo)} ${cell(unit.unit, repo)}`;
 
@@ -209,7 +220,7 @@ function renderAuthor({ run, repo }: Report): string {
 function renderReviewer({ run, repo }: Report): string {
   const out = [marker('reviewer'), '### Test reviewer', header(run.context), ''];
   if (!run.reviewer) {
-    const why = run.author ? 'the author produced no tests or defects to review' : whyNoAgent(run);
+    const why = run.author ? { why: 'the author produced no tests or defects to review', adr: ADR_SCOPE } : whyNoAgent(run);
     return [...out, notRun(run, 'Reviewer', why, repo)].join('\n');
   }
 

@@ -167,7 +167,7 @@ Limitations:
 - A same-repo writer can edit the workflow file in a PR. PR runs use the head copy of the workflow, so the budgets and the guard steps in it can be changed. The team mitigation is CODEOWNERS on `.github/` and `.claude/`, with a ruleset that requires code-owner review. It is not applied, because the sole maintainer cannot approve their own PRs.
 - Fork PRs get no agent run and no status. The branch must be pushed into the repo to merge.
 - No CI run proves a Backfill's agent results. Its PR description is written by hand from the local `author.json` and `reviewer.json`, so it can drift from them ([ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md)).
-- The script tests cover the scripts that decide what reaches the PR: `guard.ts`, `sanitize.ts`, `agent-output.ts` and `status.ts`. The scripts that call GitHub (`prepare.ts`, `context.ts`, `report.ts`) have no tests.
+- The script tests cover the scripts that decide what reaches the PR: `guard.ts`, `sanitize.ts`, `agent-output.ts`, `status.ts`, and the not-run notes of `render.ts`. The scripts that call GitHub (`prepare.ts`, `context.ts`, `report.ts`) have no tests.
 - The output types in `agent-output.ts` repeat the schema enums by hand, so they can drift from the schemas.
 - The mutation score is reported, not enforced.
 - The overdue badge and the overdue counter can disagree around midnight. `due_date` is a calendar date with no time or offset, so the badge compares it with the user's local date and the counter with the UTC date. Left as is on purpose: the fix changes the data model, outside this task.
