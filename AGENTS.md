@@ -52,6 +52,10 @@ See [SOLUTION.md](SOLUTION.md#how-to-run-the-pr-workflow).
 
 Use it only as [ADR 0005](docs/adr/0005-gate-merges-on-test-agent-verify.md) describes. Who may apply it is also set there. The suites still run and still gate the merge.
 
+## Merging without the gate
+
+Admins only, and only for the cases in [ADR 0005](docs/adr/0005-gate-merges-on-test-agent-verify.md): a PR that changes the workflow's own scripts or paths, or an urgent fix while Actions or the model API is down. Split the change instead when you can. Comment on the PR with the reason and the checks you ran, then merge with `gh pr merge <n> --admin`.
+
 ## Conventions
 
 - **Tests.** Test paths per package are in `TEST_PATHS` in [`.github/scripts/rules.ts`](.github/scripts/rules.ts). Package playbooks for the Author are in `.claude/skills/author-tests/`.

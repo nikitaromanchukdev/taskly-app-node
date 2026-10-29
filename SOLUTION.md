@@ -15,7 +15,7 @@ This repo adds two ways to get tests written, both by the same agents and skills
 | Test changed Units only; write test files only | [0002](docs/adr/0002-test-changed-units-and-write-only-tests.md) |
 | Expectations come from Intent sources; failing tests become Defects; a second agent reviews them | [0003](docs/adr/0003-derive-expectations-from-intent-and-review-defects.md) |
 | PR code never runs next to the model key; agent config comes from the base branch | [0004](docs/adr/0004-isolate-pr-code-from-secrets.md) |
-| Merge gate on `test-agent/verify`, with a `skip-test-agent` label | [0005](docs/adr/0005-gate-merges-on-test-agent-verify.md) |
+| Merge gate on `test-agent/verify`, with a `skip-test-agent` label, and an admin bypass for PRs that cannot pass their own run | [0005](docs/adr/0005-gate-merges-on-test-agent-verify.md) |
 | Budgets are admin-only repo variables, with no defaults; agents skip draft PRs | [0006](docs/adr/0006-set-budgets-as-admin-only-repo-variables.md) |
 | Found bugs appear as review comments on the changed code (in the Backfill, one PR comment), each with a suggested fix that a person applies (proposed) | [0007](docs/adr/0007-report-defects-next-to-the-code-with-a-suggested-fix.md) |
 | The Backfill runs locally and reports in its PR description; on a PR that changes only tests, the agent comments say why the agents did not run | [0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md) |
@@ -71,7 +71,7 @@ The same steps with raw `gh` commands:
    gh label create skip-test-agent --force --color ededed
    ```
 
-4. **Merge gate.** The ruleset is in `.github/rulesets/main.json`. Apply it after the workflow is merged to `main`. Before that, a PR whose branch lacks the workflow waits for a status that nothing posts.
+4. **Merge gate.** The ruleset is in `.github/rulesets/main.json`. Its only bypass actor is the admin role, through a PR; when that may be used is in [ADR 0005](docs/adr/0005-gate-merges-on-test-agent-verify.md). Apply it after the workflow is merged to `main`. Before that, a PR whose branch lacks the workflow waits for a status that nothing posts.
 
    ```sh
    name=$(jq -r .name .github/rulesets/main.json)
@@ -167,6 +167,7 @@ Limitations:
 - The agents' summaries are free text. One named a Unit by a name that does not exist in the code, while the Units table was correct. Read the tables, not only the summary.
 - The Reviewer is also a model. It lowers the rate of false Defects; it does not remove them.
 - A same-repo writer can edit the workflow file in a PR. PR runs use the head copy of the workflow, so the budgets and the guard steps in it can be changed. The team mitigation is CODEOWNERS on `.github/` and `.claude/`, with a ruleset that requires code-owner review. It is not applied, because the sole maintainer cannot approve their own PRs.
+- The owner is the only admin, so they can merge past the gate with the bypass. Every bypass shows on the PR and in the audit log; ADR 0005 limits when it is used.
 - Fork PRs get no agent run and no status. The branch must be pushed into the repo to merge.
 - A Backfill's gap list does not know what earlier Backfills decided. Those decisions live only in the PR descriptions, so a new run proposes settled gaps again: in a test run on the frontend, 4 of 5 Recommendations had been decided in #25.
 - No CI run proves a Backfill's agent results. Its PR description is put together by hand from the tables `make backfill-tests` renders from `author.json` and `reviewer.json`, so the prose around them can drift ([ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md)).

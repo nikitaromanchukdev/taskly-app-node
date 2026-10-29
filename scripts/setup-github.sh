@@ -48,26 +48,29 @@ config() {
 }
 
 ruleset() {
-  local name id branch rules failed=0
+  local name id applied branch rules failed=0
   name="$(jq -r .name "$ruleset_file")"
   id="$(gh api "repos/$repo/rulesets" | jq -r --arg n "$name" '.[] | select(.name == $n) | .id')"
   if [[ -n "$id" ]]; then
-    gh api -X PUT "repos/$repo/rulesets/$id" --input "$ruleset_file" > /dev/null
+    applied="$(gh api -X PUT "repos/$repo/rulesets/$id" --input "$ruleset_file")"
     echo "ruleset '$name' updated"
   else
-    gh api -X POST "repos/$repo/rulesets" --input "$ruleset_file" > /dev/null
+    applied="$(gh api -X POST "repos/$repo/rulesets" --input "$ruleset_file")"
     echo "ruleset '$name' created"
   fi
 
   branch="$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)"
   rules="$(gh api "repos/$repo/rules/branches/$branch")"
-  check() { # <label> <jq filter over the rule list>
-    if jq -e "$2" <<< "$rules" > /dev/null; then echo "  ✓ $1"; else echo "  ✗ $1"; failed=1; fi
+  check() { # <label> <jq filter> [json, default: the rules on the branch]
+    if jq -e "$2" <<< "${3:-$rules}" > /dev/null; then echo "  ✓ $1"; else echo "  ✗ $1"; failed=1; fi
   }
   check "pull request required" 'any(.[]; .type == "pull_request")'
   check "$status_context required" \
     'any(.[]; .type == "required_status_checks" and any(.parameters.required_status_checks[]; .context == "'"$status_context"'"))'
   check "force-push blocked" 'any(.[]; .type == "non_fast_forward")'
+  # The rules endpoint does not list bypass actors, so this reads the ruleset the API returned.
+  check "only admins may bypass, and only through a PR" \
+    '.bypass_actors | length == 1 and (.[0] | .actor_type == "RepositoryRole" and .actor_id == 5 and .bypass_mode == "pull_request")' "$applied"
   return "$failed"
 }
 

@@ -1,12 +1,14 @@
 # ADR 0005: Gate merges on test-agent/verify
 
-For reviewers and maintainers: how the status is decided, how the merge gate is set, and why the `skip-test-agent` label exists.
+For reviewers and maintainers: how the status is decided, how the merge gate is set, why the `skip-test-agent` label exists, and when an admin may bypass the gate.
 
 ## Context
 
 The workflow must block a merge when a confirmed Defect or a failing suite exists. It must not block a developer because the bot itself failed. The gate has to be enforced by GitHub, not only shown in a comment.
 
 Some PRs gain nothing from the agent, and some must merge quickly. They need a way to skip the agent. That way must not become a bypass for the suites.
+
+A few PRs cannot pass the gate at all, through no fault of their own. A PR run uses the base branch's scripts (ADR 0004), so a PR that moves or renames those scripts runs its new workflow against the old layout and can post no status. Without a bypass, the only way to merge it is to switch the whole gate off.
 
 ## Decision
 
@@ -18,7 +20,7 @@ Some PRs gain nothing from the agent, and some must merge quickly. They need a w
   - verification did not finish;
   - a Defect is confirmed.
 - Otherwise the status is green. That includes "no candidate files", rejected Defects, `review-rejected` Units, and a skip by label. Suites must still pass on a skip by label.
-- The merge gate is a ruleset on the default branch. It requires a pull request, requires the status from GitHub Actions, blocks force pushes and branch deletion, and has no bypass actors. It requires no review approvals. The ruleset file is `.github/rulesets/main.json`.
+- The merge gate is a ruleset on the default branch. It requires a pull request, requires the status from GitHub Actions, blocks force pushes and branch deletion, and requires no review approvals. Its only bypass actor is the repository admin role, in pull-request mode: an admin can merge a PR without the status, but cannot push to the default branch directly. The ruleset file is `.github/rulesets/main.json`.
 - The `skip-test-agent` label skips the Author and the Reviewer for a PR run. It exists for:
   - dependency or lockfile bumps;
   - reverts;
@@ -27,11 +29,17 @@ Some PRs gain nothing from the agent, and some must merge quickly. They need a w
   - tooling PRs that change `.claude/` or `.github/`, which cannot test their own agent config (see [ADR 0004](0004-isolate-pr-code-from-secrets.md)).
 - Only admins and maintainers make the label count. The run looks up who added the label last and that person's repo permission. If that lookup fails, the admin-set variable `TEST_AGENT_SKIP_ACTORS` (comma-separated logins) decides instead. A label from anyone else does nothing: no run, and the status is unchanged.
 - A label that counts shows in the status and the report as "skipped by label" with the actor's login.
+- The admin bypass is a break-glass path, not a faster label. It is used only for:
+  - a PR that changes the workflow's own scripts or paths, so its run cannot pass by design (for example, moving `.github/scripts/`);
+  - an urgent fix while GitHub Actions or the model API is down.
+- A change that can be split is split instead, the way a database migration is: first a PR that adds the new form next to the old one, then a PR that removes the old one. Each PR then passes the gate on its own.
+- Before a bypassed merge, the admin comments on the PR with the reason and the checks they ran in place of the gate. The merge uses `gh pr merge <n> --admin`, or the "bypass rules" option of the merge button.
 - Removing the label starts a normal run when the current status says the head was skipped by label. Adding any other label starts nothing.
 
 ## Consequences
 
-- A maintainer can skip the agent, but cannot skip the suites.
+- A maintainer can skip the agent, but cannot skip the suites. Only an admin can merge without the suites, through the bypass.
+- The repo owner is the only admin, so for them the gate is advisory: they can bypass a red PR. GitHub shows every bypass on the PR and in the audit log, and the reason comment makes it reviewable. In a team, the bypass actor would be a small release-manager team, and bypasses would be reviewed afterwards.
 - The skip is visible in the status and the report, so it shows in the PR history.
 - Only the status gates merges. Findings and mutation results are advisory and never change the status.
 - The repo owner is an admin, so the sole maintainer is not blocked by the label rule.
