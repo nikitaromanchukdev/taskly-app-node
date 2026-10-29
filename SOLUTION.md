@@ -133,10 +133,19 @@ The Backfill ran once per package. The Author used `map-coverage-gaps`, then the
 | Branches, before → after | 40.74% → 94.44% | 45.39% → 96.45% |
 | Mutation, local Stryker on the backfilled files | 68.71% | 94.57% |
 | Reviewer Findings | 4, all advisory; all fixed | 4, all advisory; 3 fixed, 1 disputed |
-| Defects | none confirmed; 2 Suspected Defects | none confirmed; 2 Suspected Defects |
+| Defects | none confirmed; 2 Suspected Defects, decided below | none confirmed; 2 Suspected Defects, decided below |
 | `test-agent/verify` | 🟢 suites pass | 🟢 suites pass |
 
-Per-file coverage floors keep each backfilled file at the level it reached. The Suspected Defects wait for an owner decision in each PR's Defects comment, for example: the frontend overdue badge uses the local date, while the overdue counter uses UTC.
+Per-file coverage floors keep each backfilled file at the level it reached.
+
+The owner decided each Suspected Defect. The details are in each PR's Defects comment.
+
+| Suspected Defect | Owner decision |
+|---|---|
+| Backend: `/api/health` answers a database failure with the generic 500 body | Kept on purpose: the client gets no detail about why the server failed. |
+| Backend: body-parser client errors other than bad JSON and too-large bodies return 500 | Kept as is: fixing app code is outside this task, which only adds tests. |
+| Frontend: the overdue badge uses the local date, while the overdue counter uses the UTC date | Kept on purpose, see [limitations](#assumptions-and-limitations). |
+| Frontend: a 422 shows the fixed input-limits message and ignores the server's `detail` | Kept on purpose: the server's validation messages are not written for users. |
 
 ## Assumptions and limitations
 
@@ -161,6 +170,8 @@ Limitations:
 - Deterministic scripts have no tests. This includes `guard.ts` and `sanitize.ts`, which are the injection defences.
 - The output types in `agent-output.ts` repeat the schema enums by hand, so they can drift from the schemas.
 - The mutation score is reported, not enforced.
+- The overdue badge and the overdue counter can disagree around midnight. `due_date` is a calendar date with no time or offset, so the badge compares it with the user's local date and the counter with the UTC date. Left as is on purpose: the fix changes the data model, outside this task.
+- Some acceptance checks were not run on the live repo: the `skip-test-agent` label (honoured, and ignored for a user without maintain rights), a `workflow_dispatch` re-run, and a crafted tautological test that a blocking Finding drops from the Bot commit.
 - The final status waits for mutation testing to finish, within an 8-minute limit per package.
 - A PR that changes `.claude/` or `.github/` cannot test its own agent config, because the run uses the base copy.
 - `verify` runs the PR's own test setup: `npm ci` with install scripts, the vitest configs, setup files and tests. That code runs on the runner host, without secrets and with a read-only token, and it can write its own results files or make its own suites pass. This holds for CI in general. The control is a human reading the diff. Running `verify` through the sandbox and CODEOWNERS on the run config are production items.
@@ -182,6 +193,7 @@ Items a production version would add:
 - A check for gaps in the lines a PR touches, reported as a separate required check.
 - Budgets and config read from the base branch only.
 - Cost telemetry for each run.
+- The due moment stored as a UTC instant (`timestamptz`), so the badge and the counter both check `now > due` and agree.
 - An identical local run of the PR workflow, as a single entry point.
 - API smoke tests against Postgres, and a frontend build, in `verify`.
 - Citation checks on the Intent sources in the tests.
