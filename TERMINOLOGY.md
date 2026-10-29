@@ -38,6 +38,12 @@ A Unit whose Expectation the code contradicts. A test that still fails after the
 
 Avoid: bug (a Defect is a claim until it is confirmed), failing test, issue.
 
+## Suspected Defect
+
+Behaviour that looks wrong but that no Intent source states, so nothing confirms or rejects it. It never changes the status. It waits for the owner to decide which behaviour is intended. See [ADR 0007](docs/adr/0007-report-defects-in-a-dedicated-comment-with-a-suggested-fix.md).
+
+Avoid: bug, owner note, open question.
+
 ## Characterization test
 
 A test that records what the code does now. It is used only when no Intent source states the behaviour. The Author marks it as a Characterization test, and the report says so.

@@ -10,13 +10,14 @@ The agents of the PR workflow and the Backfill follow their own agent files, whi
 - On a draft PR the agents do not run; only the suites do. Open the PR as a draft while you iterate, and mark it ready for review when the change is done.
 - It may add one Bot commit with tests to your branch. Run `git pull --rebase` before your next push, or your push will be rejected.
 - GitHub then asks to approve a workflow run for the Bot commit. Approving it or not changes nothing: that run skips every job.
-- It sets the status `test-agent/verify` and writes three PR comments.
+- It sets the status `test-agent/verify` and writes four PR comments.
 
-## Reading the three PR comments
+## Reading the four PR comments
 
-- **Report** (`### <status>`): the status, confirmed Defects with expected and received values, skipped files, test results, coverage of changed files, and mutation results (information only).
+- **Report** (`### <status>`): the status, the count of confirmed Defects with a link to the Defects comment, skipped files, test results, coverage of changed files, and mutation results (information only).
 - **Test author**: what the Author tested. Each Unit has a Verdict, a kind, its tests and the number of attempts. Defects the Author flagged are listed below.
 - **Test reviewer**: the Reviewer's decision on each Defect, with the quote it used, and its Findings.
+- **Defects**: every Defect and Suspected Defect, with a link to the file and line, expected and received values (or what looks wrong), the Intent source quote, and a suggested fix as a diff. See [ADR 0007](docs/adr/0007-report-defects-in-a-dedicated-comment-with-a-suggested-fix.md).
 
 Read the quotes and the Intent sources they cite. The agents can be wrong.
 
@@ -24,9 +25,13 @@ Read the quotes and the Intent sources they cite. The agents can be wrong.
 
 A confirmed Defect means the code contradicts an Intent source. Fix the source code, then push. The workflow's agents never change source code; they report Defects. The next PR run writes the test again.
 
+The Defects comment suggests a fix as a diff. Nothing applies it. Apply it as it is, change it, or write your own fix.
+
 If you think the Intent source is wrong, fix the source in the same PR and explain why in the PR description. Do not change a test to match the code.
 
 A rejected Defect is only a warning. Read the Reviewer's quote, then decide.
+
+A Suspected Defect is behaviour that looks wrong but that no Intent source states. It never changes the status. Decide which behaviour is intended: fix the code, or state the current behaviour in the PR description.
 
 ## Re-running the workflow
 
