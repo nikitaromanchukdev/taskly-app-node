@@ -18,7 +18,7 @@ This repo adds two ways to get tests written, both by the same agents and skills
 | Merge gate on `test-agent/verify`, with a `skip-test-agent` label | [0005](docs/adr/0005-gate-merges-on-test-agent-verify.md) |
 | Budgets are admin-only repo variables, with no defaults; agents skip draft PRs | [0006](docs/adr/0006-set-budgets-as-admin-only-repo-variables.md) |
 | Found bugs appear as review comments on the changed code (in the Backfill, one PR comment), each with a suggested fix that a person applies (proposed) | [0007](docs/adr/0007-report-defects-next-to-the-code-with-a-suggested-fix.md) |
-| The Backfill runs locally and reports in its PR description; a PR that changes only tests gets the Report comment only | [0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md) |
+| The Backfill runs locally and reports in its PR description; on a PR that changes only tests, the agent comments say why the agents did not run | [0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md) |
 
 ## How to run the PR workflow
 
@@ -33,7 +33,7 @@ This repo adds two ways to get tests written, both by the same agents and skills
 - **Locally.** `make trial` runs the same steps on your branch. Its prerequisites and the other local commands are in [AGENTS.md](AGENTS.md).
 - **Concurrency.** A newer push cancels the older run for the same PR. Label events other than `skip-test-agent` run in their own group, so they cannot cancel a real run.
 
-Results appear as one status (`test-agent/verify`) and three PR comments, plus review comments on the code for each Defect and Suspected Defect. A PR that changes only tests and config, such as a Backfill PR, gets the Report only: the agents have nothing to test on it, and a Backfill PR lists its agent results in its description ([ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md)). How to read them is in [AGENTS.md](AGENTS.md).
+Results appear as one status (`test-agent/verify`) and three PR comments, plus review comments on the code for each Defect and Suspected Defect. On a PR that changes only tests and config, such as a Backfill PR, the agent comments say why the agents did not run: there is nothing new to test, and a Backfill PR lists its agent results in its description ([ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md)). How to read them is in [AGENTS.md](AGENTS.md).
 
 ## Prerequisites
 

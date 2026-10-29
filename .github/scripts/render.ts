@@ -1,4 +1,4 @@
-// Markdown for the 3 sticky PR comments: report, test author, test reviewer. A tests-only PR gets the report only.
+// Markdown for the 3 sticky PR comments: report, test author, test reviewer.
 import { isFlaggedDefect, packageRelative, unitKey } from './artifacts.ts';
 import type { Context, Defect, DefectDecision, MutationResult, Results, Run, Unit } from './artifacts.ts';
 import { cell, code, sanitize } from './sanitize.ts';
@@ -40,10 +40,10 @@ function header(context: Context): string {
 
 // Skip reasons of a PR that only adds tests, such as a Backfill PR: its tests and their coverage floors.
 const TESTS_ONLY_REASONS: ReadonlySet<SkipReason> = new Set(['tests', 'config']);
-const TESTS_ONLY_NOTE =
-  'This PR changes only tests and config, so the Author and Reviewer did not run. A Backfill PR lists their results in its description.';
+const TESTS_ONLY =
+  'this PR changes only tests and config, so there is nothing new to test. A Backfill PR runs the Author and Reviewer locally and lists their results in its description';
+const TESTS_ONLY_ADR = 'docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md';
 
-// A tests-only PR gets the Report only: an agent comment would say no more than its note.
 function testsOnly(run: Run): boolean {
   const skipped = run.scope?.skipped ?? [];
   return (
@@ -57,12 +57,17 @@ const NO_AGENT_REASONS: readonly ReasonRule[] = [
   { when: (run) => run.context.label_skip, reason: (run) => labelSkipNote(run.context) },
   { when: (run) => !run.context.same_repo, reason: () => 'fork pull request' },
   { when: (run) => run.context.jobs.prepare !== 'success', reason: () => PREPARE_FAILED },
+  { when: testsOnly, reason: () => TESTS_ONLY },
   { when: (run) => !run.scope?.candidates.length, reason: () => 'no testable changes' },
   { when: (run) => run.context.jobs.engineer !== 'success', reason: () => 'the agent step failed or timed out' },
 ];
 
 const whyNoAgent = (run: Run) => firstReason(NO_AGENT_REASONS, run) ?? 'no agent output';
-const notRun = (run: Run, who: string, why: string) => `${who} not run on \`${short(run.context.analyzed_sha)}\`: ${why}.`;
+// A tests-only PR also links the ADR that separates the Backfill from a PR run.
+function notRun(run: Run, who: string, why: string, repo: string): string {
+  const adr = why === TESTS_ONLY ? ` See [ADR 0008](https://github.com/${repo}/blob/main/${TESTS_ONLY_ADR}).` : '';
+  return `${who} not run on \`${short(run.context.analyzed_sha)}\`: ${why}.${adr}`;
+}
 const unitName = (unit: { path: string; unit: string }, repo: string) => `${code(unit.path, repo)} ${cell(unit.unit, repo)}`;
 
 // ---- Pipeline report ----
@@ -143,7 +148,6 @@ function renderReport({ run, status, repo }: Report): string {
     `### ${STATUS_EMOJI[status.state]} ${status.description}`,
     header(run.context),
     '',
-    ...(testsOnly(run) ? [TESTS_ONLY_NOTE, ''] : []),
     ...defectLines(run, repo),
     ...skippedLines(run, repo),
     ...resultLines(run.results),
@@ -162,10 +166,9 @@ function verdictLabel(unit: Unit, rejected: Set<string>): string {
 const flaggedLine = (unit: string, defect: Defect, repo: string) =>
   `- ${cell(unit, repo)}: expected ${cell(defect.expected, repo)}, received ${cell(defect.received, repo)} (${cell(defect.source, repo)})`;
 
-function renderAuthor({ run, repo }: Report): string | null {
-  if (testsOnly(run)) return null;
+function renderAuthor({ run, repo }: Report): string {
   const out = [marker('author'), '### Test author', header(run.context), ''];
-  if (!run.author) return [...out, notRun(run, 'Author', whyNoAgent(run))].join('\n');
+  if (!run.author) return [...out, notRun(run, 'Author', whyNoAgent(run), repo)].join('\n');
 
   const rejected = new Set(run.checked?.reviewRejected ?? []);
   const rows = run.author.units.map((unit) => [
@@ -187,12 +190,11 @@ function renderAuthor({ run, repo }: Report): string | null {
 
 // ---- Reviewer comment ----
 
-function renderReviewer({ run, repo }: Report): string | null {
-  if (testsOnly(run)) return null;
+function renderReviewer({ run, repo }: Report): string {
   const out = [marker('reviewer'), '### Test reviewer', header(run.context), ''];
   if (!run.reviewer) {
     const why = run.author ? 'the author produced no tests or defects to review' : whyNoAgent(run);
-    return [...out, notRun(run, 'Reviewer', why)].join('\n');
+    return [...out, notRun(run, 'Reviewer', why, repo)].join('\n');
   }
 
   const decisions = run.reviewer.defects.map((decision) => [
@@ -218,8 +220,7 @@ function renderReviewer({ run, repo }: Report): string | null {
   ].join('\n');
 }
 
-// null: the PR gets no such comment, and publish deletes an earlier one.
-export const RENDERERS: Record<CommentName, (report: Report) => string | null> = {
+export const RENDERERS: Record<CommentName, (report: Report) => string> = {
   report: renderReport,
   author: renderAuthor,
   reviewer: renderReviewer,
