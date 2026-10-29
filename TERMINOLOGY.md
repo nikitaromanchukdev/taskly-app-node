@@ -100,6 +100,6 @@ Avoid: diff, change set, changeset.
 
 ## Backfill
 
-A one-off local pass that adds tests for existing, untested code. The owner approves a ranked list of gaps before any test is written. The Author writes the tests, and the Reviewer reviews them, as in a PR run. Backfill PRs go through the same merge gate as any other PR.
+A one-off local pass that adds tests for existing, untested code. The owner approves a ranked list of gaps before any test is written. The Author writes the tests, and the Reviewer reviews them, as in a PR run. Backfill PRs go through the same merge gate as any other PR. See [ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md).
 
 Avoid: Part A, catch-up, retroactive tests, gap fill.

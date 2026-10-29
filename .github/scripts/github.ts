@@ -31,7 +31,8 @@ export function github({ token, baseUrl = DEFAULT_BASE_URL }: GitHubOptions): Gi
       const body = (await response.text()).slice(0, MAX_ERROR_BODY);
       throw new Error(`GitHub API ${method} ${path} -> ${response.status}: ${body}`);
     }
-    return (await response.json()) as T;
+    // 204 No Content (DELETE) has no body to parse.
+    return (response.status === 204 ? undefined : await response.json()) as T;
   }
 
   async function paginate<T>(path: string, maxPages: number): Promise<T[]> {

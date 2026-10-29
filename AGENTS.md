@@ -19,7 +19,7 @@ The agents of the PR workflow and the Backfill follow their own agent files, whi
 - **Test reviewer**: the Reviewer's decision on each Defect, with a link to its review comment, and its Findings.
 - **Review comments on the code**: one per Defect or Suspected Defect, on the line where it was found, with expected and received values (or what looks wrong), the Intent source quote, the Reviewer's decision or note, and a suggested fix. This is the only place with a Defect's details. See [ADR 0007](docs/adr/0007-report-defects-next-to-the-code-with-a-suggested-fix.md).
 
-A Backfill PR has no changed source lines, so it gets a fourth comment, **Defects**, with the same entries instead.
+A PR that changes only tests and config, such as a Backfill PR, gets the Report only: the agents have nothing to test on it. A Backfill PR lists the Author and Reviewer results in its description. It has no changed source lines, so its Defects go in a separate **Defects** comment, with the same entries. See [ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md).
 
 Read the quotes and the Intent sources they cite. The agents can be wrong.
 
