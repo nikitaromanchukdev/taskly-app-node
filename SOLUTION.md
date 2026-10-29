@@ -5,7 +5,7 @@ For reviewers: what this repo adds, how to run it, what to set up, and what is s
 This repo adds two ways to get tests written, both by the same agents and skills:
 
 - **PR workflow:** adds or updates tests for the Units a PR changes. GitHub Actions runs it on every PR.
-- **Backfill:** adds tests for existing, untested code, in one pass. The owner runs it locally: the Author, then the Reviewer, as in a PR run. The results go in the PR description, because the PR workflow has nothing to test on a PR that only adds tests. See [ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md).
+- **Backfill:** adds tests for existing, untested code, in one pass. The owner runs it locally: the Author, then the Reviewer, as in a PR workflow. The results go in the PR description, because the PR workflow has nothing to test on a PR that only adds tests. See [ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md).
 
 ## Key decisions
 
@@ -19,6 +19,7 @@ This repo adds two ways to get tests written, both by the same agents and skills
 | Budgets are admin-only repo variables, with no defaults; agents skip draft PRs | [0006](docs/adr/0006-set-budgets-as-admin-only-repo-variables.md) |
 | Found bugs appear as review comments on the changed code (in the Backfill, one PR comment), each with a suggested fix that a person applies (proposed) | [0007](docs/adr/0007-report-defects-next-to-the-code-with-a-suggested-fix.md) |
 | The Backfill runs locally and reports in its PR description; on a PR that changes only tests, the agent comments say why the agents did not run | [0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md) |
+| A change to the agent config is tested before the merge with `make demo`, against committed cases with a planted Defect and the expected result | [0009](docs/adr/0009-test-agent-config-changes-against-committed-cases.md) |
 
 ## How to run the PR workflow
 
@@ -30,7 +31,7 @@ This repo adds two ways to get tests written, both by the same agents and skills
   ```
 
   Use this after a failed run, after a budget variable changes, or after a cancelled run. It fails on a fork PR.
-- **Locally.** `make trial` runs the same steps on your branch. Its prerequisites and the other local commands are in [AGENTS.md](AGENTS.md).
+- **Locally.** `make trial` runs the same steps on your branch, and asks for the intended behaviour the first time. `make demo` runs them on a committed example with a planted Defect and prints PASS or FAIL; it is the check for a PR that changes the agent config, which its own PR run cannot test. Prerequisites and the other local commands are in [AGENTS.md](AGENTS.md).
 - **Concurrency.** A newer push cancels the older run for the same PR. Label events other than `skip-test-agent` run in their own group, so they cannot cancel a real run.
 
 Results appear as one status (`test-agent/verify`) and three PR comments, plus review comments on the code for each Defect and Suspected Defect. On a PR that changes only tests and config, such as a Backfill PR, the agent comments say why the agents did not run: there is nothing new to test, and a Backfill PR lists its agent results in its description ([ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md)). How to read them is in [AGENTS.md](AGENTS.md).
@@ -88,10 +89,11 @@ The same steps with raw `gh` commands:
 ## Agents, skills and the workflow
 
 - **Agents.** `.claude/agents/pr-test-engineer.md` (the Author) and `.claude/agents/pr-test-reviewer.md` (the Reviewer).
-- **Skills.** `.claude/skills/`, one folder per skill: `scope-change`, `map-coverage-gaps`, `extract-intent`, `author-tests`, `prove-tests` and `review-tests`. The package playbooks are `author-tests/backend.md` and `author-tests/frontend.md`.
+- **Agent skills.** `.claude/skills/`, one folder per skill, preloaded through each agent's `skills:` list: `scope-change`, `map-coverage-gaps`, `extract-intent`, `author-tests`, `prove-tests` and `review-tests`. The package playbooks are `author-tests/backend.md` and `author-tests/frontend.md`.
+- **Contributor skills.** Also in `.claude/skills/`, for a person's or a coding agent's own Claude Code session: `ship-change` (branch, checks, review, commit, cleanup), `github-ops` (issues, PRs, comments, statuses and re-runs through `gh`), `prove-script-test` (break each defence a script test covers and see it fail), `run-local-workflow` (runs the local make commands, asking for the intent first) and `report-backfill` (the Backfill PR description and Defects comment). The Author and Reviewer cannot load them: neither has the `Skill` tool, so each sees only the skills its agent file lists.
 - **Settings.** `.claude/agent-settings.json` holds the tool allow and deny lists and the write-guard hook. Every agent run receives it; see [ADR 0001](docs/adr/0001-use-claude-code-action-as-agent-runtime.md).
 - **Rules, schemas and scripts.** `.github/scripts/`. These run without a model and are the source for the rules, the output schemas and the status decision.
-- **Workflow.** `.github/workflows/pr-test-engineer.yml`. It wires the jobs below.
+- **Workflow.** `.github/workflows/pr-test-engineer.yml`. It wires the jobs below. [docs/pr-run.md](docs/pr-run.md) follows one PR run step by step: which job writes the tests, which pushes them, and what keeps a bad patch out.
 
 | Job | Runs a model | Write access | Runs PR code | What it does |
 |---|---|---|---|---|
@@ -173,7 +175,7 @@ Limitations:
 - The overdue badge and the overdue counter can disagree around midnight. `due_date` is a calendar date with no time or offset, so the badge compares it with the user's local date and the counter with the UTC date. Left as is on purpose: the fix changes the data model, outside this task.
 - Some acceptance checks were not run on the live repo: the `skip-test-agent` label (honoured, and ignored for a user without maintain rights), a `workflow_dispatch` re-run, and a crafted tautological test that a blocking Finding drops from the Bot commit.
 - The final status waits for mutation testing to finish, within an 8-minute limit per package.
-- A PR that changes `.claude/` or `.github/` cannot test its own agent config, because the run uses the base copy.
+- A PR that changes `.claude/` or `.github/` cannot test its own agent config, because the run uses the base copy. `make demo` tests it locally against one planted Defect before the merge ([ADR 0009](docs/adr/0009-test-agent-config-changes-against-committed-cases.md)); nothing in CI requires that it ran.
 - `verify` runs the PR's own test setup: `npm ci` with install scripts, the vitest configs, setup files and tests. That code runs on the runner host, without secrets and with a read-only token, and it can write its own results files or make its own suites pass. This holds for CI in general. The control is a human reading the diff. Running `verify` through the sandbox and CODEOWNERS on the run config are production items.
 - PR code in the sandbox can still write files the Author may read, such as a nested `CLAUDE.md` in a test folder. That is prompt injection, not code execution: the Author has no network tools and its Bash is limited to git reads and `sandbox.sh`.
 

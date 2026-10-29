@@ -1,24 +1,67 @@
 ---
 name: scope-change
-description: PR workflow only. Turn the Scope of a PR run into the list of changed Units, each with the existing tests that touch it.
+description: Turn the Scope of a PR run (scope.json) into the list of changed Units, each with its change type and the existing tests that touch it. Use when a PR workflow run starts and the Author must decide which Units to look at. PR workflow only; a Backfill starts with map-coverage-gaps instead.
 ---
 
-# scope-change
+# Scope Change
 
-Decide which Units this PR run must look at. Do not write tests here.
+Produce one row per changed Unit for `extract-intent`. Write no tests here.
 
-## Inputs
-- `scope.json`: `candidates` (path, package, status, changed line ranges) and `skipped` files with a reason. Rules live in `.github/scripts/rules.ts`.
+**The #1 rule:** never second-guess a skip. `skipped` files are decided by `.github/scripts/rules.ts`. **Why:** the report already lists each skip with its reason, and a second opinion here would make the Scope differ from what the report shows.
 
-## Steps
-1. Read `scope.json`. Ignore `skipped`; never second-guess a skip reason.
-2. For each candidate, read the changed line ranges with `git diff <base>...<head> -- <path>` (base and head are in `scope.json`).
-3. Map each hunk to the Unit it sits in: exported function, React component, hook or Express route. A hunk outside any Unit (imports, constants) belongs to the Units that use it.
-4. Drop Units whose change cannot alter behaviour (rename of a local, comment, formatting). Keep them in the list with the reason `no-logic` so the report shows them.
-5. For each remaining Unit, find existing tests that touch it:
-   - backend: `grep` `backend/tests/` for the module name and exported names.
-   - frontend: the co-located `<Name>.test.tsx` or `.test.ts`, plus tests that render it.
-6. Note for each Unit whether the change is new code, changed behaviour, or a removal.
+## Before Starting
 
-## Output
-A working list, one row per Unit: path, Unit name, change type, existing tests (file > test name), proposed reason if no test is needed. Pass it to `extract-intent`.
+| Input | Where it comes from | Notes |
+|---|---|---|
+| `scope.json` | named in the prompt | `candidates` (path, package, status, changed line ranges), `skipped` (path, reason), `base`, `head` |
+
+---
+
+## Step 1: Read the Scope
+
+Read `scope.json`. Use only `candidates`. Ignore `skipped`.
+
+---
+
+## Step 2: Read Each Changed Hunk
+
+For each candidate, take `base` and `head` from `scope.json`:
+
+```bash
+git diff {base}...{head} -- {path}
+```
+
+---
+
+## Step 3: Map Hunks to Units
+
+1. **Find the enclosing Unit** - exported function, React component, hook, or Express route.
+2. **Hunk outside any Unit** (imports, constants) - it belongs to the Units that use it.
+3. **Change that cannot alter behaviour** (rename of a local, comment, formatting) - keep the Unit in the list with the reason `no-logic`, so the report shows it.
+
+---
+
+## Step 4: Find Existing Tests
+
+For each Unit not marked `no-logic`:
+
+| Package | Where to look |
+|---|---|
+| `backend` | `grep` `backend/tests/` for the module name and the exported names |
+| `frontend` | the co-located `{Name}.test.tsx` or `{Name}.test.ts`, plus tests that render the Unit |
+
+---
+
+## Step 5: Name the Change Type
+
+For each Unit, record one of: **new code**, **changed behaviour**, **removal**.
+
+---
+
+## Output Format
+
+A working list, one row per Unit. Pass it to `extract-intent`.
+
+```
+{path} | {Unit} | {new code / changed behaviour / removal} | {file > test name, ...} | {proposed reason if no test is needed}
+```

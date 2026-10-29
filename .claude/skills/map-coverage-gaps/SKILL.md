@@ -1,27 +1,90 @@
 ---
 name: map-coverage-gaps
-description: Backfill only. Rank the untested behaviour of the whole codebase and stop for the owner's approval before any test is written.
+description: Rank the untested behaviour of the whole codebase from coverage reports into Recommendations, Unreachable, and Out of scope, then stop for the owner's approval. Use when starting a Backfill, i.e. adding tests for existing untested code. Backfill only; a PR run starts with scope-change instead. Writes no tests.
 ---
 
-# map-coverage-gaps
+# Map Coverage Gaps
 
-Find what is worth testing across the repo. This skill writes no tests.
+Produce a ranked report of what is worth testing across the repo, then stop.
 
-## Inputs
-- A package, or both. The attempt budget is not needed yet.
+**The #1 rule:** STOP after the report and wait for the owner. **Why:** the owner decides what the Backfill tests; only approved items go on to `extract-intent`.
 
-## Steps
-1. For each package run `.github/scripts/sandbox.sh test <package> --coverage --coverage.reportOnFailure`.
-2. Read `<package>/coverage/lcov.info`. Collect uncovered lines (`DA:<line>,0`) and branches (`BRDA` with `0` or `-`) per file.
-3. Group the gaps by Unit. Every logic file under 100% appears exactly once.
-4. Classify each file:
-   - **Out of scope**: it matches a skip rule in `.github/scripts/rules.ts`. Give the reason id.
-   - **Unreachable**: no clean way to exercise it from a unit test (for example process startup). Say why.
-   - **Recommendation**: everything else.
-5. For each Recommendation, write the gaps as Expectations ("when X, then Y") with their Intent source. Order by: failure paths a user sees, then branches that choose an outcome, then happy paths of untested Units.
-6. Record current lines and branches percent per Unit.
+## Before Starting
 
-## Output
-A report with three sections: Recommendations (Unit, coverage now, Expectations with Intent source), Unreachable, Out of scope.
+| Input | Default | Notes |
+|---|---|---|
+| Package | both | `backend`, `frontend`, or both |
 
-Stop here. Show the report to the owner and wait. Only the items the owner approves go on to `extract-intent`. An approved item that still cannot be exercised gets the Verdict `not-needed` with reason `unreachable`.
+The attempt budget is not needed yet.
+
+---
+
+## Step 1: Run Coverage
+
+For each package:
+
+```bash
+.github/scripts/sandbox.sh test {package} --coverage --coverage.reportOnFailure
+```
+
+---
+
+## Step 2: Read the Gaps
+
+Read `{package}/coverage/lcov.info`. Per file, collect:
+
+| Gap | lcov line |
+|---|---|
+| Uncovered line | `DA:{line},0` |
+| Uncovered branch | `BRDA` ending in `0` or `-` |
+
+---
+
+## Step 3: Group by Unit
+
+Group the gaps by Unit. Every logic file under 100% appears exactly once in the report.
+
+---
+
+## Step 4: Classify Each File
+
+| If | Then |
+|---|---|
+| It matches a skip rule in `.github/scripts/rules.ts` | **Out of scope**, with the rule's reason id |
+| No clean way to exercise it from a unit test (e.g., process startup) | **Unreachable**, with why |
+| Anything else | **Recommendation** |
+
+---
+
+## Step 5: Write and Rank Recommendations
+
+1. **Expectations** - write each gap as an Expectation ("when X, then Y") with its Intent source.
+2. **Coverage now** - record the current lines and branches percent per Unit.
+3. **Rank** - in this order:
+   1. failure paths a user sees
+   2. branches that choose an outcome
+   3. happy paths of untested Units
+
+---
+
+## Step 6: Stop for Approval
+
+Show the report to the owner and wait.
+
+**Gate — stop here:** write no tests until the owner names the approved items. Only those go on to `extract-intent`. An approved item that still cannot be exercised gets the Verdict `not-needed` with the reason `unreachable`.
+
+---
+
+## Output Format
+
+```markdown
+## Recommendations
+1. {path} {Unit} — lines {n}%, branches {n}%
+   - {Expectation} ({Intent source})
+
+## Unreachable
+- {path} {Unit} — {why}
+
+## Out of scope
+- {path} — {reason id}
+```

@@ -26,7 +26,7 @@ Fork PRs come from people outside the repo. They must not reach any secret.
 - `verify` runs PR code on the runner host without secrets. The invariant allows this.
 - Agent transcripts are not published, not even as an artifact, because they carry PR text and tool output. The `engineer` log lists only the tool calls the permission rules denied.
 - Fork PRs get no agent run and no status. A maintainer merges them by pushing the branch into the repo.
-- A PR that changes `.claude/` or `.github/` cannot test its own agent config, because the run uses the base copy. See [ADR 0005](0005-gate-merges-on-test-agent-verify.md) for the skip label used on such PRs.
+- A PR that changes `.claude/` or `.github/` cannot test its own agent config, because the run uses the base copy. See [ADR 0005](0005-gate-merges-on-test-agent-verify.md) for the skip label used on such PRs, and [ADR 0009](0009-test-agent-config-changes-against-committed-cases.md) for how such a change is tested before the merge.
 
 ## Status
 
