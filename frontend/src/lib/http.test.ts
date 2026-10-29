@@ -28,14 +28,14 @@ describe('request', () => {
     await expect(request('/todos', { method: 'POST' })).rejects.toThrow()
   })
 
-  it('uses the input-limits message for a 422 response with a string detail', async () => {
+  it('characterization: uses the input-limits message for a 422 response with a string detail', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ detail: 'Invalid input.' }, 422))
     await expect(request('/todos', { method: 'POST' })).rejects.toThrow(
       inputLimitsMessage,
     )
   })
 
-  it('keeps the input-limits message when the 422 detail is an array', async () => {
+  it('characterization: keeps the input-limits message when the 422 detail is an array', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({ detail: [{ msg: 'Invalid' }] }, 422),
     )
@@ -52,21 +52,21 @@ describe('request', () => {
     ).resolves.toBeUndefined()
   })
 
-  it('reports a network failure as a connection problem', async () => {
+  it('characterization: reports a network failure as a connection problem', async () => {
     fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
     await expect(request('/todos')).rejects.toThrow(
       'Cannot connect to the server. Please try again.',
     )
   })
 
-  it('reports a network failure as a connection problem when options are given without a signal', async () => {
+  it('characterization: reports a network failure as a connection problem when options are given without a signal', async () => {
     fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
     await expect(request('/todos', { method: 'POST' })).rejects.toThrow(
       'Cannot connect to the server. Please try again.',
     )
   })
 
-  it('rethrows the original error when the request was aborted', async () => {
+  it('characterization: rethrows the original error when the request was aborted', async () => {
     const controller = new AbortController()
     const abortError = new DOMException(
       'The operation was aborted.',
@@ -81,7 +81,7 @@ describe('request', () => {
     ).rejects.toBe(abortError)
   })
 
-  it('throws the server detail for another error response', async () => {
+  it('characterization: throws the server detail for another error response', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ detail: 'Task not found.' }, 404))
     await expect(request('/todos/7')).rejects.toThrow('Task not found.')
   })
@@ -92,7 +92,7 @@ describe('request', () => {
       () => jsonResponse({ detail: [{ msg: 'x' }] }, 500),
     ],
     ['a body that is not JSON', () => new Response('Server error', { status: 500 })],
-  ])('throws the generic message for %s', async (_case, respond) => {
+  ])('characterization: throws the generic message for %s', async (_case, respond) => {
     fetchMock.mockResolvedValue(respond())
     await expect(request('/todos/7')).rejects.toThrow(genericMessage)
   })

@@ -40,7 +40,7 @@ it('requests GET /api/todos and exposes the tasks as data', async () => {
   expect(fetchMock.mock.calls[0][0]).toBe('/api/todos')
 })
 
-it('reports the request failure as the query error', async () => {
+it('characterization: reports the request failure as the query error', async () => {
   fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
   const { wrapper } = setup()
   const { result } = renderHook(() => useTodosQuery(), { wrapper })

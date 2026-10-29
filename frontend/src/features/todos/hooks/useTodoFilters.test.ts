@@ -24,22 +24,32 @@ const call: Todo = {
   completed: true,
 }
 
-it('starts with all statuses, an empty search and newest first', () => {
+it('characterization: starts with all statuses, an empty search and newest first', () => {
   const { result } = renderHook(() => useTodoFilters([plan, milk, call]))
   expect(result.current.filter).toBe('all')
   expect(result.current.search).toBe('')
   expect(result.current.sort).toBe('newest')
 })
 
-it('shows only tasks whose title or description contains the search, ignoring case', () => {
+it('shows only tasks whose description contains the search, ignoring case', () => {
   const { result } = renderHook(() => useTodoFilters([plan, milk, call]))
   act(() => {
     result.current.setSearch('API')
   })
-  expect(result.current.visible.map((todo) => todo.id).sort()).toEqual([1, 2])
+  const ids = result.current.visible.map((todo) => todo.id)
+  expect(ids).toContain(2)
+  expect(ids).not.toContain(3)
 })
 
-it('shows only completed tasks after the filter is set to completed', () => {
+it('characterization: also matches the search in the title', () => {
+  const { result } = renderHook(() => useTodoFilters([plan, milk, call]))
+  act(() => {
+    result.current.setSearch('API')
+  })
+  expect(result.current.visible.map((todo) => todo.id)).toContain(1)
+})
+
+it('characterization: shows only completed tasks after the filter is set to completed', () => {
   const { result } = renderHook(() => useTodoFilters([plan, milk, call]))
   act(() => {
     result.current.setFilter('completed')

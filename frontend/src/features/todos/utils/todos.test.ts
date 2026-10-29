@@ -37,7 +37,7 @@ describe('selectTodos', () => {
     expect(selectTodos(todos, 'active', ' api ', 'newest')).toEqual([matching])
   })
 
-  it('keeps completed and active tasks for the all filter', () => {
+  it('characterization: keeps completed and active tasks for the all filter', () => {
     const done: Todo = { ...base, id: 2, completed: true }
     const result = selectTodos([base, done], 'all', '', 'newest')
     expect(result).toHaveLength(2)
@@ -51,7 +51,7 @@ describe('selectTodos', () => {
     expect(todos).toEqual([base, high])
   })
 
-  it('orders by priority high, medium, low regardless of id or creation time', () => {
+  it('characterization: orders by priority high, medium, low regardless of id or creation time', () => {
     const low: Todo = {
       ...base,
       id: 3,
@@ -77,7 +77,7 @@ describe('selectTodos', () => {
     ).toEqual([1, 2, 3])
   })
 
-  it('orders the newest tasks first and breaks equal times by higher id', () => {
+  it('characterization: orders the newest tasks first and breaks equal times by higher id', () => {
     const older = {
       ...base,
       id: 1,
@@ -112,7 +112,7 @@ describe('selectTodos', () => {
     ).toEqual([3, 4, 2, 1])
   })
 
-  it('sorts by due date with undated tasks last', () => {
+  it('characterization: sorts by due date with undated tasks last', () => {
     const later = { ...base, id: 1, due_date: '2026-10-20' }
     const sooner = { ...base, id: 2, due_date: '2026-10-10' }
     const undated = { ...base, id: 3, due_date: null }
@@ -128,7 +128,7 @@ describe('selectTodos', () => {
     ).toEqual([2, 5, 4, 1, 3])
   })
 
-  it('breaks equal priorities by the higher id first', () => {
+  it('characterization: breaks equal priorities by the higher id first', () => {
     const first: Todo = { ...base, id: 3, priority: 'high' }
     const second: Todo = { ...base, id: 9, priority: 'high' }
     expect(
@@ -138,7 +138,7 @@ describe('selectTodos', () => {
     ).toEqual([9, 3])
   })
 
-  it('returns only completed tasks for the completed filter', () => {
+  it('characterization: returns only completed tasks for the completed filter', () => {
     const done: Todo = { ...base, id: 2, completed: true }
     expect(selectTodos([base, done], 'completed', '', 'newest')).toEqual([done])
   })
@@ -224,24 +224,24 @@ describe('isOverdue', () => {
     completed,
   })
 
-  it('is true for an open task due before today', () => {
+  it('characterization: is true for an open task due before today', () => {
     expect(isOverdue(openTask('2026-10-14'))).toBe(true)
   })
 
-  it('is false for a task due today', () => {
+  it('characterization: is false for a task due today', () => {
     expect(isOverdue(openTask('2026-10-15'))).toBe(false)
   })
 
-  it('is false for a task due after today', () => {
+  it('characterization: is false for a task due after today', () => {
     expect(isOverdue(openTask('2026-10-16'))).toBe(false)
   })
 
-  it('is false for a completed task or a task without a due date', () => {
+  it('characterization: is false for a completed task or a task without a due date', () => {
     expect(isOverdue(openTask('2026-10-14', true))).toBe(false)
     expect(isOverdue(openTask(null))).toBe(false)
   })
 
-  it('compares zero-padded dates in single-digit months and days', () => {
+  it('characterization: compares zero-padded dates in single-digit months and days', () => {
     vi.setSystemTime(new Date(2026, 2, 5, 12))
     expect(isOverdue(openTask('2026-03-04'))).toBe(true)
     expect(isOverdue(openTask('2026-03-05'))).toBe(false)
@@ -254,7 +254,7 @@ describe('formatDate', () => {
     vi.useRealTimers()
   })
 
-  it('formats a calendar date as day, short month and year', () => {
+  it('characterization: formats a calendar date as day, short month and year', () => {
     expect(formatDate('2026-10-15')).toBe('15 Oct 2026')
   })
 })

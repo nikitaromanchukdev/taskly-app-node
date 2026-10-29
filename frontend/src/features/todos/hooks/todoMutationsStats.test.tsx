@@ -75,7 +75,7 @@ it('refreshes stats after a task is deleted', async () => {
   )
 })
 
-it('puts the saved task first and drops the cached copy with the same id', async () => {
+it('characterization: puts the saved task first and drops the cached copy with the same id', async () => {
   const other = { ...todoFixture, id: 8, title: 'Buy milk' }
   const staleCopy = { ...todoFixture, title: 'Old title' }
   vi.mocked(todosApi.create).mockResolvedValue(todoFixture)
@@ -88,7 +88,7 @@ it('puts the saved task first and drops the cached copy with the same id', async
   )
 })
 
-it('replaces only the updated task in the cached list', async () => {
+it('characterization: replaces only the updated task in the cached list', async () => {
   const other = { ...todoFixture, id: 8, title: 'Buy milk' }
   const saved = { ...todoFixture, completed: true }
   vi.mocked(todosApi.update).mockResolvedValue(saved)
@@ -102,7 +102,7 @@ it('replaces only the updated task in the cached list', async () => {
   await waitFor(() => expect(list.result.current.data).toEqual([saved, other]))
 })
 
-it('leaves the list uncached when no list was cached', async () => {
+it('characterization: leaves the list uncached when no list was cached', async () => {
   vi.mocked(todosApi.update).mockResolvedValue(todoFixture)
   const { client, wrapper } = cachedClient()
   const mutation = renderHook(() => useUpdateTodoMutation(), { wrapper })
@@ -114,7 +114,7 @@ it('leaves the list uncached when no list was cached', async () => {
   expect(client.getQueryData(todoKeys.list)).toBeUndefined()
 })
 
-it('starts the list with only the saved task when no list was cached', async () => {
+it('characterization: starts the list with only the saved task when no list was cached', async () => {
   vi.mocked(todosApi.create).mockResolvedValue(todoFixture)
   const { client, wrapper } = cachedClient()
   const mutation = renderHook(() => useCreateTodoMutation(), { wrapper })

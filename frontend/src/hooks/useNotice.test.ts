@@ -17,7 +17,7 @@ it('starts without a notice and exposes a notification callback', () => {
   expect(result.current.notify).toEqual(expect.any(Function))
 })
 
-it('exposes the message passed to notify', () => {
+it('characterization: exposes the message passed to notify', () => {
   const { result } = renderHook(() => useNotice())
   act(() => {
     result.current.notify('Task deleted.')
@@ -25,7 +25,7 @@ it('exposes the message passed to notify', () => {
   expect(result.current.message).toBe('Task deleted.')
 })
 
-it('clears the notice after 4000 ms', () => {
+it('characterization: clears the notice after 4000 ms', () => {
   const { result } = renderHook(() => useNotice())
   act(() => {
     result.current.notify('Task deleted.')
@@ -40,7 +40,7 @@ it('clears the notice after 4000 ms', () => {
   expect(result.current.message).toBe('')
 })
 
-it('restarts the 4000 ms window when a second notice arrives', () => {
+it('characterization: restarts the 4000 ms window when a second notice arrives', () => {
   const { result } = renderHook(() => useNotice())
   act(() => {
     result.current.notify('First.')

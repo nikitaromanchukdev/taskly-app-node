@@ -11,7 +11,7 @@ import { useTodosBusy } from './useTodosBusy'
 vi.mock('../api/todos', () => ({ todosApi: { create: vi.fn() } }))
 beforeEach(() => vi.clearAllMocks())
 
-it('is busy while a todo mutation is pending and idle once it settles', async () => {
+it('characterization: is busy while a todo mutation is pending and idle once it settles', async () => {
   let settle!: (saved: Todo) => void
   vi.mocked(todosApi.create).mockReturnValue(
     new Promise<Todo>((resolve) => {
