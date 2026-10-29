@@ -122,6 +122,22 @@ Both runs used the same skills. The Author ran `scope-change`, `extract-intent`,
 
 Between the pushes, the author ran `git pull --rebase` to take the Bot commit, then changed `<=` to `<`. In push 2 the Author added the due-today test the first run could not commit, and marked the other Units as covered by the tests from push 1. Each run updated the same three comments in place. Each Bot commit left a PR run waiting for approval, which skips every job.
 
+## Backfill run
+
+The Backfill ran once per package. The Author used `map-coverage-gaps`, then the owner approved the gap list, then `extract-intent`, `author-tests` and `prove-tests`. The Reviewer then ran `review-tests` in a fresh session, twice per package: on the Author's tests, and again after the owner decided each Finding and edited the tests. Each PR description holds the full results.
+
+| | Backend [#24](https://github.com/nikitaromanchukdev/taskly-app-node/pull/24) | Frontend [#25](https://github.com/nikitaromanchukdev/taskly-app-node/pull/25) |
+|---|---|---|
+| Units | 6 tested, 1 `not-needed` (unreachable) | 19 tested, 3 `not-needed` |
+| Lines, before → after | 40.16% → 86.06% | 61.25% → 99.37% |
+| Branches, before → after | 40.74% → 94.44% | 45.39% → 96.45% |
+| Mutation, local Stryker on the backfilled files | 68.71% | 94.57% |
+| Reviewer Findings | 4, all advisory; all fixed | 4, all advisory; 3 fixed, 1 disputed |
+| Defects | none confirmed; 2 Suspected Defects | none confirmed; 2 Suspected Defects |
+| `test-agent/verify` | 🟢 suites pass | 🟢 suites pass |
+
+Per-file coverage floors keep each backfilled file at the level it reached. The Suspected Defects wait for an owner decision in each PR's Defects comment, for example: the frontend overdue badge uses the local date, while the overdue counter uses UTC.
+
 ## Assumptions and limitations
 
 Assumptions:
