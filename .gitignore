@@ -29,5 +29,5 @@ coverage/
 .claude/worktrees/
 
 # Mutation testing
-reports/mutation/
+**/reports/mutation/
 .stryker-tmp/
