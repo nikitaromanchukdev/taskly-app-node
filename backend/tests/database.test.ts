@@ -19,7 +19,7 @@ it('characterization: rejects with the same error when the table statement fails
   executeRaw.mockRejectedValue(error);
   await expect(initialize(database)).rejects.toBe(error);
 });
-it('creates the todos table with the title, description and priority limits of the API contract', async () => {
+it('characterization: creates the todos table with title, description and priority limits', async () => {
   const { database, executeRaw } = setup();
   executeRaw.mockResolvedValue(0);
   await initialize(database);
