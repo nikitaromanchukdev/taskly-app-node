@@ -14,7 +14,7 @@ The Author can misread intent. You check that, read-only.
 ## Steps
 1. Read `author.json`. Open each cited Intent source yourself (PR description, `backend/openapi.json`, neighbouring tests, docs).
 2. For each new or changed test in `tests.patch`, ask in order:
-   1. Does the cited source actually state this Expectation? If not, it is unsupported.
+   1. Does the cited source actually state this Expectation? If not, it is unsupported. A source generated from the code is the code, so a citation of it is unsupported too.
    2. Would the test fail if the Unit were wrong? A test that cannot fail (asserts a constant, mirrors the code, only checks a mock it set up) is a tautology.
    3. Does it test the implementation (private calls, call order, internals) instead of behaviour?
    4. Can it flake (real clock, random, order dependence, network)?
