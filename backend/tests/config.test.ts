@@ -17,10 +17,19 @@ afterEach(() => {
   }
 });
 
-it.each(Object.keys(postgresVars))('throws naming the missing variable %s when no URL is set', (missing) => {
+// Sets every POSTGRES_* variable except one.
+function setAllBut(missing: string) {
   for (const [name, value] of Object.entries(postgresVars)) {
     if (name !== missing) process.env[name] = value;
   }
+}
+
+it.each(Object.keys(postgresVars))('throws when %s is missing and no URL is set', (missing) => {
+  setAllBut(missing);
+  expect(() => resolveDatabaseUrl()).toThrow();
+});
+it.each(Object.keys(postgresVars))('characterization: the error reads "Missing environment variable: %s"', (missing) => {
+  setAllBut(missing);
   expect(() => resolveDatabaseUrl()).toThrow(`Missing environment variable: ${missing}`);
 });
 it('characterization: an explicit override wins over DATABASE_URL', () => {

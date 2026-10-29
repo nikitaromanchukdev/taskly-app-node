@@ -47,21 +47,31 @@ it('returns 404 when GET finds no task', async () => {
   repository.get.mockResolvedValue(null);
   const response = await request(app).get('/api/todos/1');
   expect(response.status).toBe(404);
-  expect(response.body).toEqual({ detail: 'Task not found.' });
 });
 it('returns 404 when PATCH finds no task', async () => {
   const { app, repository } = setup();
   repository.update.mockResolvedValue(null);
   const response = await request(app).patch('/api/todos/1').send({ title: 'Task' });
   expect(response.status).toBe(404);
-  expect(response.body).toEqual({ detail: 'Task not found.' });
 });
 it('returns 404 when DELETE finds no task', async () => {
   const { app, repository } = setup();
   repository.delete.mockResolvedValue(false);
   const response = await request(app).delete('/api/todos/1');
   expect(response.status).toBe(404);
-  expect(response.body).toEqual({ detail: 'Task not found.' });
+});
+it('characterization: a missing task answers with detail "Task not found." on GET, PATCH and DELETE', async () => {
+  const { app, repository } = setup();
+  repository.get.mockResolvedValue(null);
+  repository.update.mockResolvedValue(null);
+  repository.delete.mockResolvedValue(false);
+  for (const response of [
+    await request(app).get('/api/todos/1'),
+    await request(app).patch('/api/todos/1').send({ title: 'Task' }),
+    await request(app).delete('/api/todos/1'),
+  ]) {
+    expect(response.body).toEqual({ detail: 'Task not found.' });
+  }
 });
 it.each([
   ['get', '/api/todos/0'], ['get', '/api/todos/-1'], ['get', '/api/todos/1.5'], ['get', '/api/todos/abc'],
