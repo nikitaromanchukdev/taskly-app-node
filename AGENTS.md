@@ -4,6 +4,13 @@ For contributors and coding agents who change the app, its tests, or the PR work
 
 The agents of the PR workflow and the Backfill follow their own agent files, which take precedence over this file. They never commit, push, post, or run npm on the host. The push, commit and command steps below are for people.
 
+## Before you explore
+
+- **Terms.** Read [TERMINOLOGY.md](TERMINOLOGY.md) and use its terms as written, not the synonyms it lists. If a concept has no term there, say so instead of inventing one.
+- **Decisions.** Read the ADRs in [`docs/adr/`](docs/adr/) that touch the area you change. If your change contradicts one, say which and why in the PR description, and update the ADR in the same PR. Never override an ADR silently.
+- **Rules live in code.** Test paths and skip rules are in [`.github/scripts/rules.ts`](.github/scripts/rules.ts); Verdicts, reasons and kinds in [`author.schema.json`](.github/scripts/author.schema.json) and [`reviewer.schema.json`](.github/scripts/reviewer.schema.json); the status policy in [`status.ts`](.github/scripts/status.ts). Link them; never copy their lists into a doc.
+- **One home per fact.** Why: an ADR. How to run and what was built: [SOLUTION.md](SOLUTION.md). How to work: this file. Terms: TERMINOLOGY.md. Change a fact in its home and link to it from elsewhere.
+
 ## What happens when you push to a PR
 
 - The PR workflow runs on each push. Its jobs and triggers are in [SOLUTION.md](SOLUTION.md).
@@ -52,6 +59,19 @@ Use it only as [ADR 0005](docs/adr/0005-gate-merges-on-test-agent-verify.md) des
 - **Branches.** `feat/issue-<n>-<slug>`.
 - **PR description.** Write the intended behaviour in it, and end with `Closes #<n>`. The test workflow reads the description as an Intent source.
 - **Agent config.** During a PR run, the agents use the base branch's agent config. See [ADR 0004](docs/adr/0004-isolate-pr-code-from-secrets.md).
+- **Script code.** Branch with `switch` or lookup tables, not `if` chains. Declare named union types first and use them; do not derive them with `(typeof X)[number]`, `T['field']` or `ReturnType`.
+
+## Skills for contributors
+
+Claude Code sessions in this repo can load these skills from `.claude/skills/`. The PR workflow's agents cannot; they load only their own.
+
+| Task | Skill |
+|---|---|
+| Branch, run the checks, get a review, commit, push, clean up after the merge | `ship-change` |
+| Open or edit a PR, comment, close an issue, read the bot comments, re-run the workflow | `github-ops` |
+| Prove a new test in `.github/scripts/tests/` catches what it claims | `prove-script-test` |
+| Run `make trial`, `make demo`, `make hook-demo` or `make clean` for you, with the intent question and a summary | `run-local-workflow` |
+| Write a Backfill PR description and its Defects comment | `report-backfill` |
 
 ## Commands
 
@@ -67,9 +87,11 @@ The workflow's own scripts in `.github/scripts/` have their own tests: run `make
 
 ## Local runs of the PR workflow
 
-- `make trial` runs the PR workflow's steps locally against `main`. Set `BASE=<branch>` to compare with another branch. Commit your change first, and write the PR description to `.test-agent/pr-body.md`.
+- `make trial` runs the PR workflow's steps locally against `main`. Set `BASE=<branch>` to compare with another branch. Commit your change first: the trial tests `git diff main...HEAD`.
+- The first run on a branch asks where the intended behaviour comes from: the open PR's description, the branch's commit messages, typed in, your editor, or none. Without intent, Defects can only come from `openapi.json`, existing tests or docs. The answer is saved and reused for that branch. Delete `.test-agent/<branch>/pr-body.md` to be asked again.
+- `make demo` checks the agent config on disk, committed or not, against a planted Defect in [`.github/trial/`](.github/trial/). It prints `demo: PASS` when the Author flags the Defect and the Reviewer confirms it. Run it before you open a PR that changes `.claude/` or `.github/scripts/`: that PR's own run uses `main`'s copy ([ADR 0004](docs/adr/0004-isolate-pr-code-from-secrets.md)), so nothing else tests the new config before the merge.
 - `make hook-demo` asks an agent to edit `backend/src`, and checks that the write guard blocks it.
-- Output goes to `.test-agent/`, which git ignores. Nothing is pushed or posted. `make clean` removes the output and keeps the PR description.
-- Needs Node 24, `make`, `jq`, Docker running, and a logged-in Claude Code CLI. The runs use model tokens.
+- Output goes to `.test-agent/<branch>/`, which git ignores. Nothing is pushed or posted. `make clean` removes the current branch's output and keeps its PR description; if the branch has none, it lists the other folders to pick from.
+- Needs Node 24, `make`, `jq`, `rsync`, Docker running, and a logged-in Claude Code CLI. `make trial` and `make demo` use model tokens.
 
 The steps are in the [Makefile](Makefile).
