@@ -52,6 +52,12 @@ it('characterization: an unknown path answers 404 with detail "Not Found"', asyn
   expect(response.status).toBe(404);
   expect(response.body).toEqual({ detail: 'Not Found' });
 });
+it('characterization: responses do not send the X-Powered-By header', async () => {
+  const { app } = setup();
+  const response = await request(app).get('/openapi.json');
+  expect(response.status).toBe(200);
+  expect(response.headers).not.toHaveProperty('x-powered-by');
+});
 it('serves the API documentation page at /docs, following the redirect to /docs/', async () => {
   const { app } = setup();
   const response = await request(app).get('/docs').redirects(1);
