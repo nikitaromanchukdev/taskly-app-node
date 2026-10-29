@@ -3,7 +3,7 @@ name: run-local-workflow
 description: Run this repo's local make commands for the user - make trial (the PR workflow's agents on the current branch), make demo (the agent config against a planted Defect, PASS or FAIL), the Backfill (make backfill-gaps, backfill-approve, backfill-tests), make hook-demo, make clean, single steps - including the setup each needs, and summarize the result. Use when the user wants to try the agents locally, test a change before opening a PR, check that changed agents or skills still work, run a Backfill, see the write guard block an edit, or clean up local output, e.g. "run the trial", "run the demo", "run the backfill for frontend", "does the new skill still catch the defect", "test this locally", "clean test-agent". For CI runs on a PR, use github-ops.
 allowed-tools:
   - Bash(make -n:*)
-  - Bash(node .github/scripts/trial.ts dir:*)
+  - Bash(node .github/scripts/local/trial.ts dir:*)
   - Bash(git status:*)
   - Bash(git log:*)
   - Bash(docker info:*)
@@ -81,7 +81,7 @@ Use AskUserQuestion with:
    - commit it through the `ship-change` skill, then come back;
    - or `make demo`, which tests the agent config on disk without a commit, if that is what they want to check.
 
-2. **Find the output folder** - `node .github/scripts/trial.ts dir` (e.g., `.test-agent/feat-issue-5-x`).
+2. **Find the output folder** - `node .github/scripts/local/trial.ts dir` (e.g., `.test-agent/feat-issue-5-x`).
 3. **Settle the intent** - if `{folder}/pr-body.md` exists, read its first line and tell the user it will be reused. Otherwise ask:
 
    ```
@@ -103,7 +103,7 @@ No preparation. It uses the committed example in `.github/agent-tests/truncate/`
 
 ### Path C: `make clean`
 
-Run `node .github/scripts/trial.ts dir`. **If that folder does NOT exist:** `make clean` only lists the other folders, because it has no terminal to ask. Ask the user which one, then run `make clean OUT=.test-agent/{folder}`.
+Run `node .github/scripts/local/trial.ts dir`. **If that folder does NOT exist:** `make clean` only lists the other folders, because it has no terminal to ask. Ask the user which one, then run `make clean OUT=.test-agent/{folder}`.
 
 ### Path D: The Backfill
 

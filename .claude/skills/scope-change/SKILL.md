@@ -7,7 +7,7 @@ description: Turn the Scope of a PR run (scope.json) into the list of changed Un
 
 Produce one row per changed Unit for `extract-intent`. Write no tests here.
 
-**The #1 rule:** never second-guess a skip. `skipped` files are decided by `.github/scripts/rules.ts`. **Why:** the report already lists each skip with its reason, and a second opinion here would make the Scope differ from what the report shows.
+**The #1 rule:** never second-guess a skip. `skipped` files are decided by `.github/scripts/contracts/rules.ts`. **Why:** the report already lists each skip with its reason, and a second opinion here would make the Scope differ from what the report shows.
 
 ## Before Starting
 

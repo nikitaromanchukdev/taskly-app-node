@@ -16,4 +16,4 @@ React 19, TanStack Query 5, styled-components, Vitest, jsdom, React Testing Libr
 ## Conventions
 - Prefer `getByRole` over test ids. Use `findBy*` or `waitFor` for async results; no fixed sleeps.
 - Do not assert on styled-components class names.
-- Run with `.github/scripts/sandbox.sh test frontend <file>`.
+- Run with `.github/scripts/agent/sandbox.sh test frontend <file>`.

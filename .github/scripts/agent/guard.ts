@@ -4,10 +4,10 @@
 //   guard.ts patch <file>  Exit 1 if a git patch touches a non-test path or adds a symlink.
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
-import { die } from './cli.ts';
-import { isTestPath } from './rules.ts';
-import { scanLines } from './scan.ts';
-import type { LineRule } from './scan.ts';
+import { die } from '../lib/cli.ts';
+import { isTestPath } from '../contracts/rules.ts';
+import { scanLines } from '../lib/scan.ts';
+import type { LineRule } from '../lib/scan.ts';
 
 type HookInput = {
   tool_name?: string;

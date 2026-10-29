@@ -18,7 +18,7 @@ package="${2:-}"
 shift 2
 
 # Mount the repo root wherever the script is called from.
-root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cache="${HOME:?HOME is not set}/.cache/test-agent-npm"
 mkdir -p "$cache"
 modules="test-agent-$(printf %s "$root" | cksum | cut -d' ' -f1)-$package-modules"

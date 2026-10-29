@@ -93,6 +93,16 @@ The same steps with raw `gh` commands:
 - **Contributor skills.** Also in `.claude/skills/`, for a person's or a coding agent's own Claude Code session: `ship-change` (branch, checks, review, commit, cleanup), `github-ops` (issues, PRs, comments, statuses and re-runs through `gh`), `prove-script-test` (break each defence a script test covers and see it fail), `run-local-workflow` (runs the local make commands, asking for the intent first) and `report-backfill` (the Backfill PR description and Defects comment). The Author and Reviewer cannot load them: neither has the `Skill` tool, so each sees only the skills its agent file lists.
 - **Settings.** `.claude/agent-settings.json` holds the tool allow and deny lists and the write-guard hook. Every agent run receives it; see [ADR 0001](docs/adr/0001-use-claude-code-action-as-agent-runtime.md).
 - **Rules, schemas and scripts.** `.github/scripts/`. These run without a model and are the source for the rules, the output schemas and the status decision.
+
+  | Folder | Holds | Files |
+  |---|---|---|
+  | `contracts/` | Rules and output formats, no logic | `rules.ts`, `author.schema.json`, `reviewer.schema.json`, `gaps.schema.json` |
+  | `agent/` | Security controls that run inside or around an agent session | `sandbox.sh`, `guard.ts` |
+  | `workflow/` | The CI jobs' steps | `prepare.ts`, `agent-output.ts`, `verify.sh`, `results.ts`, `context.ts`, `report.ts`, `render.ts`, `status.ts`, `sanitize.ts`, `github.ts` |
+  | `local/` | Local runs only, from the Makefile and contributor skills | `trial.ts` |
+  | `lib/` | Shared helpers, no CLI | `artifacts.ts`, `cli.ts`, `json.ts`, `schema.ts`, `scan.ts` |
+  | `tests/` | Tests of the scripts above | `run.ts`, `*.test.ts` |
+
 - **Workflow.** `.github/workflows/pr-test-engineer.yml`. It wires the jobs below. [docs/pr-run.md](docs/pr-run.md) follows one PR run step by step: which job writes the tests, which pushes them, and what keeps a bad patch out.
 
 | Job | Runs a model | Write access | Runs PR code | What it does |

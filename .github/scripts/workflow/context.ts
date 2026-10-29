@@ -3,10 +3,10 @@
 // Env: NEEDS (toJSON(needs)), GITHUB_REPOSITORY, PR_NUMBER, RUN_URL, GITHUB_TOKEN.
 // When prepare did not get far enough to name the head commit, the live PR is read instead.
 import { parseArgs } from 'node:util';
-import type { Context, Job, JobResult } from './artifacts.ts';
-import { die } from './cli.ts';
+import type { Context, Job, JobResult } from '../lib/artifacts.ts';
+import { die } from '../lib/cli.ts';
 import { githubFromEnv } from './github.ts';
-import { writeJson } from './json.ts';
+import { writeJson } from '../lib/json.ts';
 
 type Env = Record<string, string | undefined>;
 type Need = { result?: string; outputs?: Record<string, string> };

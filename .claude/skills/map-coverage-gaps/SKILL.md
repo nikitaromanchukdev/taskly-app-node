@@ -24,7 +24,7 @@ The attempt budget is not needed yet.
 For each package:
 
 ```bash
-.github/scripts/sandbox.sh test {package} --coverage --coverage.reportOnFailure
+.github/scripts/agent/sandbox.sh test {package} --coverage --coverage.reportOnFailure
 ```
 
 ---
@@ -50,7 +50,7 @@ Group the gaps by Unit. Every logic file under 100% appears exactly once in the 
 
 | If | Then |
 |---|---|
-| It matches a skip rule in `.github/scripts/rules.ts` | **Out of scope**, with the rule's reason id |
+| It matches a skip rule in `.github/scripts/contracts/rules.ts` | **Out of scope**, with the rule's reason id |
 | No clean way to exercise it from a unit test (e.g., process startup) | **Unreachable**, with why |
 | Anything else | **Recommendation** |
 
@@ -79,7 +79,7 @@ End the run with the report as the structured output. Write no tests.
 
 ## Output Format
 
-The structured output required by `.github/scripts/gaps.schema.json`:
+The structured output required by `.github/scripts/contracts/gaps.schema.json`:
 
 | Field | Holds |
 |---|---|

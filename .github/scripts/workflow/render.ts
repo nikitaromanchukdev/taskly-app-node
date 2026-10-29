@@ -1,10 +1,10 @@
 // Markdown for the 3 sticky PR comments: report, test author, test reviewer.
-import { isFlaggedDefect, packageRelative, unitKey, unitTests } from './artifacts.ts';
-import type { Context, Defect, DefectDecision, Kind, MutationResult, Results, Run, Unit } from './artifacts.ts';
+import { isFlaggedDefect, packageRelative, unitKey, unitTests } from '../lib/artifacts.ts';
+import type { Context, Defect, DefectDecision, Kind, MutationResult, Results, Run, Unit } from '../lib/artifacts.ts';
 import { cell, code, sanitize } from './sanitize.ts';
 import { labelSkipNote, PREPARE_FAILED } from './status.ts';
 import type { ReasonRule, Status, StatusState } from './status.ts';
-import type { SkipReason } from './rules.ts';
+import type { SkipReason } from '../contracts/rules.ts';
 
 export type CommentName = 'report' | 'author' | 'reviewer';
 // What every comment is rendered from: the run's artifacts, its decided status and the repo for links.

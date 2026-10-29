@@ -1,7 +1,7 @@
 // The final test-agent/verify status, decided from the run's artifacts.
-import { isFlaggedDefect, unitKey, writesTests } from './artifacts.ts';
-import type { Context, Run, Unit } from './artifacts.ts';
-import { LABEL_SKIP_PHRASE } from './rules.ts';
+import { isFlaggedDefect, unitKey, writesTests } from '../lib/artifacts.ts';
+import type { Context, Run, Unit } from '../lib/artifacts.ts';
+import { LABEL_SKIP_PHRASE } from '../contracts/rules.ts';
 
 export type StatusState = 'success' | 'failure';
 export type Status = { state: StatusState; description: string };

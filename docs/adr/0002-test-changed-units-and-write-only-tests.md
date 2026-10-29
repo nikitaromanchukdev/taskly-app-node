@@ -10,7 +10,7 @@ The Author must not change product code. If it could, an agent could make a fail
 
 ## Decision
 
-- A PR run takes its Scope from the diff. `.github/scripts/rules.ts` decides which changed files are candidates and which are skipped, and why. Skipped files are listed in the report.
+- A PR run takes its Scope from the diff. `.github/scripts/contracts/rules.ts` decides which changed files are candidates and which are skipped, and why. Skipped files are listed in the report.
 - Work is per Unit, not per file. Changed lines map to the Units that contain them. Lines outside any Unit map to the Units that use them.
 - The Author writes tests only in the test paths defined in `rules.ts`. A write-guard hook refuses any other edit during the agent run. The commit job checks the patch again before it pushes. See [ADR 0004](0004-isolate-pr-code-from-secrets.md).
 - A Unit whose change cannot alter behaviour gets the Verdict `not-needed`, with a reason from `author.schema.json`.

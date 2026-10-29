@@ -3,13 +3,13 @@
 // Exit 1 if anything is invalid; --out is written either way so `publish` can read it.
 import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
-import { CHARACTERIZATION_PREFIX, isFlaggedDefect, testName, unitKey, unitTests, VERDICT_RULES, writesTests } from './artifacts.ts';
-import type { AuthorOutput, Checked, Kind, ReviewerOutput, Unit } from './artifacts.ts';
-import { die, EXIT_CODES } from './cli.ts';
-import { readJson, writeJson } from './json.ts';
-import { readSchema, validate } from './schema.ts';
-import { scanLines } from './scan.ts';
-import type { LineRule } from './scan.ts';
+import { CHARACTERIZATION_PREFIX, isFlaggedDefect, testName, unitKey, unitTests, VERDICT_RULES, writesTests } from '../lib/artifacts.ts';
+import type { AuthorOutput, Checked, Kind, ReviewerOutput, Unit } from '../lib/artifacts.ts';
+import { die, EXIT_CODES } from '../lib/cli.ts';
+import { readJson, writeJson } from '../lib/json.ts';
+import { readSchema, validate } from '../lib/schema.ts';
+import { scanLines } from '../lib/scan.ts';
+import type { LineRule } from '../lib/scan.ts';
 
 type PatchFiles = { file: string; added: Map<string, string[]>; created: Set<string> };
 type DefectTests = { errors: string[]; dropFiles: string[] };
@@ -105,8 +105,8 @@ const invalid = (errors: string[]): Checked => ({ ok: false, errors, dropFiles: 
 
 function check(author: unknown, reviewer: unknown, patch: string | undefined, maxAttempts: number): Checked {
   const schemaErrors = [
-    ...validate(author, readSchema('./author.schema.json')).map((e) => `author ${e}`),
-    ...(reviewer === undefined ? [] : validate(reviewer, readSchema('./reviewer.schema.json')).map((e) => `reviewer ${e}`)),
+    ...validate(author, readSchema('../contracts/author.schema.json')).map((e) => `author ${e}`),
+    ...(reviewer === undefined ? [] : validate(reviewer, readSchema('../contracts/reviewer.schema.json')).map((e) => `reviewer ${e}`)),
   ];
   if (schemaErrors.length) return invalid(schemaErrors);
 

@@ -1,7 +1,7 @@
 // sanitize.ts turns untrusted agent text and PR file paths into markdown that is safe to post.
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { cell, code, sanitize } from '../sanitize.ts';
+import { cell, code, sanitize } from '../workflow/sanitize.ts';
 
 const REPO = 'owner/repo';
 const ZWSP = '​';

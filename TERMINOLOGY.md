@@ -24,7 +24,7 @@ Avoid: spec, source of truth, ground truth.
 
 ## Verdict
 
-The Author's decision for one Unit. The allowed values are in `.github/scripts/author.schema.json`.
+The Author's decision for one Unit. The allowed values are in `.github/scripts/contracts/author.schema.json`.
 
 Avoid: status (that word means the commit status), result, outcome.
 
@@ -70,7 +70,7 @@ Avoid: issue, warning (a rejected Defect is the warning), comment.
 
 ## Review-rejected
 
-A report-only state for a Unit whose test file was dropped from the Bot commit because of a blocking Finding. The Author cannot set it; `.github/scripts/agent-output.ts` computes it. It does not turn the status red.
+A report-only state for a Unit whose test file was dropped from the Bot commit because of a blocking Finding. The Author cannot set it; `.github/scripts/workflow/agent-output.ts` computes it. It does not turn the status red.
 
 Avoid: rejected (that word belongs to a Defect), failed, dropped.
 

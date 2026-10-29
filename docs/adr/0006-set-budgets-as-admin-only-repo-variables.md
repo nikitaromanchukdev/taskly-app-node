@@ -9,7 +9,7 @@ A model-driven run costs money and time. A run with no limit has no cap. A defau
 ## Decision
 
 - Five repo variables hold the budgets: the Author's model, the Reviewer's model, the turn limit per agent step, the timeout per agent step, and the attempt limit per Unit. Their names are listed in [SOLUTION.md](../../SOLUTION.md), under prerequisites.
-- CI has no defaults. The first job, `prepare`, checks all five before any agent runs. A missing or invalid value fails the run, with a message that names the variable. The validation rules are in `.github/scripts/prepare.ts`.
+- CI has no defaults. The first job, `prepare`, checks all five before any agent runs. A missing or invalid value fails the run, with a message that names the variable. The validation rules are in `.github/scripts/workflow/prepare.ts`.
 - The turn limit and the timeout are enforced on each agent step. The attempt limit is passed to the Author as a soft limit, and the scripts check the Author's output against it again.
 - The Makefile has its own local defaults, used only by `make trial`. They never reach CI.
 - `scripts/setup-github.sh config` sets the variables. Admins edit them afterwards.

@@ -48,7 +48,7 @@ For each new or changed test in `tests.patch`, ask in order:
 
 ## Step 3: Record Findings
 
-Record a Finding for each problem, with the test as `file > test name`. Use the reason and severity values from `.github/scripts/reviewer.schema.json`.
+Record a Finding for each problem, with the test as `file > test name`. Use the reason and severity values from `.github/scripts/contracts/reviewer.schema.json`.
 
 | Severity | When |
 |---|---|

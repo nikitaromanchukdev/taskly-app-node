@@ -16,4 +16,4 @@ Express 5, Prisma, zod, Vitest, supertest. No database is needed for unit tests.
 ## Conventions
 - Dates: compare ISO strings; fix "today" with `vi.useFakeTimers()` and `vi.setSystemTime(...)`, and restore with `vi.useRealTimers()` in `afterEach`.
 - Error responses are 422 for validation and 404 for a missing id; check the status and the body shape in `backend/openapi.json`.
-- Run with `.github/scripts/sandbox.sh test backend <file>`.
+- Run with `.github/scripts/agent/sandbox.sh test backend <file>`.

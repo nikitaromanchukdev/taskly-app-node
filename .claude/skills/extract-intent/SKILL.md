@@ -59,7 +59,7 @@ A file generated from the code, such as an OpenAPI file built from the validatio
 
 **If an Expectation would test a behaviour no source supports and is NOT a Characterization test:** drop it.
 
-**If a Unit has no Expectations worth testing:** give it the Verdict `not-needed` with a reason from `.github/scripts/author.schema.json`.
+**If a Unit has no Expectations worth testing:** give it the Verdict `not-needed` with a reason from `.github/scripts/contracts/author.schema.json`.
 
 ---
 

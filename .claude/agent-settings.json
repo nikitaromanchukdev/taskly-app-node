@@ -10,8 +10,8 @@
       "Bash(git log:*)",
       "Bash(git show:*)",
       "Bash(git status:*)",
-      "Bash(.github/scripts/sandbox.sh test:*)",
-      "Bash(.github/scripts/sandbox.sh typecheck:*)"
+      "Bash(.github/scripts/agent/sandbox.sh test:*)",
+      "Bash(.github/scripts/agent/sandbox.sh typecheck:*)"
     ],
     "deny": [
       "WebFetch",
@@ -29,7 +29,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR\"/.github/scripts/guard.ts hook"
+            "command": "node \"$CLAUDE_PROJECT_DIR\"/.github/scripts/agent/guard.ts hook"
           }
         ]
       }

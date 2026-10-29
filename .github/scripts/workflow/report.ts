@@ -5,14 +5,14 @@
 import { appendFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
-import type { Context, Run } from './artifacts.ts';
-import { die } from './cli.ts';
+import type { Context, Run } from '../lib/artifacts.ts';
+import { die } from '../lib/cli.ts';
 import { githubFromEnv } from './github.ts';
 import type { GitHub } from './github.ts';
-import { readJsonIfExists, writeJson } from './json.ts';
+import { readJsonIfExists, writeJson } from '../lib/json.ts';
 import { COMMENTS, marker, RENDERERS } from './render.ts';
 import type { CommentName } from './render.ts';
-import { STATUS_CONTEXT } from './rules.ts';
+import { STATUS_CONTEXT } from '../contracts/rules.ts';
 import { truncate } from './sanitize.ts';
 import { decide } from './status.ts';
 import type { Status } from './status.ts';
