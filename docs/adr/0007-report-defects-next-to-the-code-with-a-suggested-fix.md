@@ -37,7 +37,7 @@ In the PR workflow the bug is in code the PR changes, so the best place to show 
 
 - A person sees each bug where the code is, with one way to fix it. The fix remains their decision and their commit.
 - The suggested fix is model output. It can be wrong, and it can be steered by the PR body. It is never applied by the workflow, and it is sanitized like other agent text. A `suggestion` block makes a wrong fix easy to commit, so the PR owner must still read it.
-- The PR workflow keeps three PR comments, plus review comments on the code. The Backfill PR gets a fourth comment, the Defects comment.
+- The PR workflow keeps three PR comments, plus review comments on the code. A Backfill PR has no changed source lines, so it gets a fourth comment, the Defects comment ([ADR 0008](0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md)).
 - `author.schema.json` gets the file, line range and suggested fix for each Defect, plus a list of Suspected Defects. `reviewer.schema.json` gets a decision or note for each Suspected Defect. `agent-output.ts` checks that every entry names a Unit and a file that exist, and drops PR-workflow entries in files the PR does not change.
 - `render.ts` drops the Defect details from the Report, Test author and Test reviewer comments, and links each Defect to its entry instead.
 - GitHub accepts line comments only on lines in the diff, so `publish` must map each entry to a diff hunk or fall back to a file comment.
