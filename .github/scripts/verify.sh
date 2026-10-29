@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # verify job: run a checked-out tree's checks and write the raw reports results.ts reads. Usage:
-#   verify.sh checks   <tree> <out-dir>              install, typecheck, suite with coverage, per package
+#   verify.sh checks   <tree> <out-dir>              install, typecheck, suite with coverage, per package;
+#                                                    then the tests of the workflow's own scripts
 #   verify.sh mutation <tree> <out-dir> <scope.json> StrykerJS on the changed files, per package (after checks)
 # Runs PR code, so the job holding it has a read-only token and no secrets.
 set -uo pipefail
@@ -29,4 +30,10 @@ for pkg in backend frontend; do
     *) echo "usage: verify.sh <checks|mutation> <tree> <out-dir> [scope.json]" >&2; exit 64 ;;
   esac
 done
+
+# The workflow's own scripts, as this tree has them: spec output to the log, TAP to the file results.ts reads.
+if [[ "$mode" == checks ]]; then
+  cd "$tree" && node --test --test-reporter=spec --test-reporter-destination=stdout \
+    --test-reporter=tap --test-reporter-destination="$out/scripts.tap" '.github/scripts/tests/*.test.ts'
+fi
 exit 0

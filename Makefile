@@ -5,6 +5,7 @@
 #   make trial        all steps in CI order
 #   make review       one step again (scope, install, author, patch, review, check, report)
 #   make hook-demo    ask an agent to edit backend/src and show the hook blocking it
+#   make script-tests the tests of the workflow's own scripts (no agent, no install)
 #   make clean        remove run output, keep the PR description
 #
 # PR_BODY is the intended behaviour, as a PR description would state it. It stays in the gitignored
@@ -35,7 +36,7 @@ run_agent = $(CLAUDE) --agent $(1) --model $(2) --json-schema "$$(cat $(SCRIPTS_
 # Units the reviewer has something to look at: tests written or a defect flagged.
 REVIEWABLE := [.units[] | select(.verdict != "not-needed")] | length > 0
 
-.PHONY: trial scope install author patch review check report hook-demo clean need-pr-body
+.PHONY: trial scope install author patch review check report hook-demo script-tests clean need-pr-body
 
 trial: scope install author patch review check report
 
@@ -89,6 +90,9 @@ hook-demo:
 	@jq -r '.result' $(OUT)/hook-demo.json
 	@git diff --quiet -- backend/src && echo "hook-demo: backend/src unchanged, the hook blocked the edit" || \
 	  { echo "hook-demo: backend/src was changed, the hook did not block" >&2; git checkout -- backend/src; exit 1; }
+
+script-tests:
+	node --test '$(SCRIPTS_DIR)/tests/*.test.ts'
 
 clean:
 	@test ! -d $(OUT) || find $(OUT) -type f ! -name pr-body.md -delete

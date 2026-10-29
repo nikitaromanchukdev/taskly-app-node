@@ -63,6 +63,8 @@ Setup is in [README.md](README.md). Run these from the package folder, `backend/
 | Tests with coverage | `npm run test:coverage` | `npm run test:coverage` |
 | Typecheck | `npm run typecheck` | `npm run typecheck` |
 
+The workflow's own scripts in `.github/scripts/` have their own tests: run `make script-tests` from the repo root. They need Node 24 and no install. `verify` runs them on every PR.
+
 ## Local runs of the PR workflow
 
 - `make trial` runs the PR workflow's steps locally against `main`. Set `BASE=<branch>` to compare with another branch. Commit your change first, and write the PR description to `.test-agent/pr-body.md`.

@@ -14,5 +14,5 @@
     "skipLibCheck": true,
     "typeRoots": ["../../backend/node_modules/@types"]
   },
-  "include": ["*.ts"]
+  "include": ["*.ts", "tests/*.ts"]
 }

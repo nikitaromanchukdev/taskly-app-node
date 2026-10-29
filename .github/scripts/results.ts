@@ -3,6 +3,7 @@
 // <dir>/final/ (and <dir>/baseline/ when a bot commit exists) hold, per package written by verify.sh:
 //   <pkg>.typecheck (pass|fail) · <pkg>.vitest.json (vitest json reporter) · <pkg>.coverage.json (json-summary)
 //   <pkg>.mutation.json (Stryker json report, final only, missing when not run)
+// and once: scripts.tap (node --test TAP report of the workflow's own scripts)
 // A missing report counts as a failure; a missing baseline falls back to the final coverage.
 import { existsSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -39,6 +40,17 @@ function suite(dir: string, pkg: Pkg): SuiteResult {
   const failed = report.numFailedTests ?? 0;
   const ok = report.success === true && failed === 0 && (report.numFailedTestSuites ?? 0) === 0;
   return { status: ok ? 'pass' : 'fail', passed: report.numPassedTests ?? 0, failed };
+}
+
+// The workflow's own scripts. TAP ends with "# pass N" and "# fail N"; a run with no passing test fails too.
+function scriptsSuite(dir: string): SuiteResult {
+  const file = join(dir, 'scripts.tap');
+  if (!existsSync(file)) return { status: 'fail', passed: 0, failed: 0 };
+  const tap = readFileSync(file, 'utf8');
+  const count = (name: string) => Number(new RegExp(`^# ${name} (\\d+)$`, 'm').exec(tap)?.[1] ?? 0);
+  const passed = count('pass');
+  const failed = count('fail') + count('cancelled');
+  return { status: passed > 0 && failed === 0 ? 'pass' : 'fail', passed, failed };
 }
 
 // ---- Coverage ----
@@ -109,12 +121,12 @@ function main() {
 
   const results: Results = {
     typecheck: Object.fromEntries(PACKAGES.map((pkg) => [pkg, typecheck(finalDir, pkg)])),
-    tests: Object.fromEntries(PACKAGES.map((pkg) => [pkg, suite(finalDir, pkg)])),
+    tests: { ...Object.fromEntries(PACKAGES.map((pkg) => [pkg, suite(finalDir, pkg)])), scripts: scriptsSuite(finalDir) },
     coverage: { baseline, final },
     mutation: Object.fromEntries(PACKAGES.map((pkg) => [pkg, mutation(finalDir, finalTree, pkg)])),
   };
   writeJson(values.out, results);
-  console.log(`${SCRIPT}: ${PACKAGES.map((pkg) => `${pkg} typecheck ${results.typecheck[pkg]}, tests ${results.tests[pkg].status}`).join('; ')} → ${values.out}`);
+  console.log(`${SCRIPT}: ${PACKAGES.map((pkg) => `${pkg} typecheck ${results.typecheck[pkg]}, tests ${results.tests[pkg].status}`).join('; ')}; scripts tests ${results.tests.scripts.status} → ${values.out}`);
 }
 
 if (import.meta.main) main();

@@ -98,7 +98,7 @@ The same steps with raw `gh` commands:
 | `prepare` | no | commit status | no | Reads the live PR. Checks the budget variables. Writes `scope.json`. Sets the status to pending. |
 | `engineer` | yes: Author, then Reviewer | none (read-only token) | only in containers | Restores base-branch config. Installs dependencies in the sandbox. Runs the agents. Saves `author.json`, `reviewer.json` and `tests.patch`. |
 | `commit` | no | repo contents | no | Checks the patch and the agent output. Drops test files with blocking Findings, and new files that hold a flagged Defect's test. Pushes the Bot commit. |
-| `verify` | no | none (read-only token) | yes, on the host, with no secrets | Typecheck and suites with coverage on the final commit. Mutation testing for information only. |
+| `verify` | no | none (read-only token) | yes, on the host, with no secrets | Typecheck and suites with coverage on the final commit, and the tests of the workflow's own scripts. Mutation testing for information only. |
 | `publish` | no | commit status, PR comments | no | Decides the status. Renders the three comments, the review comments on the code, and the job summary. |
 
 Agents never post. Only `prepare` (the pending status) and `publish` (the final status and the comments) post to the PR. `commit` pushes the Bot commit.
@@ -167,7 +167,7 @@ Limitations:
 - A same-repo writer can edit the workflow file in a PR. PR runs use the head copy of the workflow, so the budgets and the guard steps in it can be changed. The team mitigation is CODEOWNERS on `.github/` and `.claude/`, with a ruleset that requires code-owner review. It is not applied, because the sole maintainer cannot approve their own PRs.
 - Fork PRs get no agent run and no status. The branch must be pushed into the repo to merge.
 - No CI run proves a Backfill's agent results. Its PR description is written by hand from the local `author.json` and `reviewer.json`, so it can drift from them ([ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md)).
-- Deterministic scripts have no tests. This includes `guard.ts` and `sanitize.ts`, which are the injection defences.
+- The script tests cover the scripts that decide what reaches the PR: `guard.ts`, `sanitize.ts`, `agent-output.ts` and `status.ts`. The scripts that call GitHub (`prepare.ts`, `context.ts`, `report.ts`) have no tests.
 - The output types in `agent-output.ts` repeat the schema enums by hand, so they can drift from the schemas.
 - The mutation score is reported, not enforced.
 - The overdue badge and the overdue counter can disagree around midnight. `due_date` is a calendar date with no time or offset, so the badge compares it with the user's local date and the counter with the UTC date. Left as is on purpose: the fix changes the data model, outside this task.
@@ -188,7 +188,7 @@ Items a production version would add:
 - CODEOWNERS on `.github/`, `.claude/` and the test run config (`**/package.json`, the vitest and vite configs, test setup files), with a ruleset that requires code-owner review. This needs a team.
 - The mutation score as a gate on changed files.
 - One bounded revise round after review: the Author fixes the flagged tests, a narrow final review runs, and only then are blocked tests dropped. This replaces dropping whole files.
-- Tests for the deterministic scripts, including `guard.ts` and `sanitize.ts`.
+- Tests for the scripts that call GitHub, against a fake API.
 - A fork PR flow, where a maintainer applies a label to start a run.
 - A check for gaps in the lines a PR touches, reported as a separate required check.
 - Budgets and config read from the base branch only.
