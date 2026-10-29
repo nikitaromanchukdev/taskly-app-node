@@ -1,0 +1,4 @@
+{
+  "units": [{ "path": "backend/src/core/truncate.ts", "unit": "truncate", "verdict": "flagged-defect" }],
+  "defects": [{ "path": "backend/src/core/truncate.ts", "unit": "truncate", "decision": "confirmed" }]
+}

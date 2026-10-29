@@ -3,17 +3,20 @@
 # and tests.patch is whatever the author agent leaves in the working tree.
 #
 #   make trial        all steps in CI order
-#   make review       one step again (scope, install, author, patch, review, check, report)
+#   make review       one step again (scope, intent, install, author, patch, review, check, report)
+#   make demo         the agent config on disk against a planted Defect (.github/trial/); prints PASS or FAIL
 #   make hook-demo    ask an agent to edit backend/src and show the hook blocking it
 #   make script-tests the tests of the workflow's own scripts (no agent, no install)
-#   make clean        remove run output, keep the PR description
+#   make clean        remove this branch's run output, keep its PR description; without one, pick a folder
 #
-# PR_BODY is the intended behaviour, as a PR description would state it. It stays in the gitignored
-# OUT directory: a file elsewhere in the repo would land in tests.patch and fail the guard.
+# Output goes to .test-agent/<branch>/, so runs on different branches never mix.
+# PR_BODY is the intended behaviour, as a PR description would state it. The intent step asks where it
+# comes from the first time on a branch. It stays in the gitignored OUT directory: a file elsewhere in
+# the repo would land in tests.patch and fail the guard.
 # Budgets below are defaults for local runs; CI reads them from repo variables.
 
 BASE ?= main
-OUT ?= .test-agent
+OUT ?= $(shell node .github/scripts/trial.ts dir)
 PR_BODY ?= $(OUT)/pr-body.md
 
 export TEST_AGENT_MODEL ?= claude-sonnet-5-5
@@ -36,12 +39,18 @@ run_agent = $(CLAUDE) --agent $(1) --model $(2) --json-schema "$$(cat $(SCRIPTS_
 # Units the reviewer has something to look at: tests written or a defect flagged.
 REVIEWABLE := [.units[] | select(.verdict != "not-needed")] | length > 0
 
-.PHONY: trial scope install author patch review check report hook-demo script-tests clean need-pr-body
+.PHONY: trial preflight scope intent install author patch review check report demo hook-demo script-tests clean
 
-trial: scope install author patch review check report
+trial: preflight scope intent install author patch review check report
 
-need-pr-body:
-	@test -f "$(PR_BODY)" || { echo "make: write the PR description to $(PR_BODY) first" >&2; exit 64; }
+preflight:
+	@command -v claude > /dev/null || { echo "make: Claude Code CLI not found; install it and log in" >&2; exit 1; }
+	@command -v jq > /dev/null || { echo "make: jq not found (macOS: brew install jq)" >&2; exit 1; }
+	@docker info > /dev/null 2>&1 || { echo "make: Docker is not running; start it and run again" >&2; exit 1; }
+
+# Asks where the intended behaviour comes from, the first time on a branch; reuses it after that.
+intent:
+	$(SCRIPTS)/trial.ts intent --out $(OUT) --base $(BASE)
 
 scope:
 	@git diff --quiet HEAD && test -z "$$(git ls-files --others --exclude-standard)" || \
@@ -54,7 +63,7 @@ install:
 	$(SCRIPTS_DIR)/sandbox.sh install backend
 	$(SCRIPTS_DIR)/sandbox.sh install frontend
 
-author: need-pr-body
+author: intent
 	$(call run_agent,pr-test-engineer,$(TEST_AGENT_MODEL),author,$(AUTHOR_PROMPT))
 
 patch:
@@ -63,7 +72,7 @@ patch:
 	git reset -q  # drop the intent-to-add marks, so new test files stay untracked
 	$(SCRIPTS)/guard.ts patch $(OUT)/tests.patch
 
-review: need-pr-body
+review: intent
 	@rm -f $(OUT)/reviewer.json
 	@if jq -e '$(REVIEWABLE)' $(OUT)/author.json > /dev/null; then \
 	  $(call run_agent,pr-test-reviewer,$(TEST_AGENT_REVIEWER_MODEL),reviewer,$(REVIEW_PROMPT)); \
@@ -94,5 +103,33 @@ hook-demo:
 script-tests:
 	node --test '$(SCRIPTS_DIR)/tests/*.test.ts'
 
+# OUT set on the command line picks the folder; otherwise the script uses the current branch's.
 clean:
-	@test ! -d $(OUT) || find $(OUT) -type f ! -name pr-body.md -delete
+	@$(SCRIPTS)/trial.ts clean $(if $(filter command line,$(origin OUT)),--out $(OUT))
+
+# The demo runs in a throwaway worktree at a fixed path, so the sandbox install is reused between runs.
+# The worktree gets the agent config as it is on disk, committed or not: the same paths CI takes from
+# the base branch (ADR 0004). Then it commits the fixture change and runs the trial steps against it.
+DEMO := .test-agent/demo
+DEMO_TREE := $(DEMO)/tree
+DEMO_OUT := $(CURDIR)/$(DEMO)/out
+FIXTURE := $(CURDIR)/.github/trial
+DEMO_GIT := git -C $(DEMO_TREE) -c user.name=demo -c user.email=demo@localhost
+
+demo: preflight
+	@rm -rf $(DEMO_OUT) && mkdir -p $(DEMO_OUT)
+	@git worktree remove --force $(DEMO_TREE) 2> /dev/null || rm -rf $(DEMO_TREE)
+	@git worktree prune
+	git worktree add -q --detach $(DEMO_TREE) HEAD
+	rsync -a --delete --exclude worktrees --exclude settings.local.json .claude/ $(DEMO_TREE)/.claude/
+	rsync -a --delete .github/scripts/ $(DEMO_TREE)/.github/scripts/
+	cp CLAUDE.md AGENTS.md $(DEMO_TREE)/
+	$(DEMO_GIT) add -A && $(DEMO_GIT) commit -q --allow-empty -m "demo: agent config under test"
+	$(DEMO_GIT) apply $(FIXTURE)/change.patch && $(DEMO_GIT) add -A && $(DEMO_GIT) commit -q -m "demo: change under test"
+	cp $(FIXTURE)/pr-body.md $(DEMO_OUT)/pr-body.md
+	@status=0; \
+	$(MAKE) --no-print-directory -C $(DEMO_TREE) -f $(CURDIR)/Makefile scope install author patch review check report \
+	  OUT=$(DEMO_OUT) BASE=$$(git rev-parse HEAD) || status=$$?; \
+	git worktree remove --force $(DEMO_TREE); \
+	$(SCRIPTS)/trial.ts check --out $(DEMO_OUT) --expected $(FIXTURE)/expected.json || status=1; \
+	echo "Output: $(DEMO_OUT)"; exit $$status
