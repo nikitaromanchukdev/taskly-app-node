@@ -1,8 +1,10 @@
 // Markdown for the 3 sticky PR comments: report, test author, test reviewer.
-import { isFlaggedDefect, packageRelative, unitKey, unitTests } from '../lib/artifacts.ts';
-import type { Context, Defect, DefectDecision, Kind, MutationResult, Results, Run, Unit } from '../lib/artifacts.ts';
+// Every comment has the same shape: marker, `### {name} · {outcome}`, the meta line, what needs a person,
+// the tables, then collapsed details and the agent's free text last. The outcome is counted by script.
+import { isFlaggedDefect, packageRelative, unitKey, unitTests, writesTests } from '../lib/artifacts.ts';
+import type { Check, Context, Defect, DefectDecision, Kind, MutationResult, Results, ReviewerOutput, Run, Severity, Unit } from '../lib/artifacts.ts';
 import { cell, code, sanitize } from './sanitize.ts';
-import { labelSkipNote, SCOPE_FAILED } from './status.ts';
+import { labelSkipNote, plural, SCOPE_FAILED } from './status.ts';
 import type { ReasonRule, Status, StatusState } from './status.ts';
 import type { SkipReason } from '../contracts/rules.ts';
 
@@ -15,12 +17,16 @@ export const COMMENTS: readonly CommentName[] = ['report', 'author', 'reviewer']
 // Each comment starts with its marker, so publish finds and updates it instead of adding another.
 export const marker = (name: CommentName) => `<!-- pr-test-engineer:${name} -->`;
 
+// The only emoji in the comments: 🟢 passes, 🔴 fails or turns the status red, ⚠️ needs a person but leaves the status as it is.
 const STATUS_EMOJI: Record<StatusState, string> = { success: '🟢', failure: '🔴' };
+const CHECK_LABELS: Record<Check, string> = { pass: '🟢 pass', fail: '🔴 fail', skipped: 'skipped' };
 const DEFECT_LABELS: Record<DefectLabel, string> = {
   confirmed: '🔴 confirmed',
-  rejected: '⚠️ rejected by reviewer (warning)',
-  undecided: '⚠️ no reviewer decision (warning)',
+  rejected: '⚠️ rejected (warning)',
+  undecided: '⚠️ no Reviewer decision (warning)',
 };
+const DECISION_LABELS: Record<DefectDecision, string> = { confirmed: '🔴 confirmed', rejected: '⚠️ rejected' };
+const SEVERITY_LABELS: Record<Severity, string> = { blocking: '⚠️ blocking', advisory: 'advisory' };
 const MAX_SURVIVORS = 20;
 
 // ---- Shared parts ----
@@ -32,6 +38,24 @@ function table(headers: string[], rows: string[][], empty: string): string[] {
   const line = (cells: string[]) => `| ${cells.join(' | ')} |`;
   return [line(headers), `|${headers.map(() => '---').join('|')}|`, ...rows.map(line)];
 }
+
+// One count in a title's outcome; a part that is not always shown is left out at 0.
+type OutcomePart = { count: number; text: (count: number) => string; always?: boolean };
+const outcome = (parts: readonly OutcomePart[]) =>
+  parts
+    .filter((part) => part.always || part.count > 0)
+    .map((part) => part.text(part.count))
+    .join(', ');
+
+const title = (name: string, result: string) => `### ${name} · ${result}`;
+const NOT_RUN = 'not run';
+
+// A collapsed section; always at the end of a comment.
+const details = (summary: string, body: string[]) => [`<details><summary>${summary}</summary>`, '', ...body, '', '</details>'];
+
+// The agent's free-text summary, after the tables. Model text is never the first thing a reader sees.
+const notes = (who: string, text: string, repo: string) =>
+  text.trim() ? ['', ...details(`${who}'s notes (free text, not checked)`, [sanitize(text, repo)])] : [];
 
 function header(context: Context): string {
   const final = context.analyzed_sha === context.final_sha ? '' : ` · final \`${short(context.final_sha)}\``;
@@ -83,14 +107,15 @@ const unitName = (unit: { path: string; unit: string }, repo: string) => `${code
 
 // ---- Pipeline report ----
 
+// Shown once the Author ran, even when empty; without Author output there is nothing to say.
 function defectLines(run: Run, repo: string): string[] {
-  const flagged = run.author?.units.filter(isFlaggedDefect) ?? [];
-  if (!flagged.length) return [];
+  if (!run.author) return [];
+  const flagged = run.author.units.filter(isFlaggedDefect);
   const lines = flagged.flatMap((unit) => {
     const review = run.reviewer?.defects.find((decision) => unitKey(decision) === unitKey(unit));
     const defect = unit.defect;
     return [
-      `- ${DEFECT_LABELS[review?.decision ?? 'undecided']}: ${code(unit.unit, repo)} in ${code(unit.path, repo)}`,
+      `- ${DEFECT_LABELS[review?.decision ?? 'undecided']} · ${unitName(unit, repo)}`,
       ...(defect
         ? [
             `  - test: ${cell(defect.test, repo)}`,
@@ -99,26 +124,26 @@ function defectLines(run: Run, repo: string): string[] {
             `  - source: ${cell(defect.source, repo)}`,
           ]
         : []),
-      ...(review ? [`  - reviewer quote: ${cell(review.source_quote, repo)}`] : []),
+      ...(review ? [`  - Reviewer quote: ${cell(review.source_quote, repo)}`] : []),
     ];
   });
-  return ['#### Defects', ...lines, ''];
+  return ['#### Defects', ...(lines.length ? lines : ['No Defects flagged.']), ''];
 }
 
 function skippedLines(run: Run, repo: string): string[] {
   const skipped = run.scope?.skipped ?? [];
   if (!skipped.length) return [];
   const items = skipped.map((file) => `- ${code(file.path, repo)} · ${file.reason}`);
-  return ['<details><summary>Skipped files</summary>', '', ...items, '', '</details>', ''];
+  return [...details(`Skipped files (${skipped.length})`, items), ''];
 }
 
 function resultLines(results: Results | undefined): string[] {
   if (!results) return ['#### Test results', 'No results (suites did not finish).', ''];
   const rows = [
-    ...Object.entries(results.typecheck).map(([pkg, check]) => [`${pkg} typecheck`, check]),
+    ...Object.entries(results.typecheck).map(([pkg, check]) => [`${pkg} typecheck`, CHECK_LABELS[check]]),
     ...Object.entries(results.tests).map(([pkg, suite]) => [
       `${pkg} tests`,
-      `${suite.status} (${suite.passed} passed, ${suite.failed} failed)`,
+      `${CHECK_LABELS[suite.status]} (${suite.passed} passed, ${suite.failed} failed)`,
     ]),
   ];
   return ['#### Test results', ...table(['Check', 'Result'], rows, 'No checks.'), ''];
@@ -150,19 +175,19 @@ function mutationLines(results: Results | undefined, repo: string): string[] {
     ];
   };
   const body = packages.length ? packages.flatMap(([pkg, mutation]) => perPackage(pkg, mutation)) : ['Not run.'];
-  return ['<details><summary>Mutation (information only)</summary>', '', ...body, '', '</details>'];
+  return details('Mutation (information only)', body);
 }
 
 function renderReport({ run, status, repo }: Report): string {
   return [
     marker('report'),
-    `### ${STATUS_EMOJI[status.state]} ${status.description}`,
+    title(`${STATUS_EMOJI[status.state]} Report`, status.description),
     header(run.context),
     '',
     ...defectLines(run, repo),
-    ...skippedLines(run, repo),
     ...resultLines(run.results),
     ...coverageLines(run, repo),
+    ...skippedLines(run, repo),
     ...mutationLines(run.results, repo),
   ].join('\n');
 }
@@ -190,12 +215,23 @@ function kindLabel(unit: Unit): string {
   }
 }
 
-const flaggedLine = (unit: string, defect: Defect, repo: string) =>
-  `- ${cell(unit, repo)}: expected ${cell(defect.expected, repo)}, received ${cell(defect.received, repo)} (${cell(defect.source, repo)})`;
+const flaggedLine = (unit: Unit, defect: Defect, repo: string) =>
+  `- ${unitName(unit, repo)}: expected ${cell(defect.expected, repo)}, received ${cell(defect.received, repo)} (${cell(defect.source, repo)})`;
+
+// "Tested" counts as the status headline does: Units with tests that were not review-rejected.
+function authorOutcome(units: readonly Unit[], rejected: Set<string>): string {
+  const count = (when: (unit: Unit) => boolean) => units.filter(when).length;
+  return outcome([
+    { count: count((unit) => writesTests(unit.verdict) && !rejected.has(unitKey(unit))), text: (n) => `${plural(n, 'Unit')} tested`, always: true },
+    { count: count((unit) => unit.verdict === 'not-needed'), text: (n) => `${n} not needed` },
+    { count: count((unit) => rejected.has(unitKey(unit))), text: (n) => `${n} review-rejected` },
+    { count: count(isFlaggedDefect), text: (n) => `${plural(n, 'Defect')} flagged` },
+  ]);
+}
 
 function renderAuthor({ run, repo }: Report): string {
-  const out = [marker('author'), '### Test author', header(run.context), ''];
-  if (!run.author) return [...out, notRun(run, 'Author', whyNoAgent(run), repo)].join('\n');
+  const top = (result: string) => [marker('author'), title('Test author', result), header(run.context), ''];
+  if (!run.author) return [...top(NOT_RUN), notRun(run, 'Author', whyNoAgent(run), repo)].join('\n');
 
   const rejected = new Set(run.checked?.reviewRejected ?? []);
   const rows = run.author.units.map((unit) => [
@@ -205,45 +241,49 @@ function renderAuthor({ run, repo }: Report): string {
     unitTests(unit).map((test) => cell(test, repo)).join('<br>'),
     String(unit.attempts),
   ]);
-  const defects = run.author.units.flatMap((unit) => (isFlaggedDefect(unit) && unit.defect ? [flaggedLine(unit.unit, unit.defect, repo)] : []));
+  const defects = run.author.units.flatMap((unit) => (isFlaggedDefect(unit) && unit.defect ? [flaggedLine(unit, unit.defect, repo)] : []));
   return [
-    ...out,
-    sanitize(run.author.summary, repo),
-    '',
-    ...table(['Unit', 'Verdict', 'Kind', 'Tests', 'Attempts'], rows, 'No units.'),
-    ...(defects.length ? ['', '#### Defects as flagged by the author', ...defects] : []),
+    ...top(authorOutcome(run.author.units, rejected)),
+    ...table(['Unit', 'Verdict', 'Kind', 'Tests', 'Attempts'], rows, 'No Units.'),
+    ...(defects.length ? ['', '#### Defects flagged', ...defects] : []),
+    ...notes('Author', run.author.summary, repo),
   ].join('\n');
 }
 
 // ---- Reviewer comment ----
 
+function reviewerOutcome({ defects, findings }: ReviewerOutput): string {
+  const decided = (decision: DefectDecision) => defects.filter((defect) => defect.decision === decision).length;
+  const blocking = findings.filter((finding) => finding.severity === 'blocking').length;
+  return `${plural(decided('confirmed'), 'Defect')} confirmed, ${decided('rejected')} rejected, ${plural(findings.length, 'Finding')}${blocking ? ` (${blocking} blocking)` : ''}`;
+}
+
 function renderReviewer({ run, repo }: Report): string {
-  const out = [marker('reviewer'), '### Test reviewer', header(run.context), ''];
+  const top = (result: string) => [marker('reviewer'), title('Test reviewer', result), header(run.context), ''];
   if (!run.reviewer) {
     const why = run.author ? { why: 'the author produced no tests or defects to review', adr: ADR_SCOPE } : whyNoAgent(run);
-    return [...out, notRun(run, 'Reviewer', why, repo)].join('\n');
+    return [...top(NOT_RUN), notRun(run, 'Reviewer', why, repo)].join('\n');
   }
 
   const decisions = run.reviewer.defects.map((decision) => [
     unitName(decision, repo),
-    decision.decision,
+    DECISION_LABELS[decision.decision],
     cell(decision.source_quote, repo),
   ]);
   const findings = run.reviewer.findings.map((finding) => [
     cell(finding.test, repo),
-    finding.severity,
+    SEVERITY_LABELS[finding.severity],
     finding.reason,
-    cell(finding.note, repo) + (finding.severity === 'blocking' ? ' (test file dropped from bot commit)' : ''),
+    cell(finding.note, repo) + (finding.severity === 'blocking' ? ' (test file dropped from the Bot commit)' : ''),
   ]);
   return [
-    ...out,
-    sanitize(run.reviewer.summary, repo),
-    '',
+    ...top(reviewerOutcome(run.reviewer)),
     '#### Defect decisions',
-    ...table(['Unit', 'Decision', 'Source quote'], decisions, 'No defects to decide.'),
+    ...table(['Unit', 'Decision', 'Source quote'], decisions, 'No Defects to decide.'),
     '',
     '#### Findings',
-    ...table(['Test', 'Severity', 'Reason', 'Note'], findings, 'No findings.'),
+    ...table(['Test', 'Severity', 'Reason', 'Note'], findings, 'No Findings.'),
+    ...notes('Reviewer', run.reviewer.summary, repo),
   ].join('\n');
 }
 

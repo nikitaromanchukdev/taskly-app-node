@@ -1,9 +1,11 @@
-// render.ts writes the PR comments. When an agent did not run, its comment says why and links the ADR behind that reason.
+// render.ts writes the PR comments in one format. When an agent did not run, its comment says why and links the ADR behind that reason.
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import type { Candidate, Context, Run, Scope, Skipped } from '../lib/artifacts.ts';
+import { unitKey } from '../lib/artifacts.ts';
+import type { Candidate, Context, Results, Run, Scope, Skipped, Unit, Verdict } from '../lib/artifacts.ts';
 import { RENDERERS } from '../workflow/render.ts';
 import type { CommentName } from '../workflow/render.ts';
+import type { Status } from '../workflow/status.ts';
 
 const REPO = 'owner/repo';
 const adr = (file: string) => `See [ADR ${file.slice(0, 4)}](https://github.com/${REPO}/blob/main/docs/adr/${file}).`;
@@ -92,5 +94,138 @@ describe('agent comments when the agents did not run', () => {
   it('links no ADR when the agent step failed', () => {
     const run: Run = { context: context({ run_agent: true, jobs: { scope: 'success', agents: 'failure', bot_commit: 'skipped', suites: 'success' } }), scope: scope([candidate]) };
     assert.equal(note('author', run), 'Author not run on `abcdef1`: the agent step failed or timed out.');
+  });
+});
+
+// ---- One format for every comment ----
+
+const unit = (name: string, verdict: Verdict, extra: Partial<Unit> = {}): Unit => ({
+  path: `backend/src/${name}.ts`,
+  unit: name,
+  verdict,
+  expectations: [],
+  attempts: 1,
+  ...extra,
+});
+const tested = (name: string) =>
+  unit(name, 'added', { expectations: [{ text: 'works', source: 'PR body', kind: 'intent', tests: [`backend/tests/${name}.test.ts > works`] }] });
+const flagged = unit('broken', 'flagged-defect', { defect: { test: 't', expected: '1', received: '2', source: 'PR body' } });
+
+const results: Results = {
+  typecheck: { backend: 'pass', frontend: 'fail' },
+  tests: { backend: { status: 'pass', passed: 3, failed: 0 } },
+  coverage: { baseline: {}, final: {} },
+  mutation: { backend: null },
+};
+
+// Both agents ran: one tested Unit, one review-rejected, one not needed, one flagged Defect the Reviewer confirmed.
+const agentRun = (summaries: { author?: string; reviewer?: string } = {}): Run => ({
+  context: context({ run_agent: true, jobs: { scope: 'success', agents: 'success', bot_commit: 'success', suites: 'success' } }),
+  scope: scope([candidate], [{ path: 'README.md', reason: 'docs' }]),
+  author: {
+    summary: summaries.author ?? 'I tested 9 Units.',
+    units: [tested('kept'), tested('dropped'), unit('plain', 'not-needed', { reason: 'trivial' }), flagged],
+  },
+  reviewer: {
+    summary: summaries.reviewer ?? 'All good.',
+    defects: [{ path: flagged.path, unit: flagged.unit, decision: 'confirmed', source_quote: 'one' }],
+    findings: [
+      { test: 'backend/tests/dropped.test.ts > works', severity: 'blocking', reason: 'tautology', note: 'cannot fail' },
+      { test: 'backend/tests/kept.test.ts > works', severity: 'advisory', reason: 'weak-assertion', note: 'loose' },
+    ],
+  },
+  checked: { ok: true, errors: [], dropFiles: [], reviewRejected: [unitKey(tested('dropped'))] },
+  results,
+});
+
+const FAILED: Status = { state: 'failure', description: '1 confirmed defect' };
+const render = (name: CommentName, run: Run, status: Status = FAILED) => RENDERERS[name]({ run, status, repo: REPO });
+const titleOf = (name: CommentName, run: Run, status?: Status) => render(name, run, status).split('\n')[1];
+// Where a part starts in a comment, to check the order of parts.
+const at = (body: string, part: string) => {
+  const index = body.indexOf(part);
+  assert.ok(index >= 0, `missing ${part}`);
+  return index;
+};
+
+describe('one format for every comment', () => {
+  for (const name of ['report', 'author', 'reviewer'] as const) {
+    it(`the ${name} comment keeps its marker, then has a "### {name} · {outcome}" title and the meta line`, () => {
+      const [first, title, meta] = render(name, agentRun()).split('\n');
+      assert.equal(first, `<!-- pr-test-engineer:${name} -->`);
+      assert.match(title, /^### .+ · .+$/);
+      assert.ok(meta.startsWith('Analyzed `abcdef1` · '), meta);
+    });
+  }
+
+  it('the Report title names the comment after the status emoji and keeps the status description word for word', () => {
+    assert.equal(titleOf('report', agentRun()), '### 🔴 Report · 1 confirmed defect');
+    assert.equal(titleOf('report', agentRun(), { state: 'success', description: 'no agent run; suites pass' }), '### 🟢 Report · no agent run; suites pass');
+  });
+
+  it('the Test author title counts the Units in the structured output, not what the summary says', () => {
+    assert.equal(titleOf('author', agentRun()), '### Test author · 1 Unit tested, 1 not needed, 1 review-rejected, 1 Defect flagged');
+    assert.equal(titleOf('author', { ...agentRun(), author: { summary: '', units: [] } }), '### Test author · 0 Units tested');
+  });
+
+  it('the Test reviewer title counts Defect decisions and Findings', () => {
+    assert.equal(titleOf('reviewer', agentRun()), '### Test reviewer · 1 Defect confirmed, 0 rejected, 2 Findings (1 blocking)');
+    const empty: Run = { ...agentRun(), reviewer: { summary: '', defects: [], findings: [] } };
+    assert.equal(titleOf('reviewer', empty), '### Test reviewer · 0 Defects confirmed, 0 rejected, 0 Findings');
+  });
+
+  it('an agent that did not run has "not run" as its outcome', () => {
+    const run: Run = { context: context({ same_repo: false }) };
+    assert.equal(titleOf('author', run), '### Test author · not run');
+    assert.equal(titleOf('reviewer', run), '### Test reviewer · not run');
+  });
+
+  const FREE_TEXT: readonly { name: 'author' | 'reviewer'; who: string; table: string }[] = [
+    { name: 'author', who: 'Author', table: '| Unit |' },
+    { name: 'reviewer', who: 'Reviewer', table: '#### Findings' },
+  ];
+  for (const { name, who, table } of FREE_TEXT) {
+    it(`the ${who}'s free text comes last, collapsed, and is still sanitized`, () => {
+      const body = render(name, agentRun({ [name]: 'Ping @someone <img src=x onerror=alert(1)>' }));
+      const notes = at(body, `<details><summary>${who}'s notes (free text, not checked)</summary>`);
+      assert.ok(at(body, table) < notes, 'free text comes before the tables');
+      assert.ok(body.endsWith('</details>'), 'free text is not the last section');
+      assert.ok(body.includes('@​someone') && !body.includes('<img'), 'free text is not sanitized');
+    });
+
+    it(`the ${who} comment has no notes section when the free text is empty`, () => {
+      assert.ok(!render(name, agentRun({ [name]: '  ' })).includes('notes (free text'));
+    });
+  }
+
+  it('the Report puts Defects first, then the tables, then the collapsed sections', () => {
+    const body = render('report', agentRun());
+    const parts = ['#### Defects', '#### Test results', '#### Coverage of changed files', '<details><summary>Skipped files (1)</summary>', '<details><summary>Mutation'];
+    const positions = parts.map((part) => at(body, part));
+    assert.deepEqual(positions, [...positions].sort((a, b) => a - b));
+  });
+
+  it('the Report shows its Defects section once the Author ran, even with none flagged, and leaves it out before', () => {
+    const clean: Run = { ...agentRun(), author: { summary: '', units: [tested('kept')] } };
+    assert.ok(render('report', clean).includes('#### Defects\nNo Defects flagged.'));
+    assert.ok(!render('report', { context: context(), results }).includes('#### Defects'));
+  });
+
+  it('check results carry 🟢 for pass and 🔴 for fail', () => {
+    const body = render('report', agentRun());
+    assert.ok(body.includes('| backend typecheck | 🟢 pass |'), body);
+    assert.ok(body.includes('| frontend typecheck | 🔴 fail |'), body);
+    assert.ok(body.includes('| backend tests | 🟢 pass (3 passed, 0 failed) |'), body);
+  });
+
+  it('names a Unit as `path` name in all three comments, and labels a confirmed Defect the same in the Report and the Test reviewer comment', () => {
+    const name = '`backend/src/broken.ts` broken';
+    assert.ok(render('report', agentRun()).includes(`- 🔴 confirmed · ${name}`));
+    assert.ok(render('reviewer', agentRun()).includes(`| ${name} | 🔴 confirmed | one |`));
+    assert.ok(render('author', agentRun()).includes(`- ${name}: expected 1, received 2 (PR body)`));
+  });
+
+  it('marks a blocking Finding with ⚠️ and says its test file left the Bot commit', () => {
+    assert.ok(render('reviewer', agentRun()).includes('| ⚠️ blocking | tautology | cannot fail (test file dropped from the Bot commit) |'));
   });
 });

@@ -56,7 +56,15 @@ Write every multi-line body to a file in the scratchpad, never inline. **Why:** 
 
 {what changes and why, with the smallest diagram, diff sketch, or file tree that makes it clear}
 
+## Intended behaviour
+
+- {one line per behaviour: "when X, then Y"; or "None: {why}" for a change with no behaviour}
+
 ## Evidence
+
+| Check | Result |
+|---|---|
+| {command} | 🟢 pass ({n} passed) |
 
 - **Before:** {output, failing test}
   **After:** {output, passing test}
@@ -73,7 +81,8 @@ Write every multi-line body to a file in the scratchpad, never inline. **Why:** 
 ````
 
 - **`Closes #{n}`** - the PR finishes the issue. **`Part of #{n}`** - it does not.
-- **Intended behaviour** - the PR workflow reads the description as an Intent source, so state what the code should do.
+- **Intended behaviour** - the PR workflow reads the description as an Intent source, so state what the code should do in its own section.
+- **Same format as the bot comments** - H2 sections, H3 subsections. Emoji only 🟢 pass, 🔴 fail, ⚠️ needs a person but does not change the status. Name a Unit as `` `{path}` {Unit} ``. Long lists go last, in `<details><summary>{Name} ({count})</summary>`.
 - **Tooling PRs** - a PR that changes `.claude/` or `.github/scripts/` runs with `main`'s copy in its own PR run. Say so in Evidence.
 
 ---
