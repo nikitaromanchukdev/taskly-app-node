@@ -13,7 +13,7 @@ The agents of the PR workflow and the Backfill follow their own agent files, whi
 
 ## What happens when you push to a PR
 
-- The PR workflow runs on each push. Its jobs and triggers are in [SOLUTION.md](SOLUTION.md).
+- The PR workflow runs on each push. Its jobs and triggers are in [SOLUTION.md](SOLUTION.md); one run step by step is in [docs/pr-run.md](docs/pr-run.md).
 - On a draft PR the agents do not run; only the suites do. Open the PR as a draft while you iterate, and mark it ready for review when the change is done.
 - It may add one Bot commit with tests to your branch. Run `git pull --rebase` before your next push, or your push will be rejected.
 - GitHub then asks to approve a workflow run for the Bot commit. Approving it or not changes nothing: that run skips every job.
@@ -89,7 +89,7 @@ The workflow's own scripts in `.github/scripts/` have their own tests: run `make
 
 - `make trial` runs the PR workflow's steps locally against `main`. Set `BASE=<branch>` to compare with another branch. Commit your change first: the trial tests `git diff main...HEAD`.
 - The first run on a branch asks where the intended behaviour comes from: the open PR's description, the branch's commit messages, typed in, your editor, or none. Without intent, Defects can only come from `openapi.json`, existing tests or docs. The answer is saved and reused for that branch. Delete `.test-agent/<branch>/pr-body.md` to be asked again.
-- `make demo` checks the agent config on disk, committed or not, against a planted Defect in [`.github/trial/`](.github/trial/). It prints `demo: PASS` when the Author flags the Defect and the Reviewer confirms it. Run it before you open a PR that changes `.claude/` or `.github/scripts/`: that PR's own run uses `main`'s copy ([ADR 0004](docs/adr/0004-isolate-pr-code-from-secrets.md)), so nothing else tests the new config before the merge.
+- `make demo` checks the agent config on disk, committed or not, against a planted Defect in [`.github/agent-tests/truncate/`](.github/agent-tests/truncate/). It prints `demo: PASS` when the Author flags the Defect and the Reviewer confirms it. Run it before you open a PR that changes `.claude/` or `.github/scripts/`: that PR's own run uses `main`'s copy ([ADR 0004](docs/adr/0004-isolate-pr-code-from-secrets.md)), so nothing else tests the new config before the merge ([ADR 0009](docs/adr/0009-test-agent-config-changes-against-committed-cases.md)).
 - `make hook-demo` asks an agent to edit `backend/src`, and checks that the write guard blocks it.
 - Output goes to `.test-agent/<branch>/`, which git ignores. Nothing is pushed or posted. `make clean` removes the current branch's output and keeps its PR description; if the branch has none, it lists the other folders to pick from.
 - Needs Node 24, `make`, `jq`, `rsync`, Docker running, and a logged-in Claude Code CLI. `make trial` and `make demo` use model tokens.
