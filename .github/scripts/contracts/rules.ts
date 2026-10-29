@@ -14,6 +14,17 @@ export const TEST_PATHS: Record<Pkg, readonly string[]> = {
   frontend: ['frontend/src/**/*.test.ts', 'frontend/src/**/*.test.tsx', 'frontend/src/test/**'],
 };
 
+// The only shell commands the agents may run. A command must start with one of these, word for word, and be
+// a single command. .claude/agent-settings.json allows the same prefixes; guard.ts refuses everything else.
+export const AGENT_COMMANDS: readonly string[] = [
+  'git diff',
+  'git log',
+  'git show',
+  'git status',
+  '.github/scripts/agent/sandbox.sh test',
+  '.github/scripts/agent/sandbox.sh typecheck',
+];
+
 // Changed files that can hold units worth testing.
 export const SOURCE_PATHS: Record<Pkg, readonly string[]> = {
   backend: ['backend/src/**/*.ts'],

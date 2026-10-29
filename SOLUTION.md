@@ -91,7 +91,7 @@ The same steps with raw `gh` commands:
 - **Agents.** `.claude/agents/pr-test-engineer.md` (the Author) and `.claude/agents/pr-test-reviewer.md` (the Reviewer).
 - **Agent skills.** `.claude/skills/`, one folder per skill, preloaded through each agent's `skills:` list: `scope-change`, `map-coverage-gaps`, `extract-intent`, `author-tests`, `prove-tests` and `review-tests`. The package playbooks are `author-tests/backend.md` and `author-tests/frontend.md`.
 - **Contributor skills.** Also in `.claude/skills/`, for a person's or a coding agent's own Claude Code session: `ship-change` (branch, checks, review, commit, cleanup), `github-ops` (issues, PRs, comments, statuses and re-runs through `gh`), `prove-script-test` (break each defence a script test covers and see it fail), `run-local-workflow` (runs the local make commands, asking for the intent first) and `report-backfill` (the Backfill PR description and Defects comment). The Author and Reviewer cannot load them: neither has the `Skill` tool, so each sees only the skills its agent file lists.
-- **Settings.** `.claude/agent-settings.json` holds the tool allow and deny lists and the write-guard hook. Every agent run receives it; see [ADR 0001](docs/adr/0001-use-claude-code-action-as-agent-runtime.md).
+- **Settings.** `.claude/agent-settings.json` holds the tool allow and deny lists and the guard hook, which blocks writes outside the test paths and shell commands outside `AGENT_COMMANDS` in `rules.ts`. Every agent run receives it; see [ADR 0001](docs/adr/0001-use-claude-code-action-as-agent-runtime.md).
 - **Rules, schemas and scripts.** `.github/scripts/`. These run without a model and are the source for the rules, the output schemas and the status decision.
 
   | Folder | Holds | Files |
@@ -185,7 +185,7 @@ The owner decided each Suspected Defect. The details are in each PR's Defects co
 
 - The Reviewer is a model too. It lowers the rate of false Defects; it does not remove them.
 - A blocking Finding drops its whole test file from the Bot commit, good tests included ([ADR 0003](docs/adr/0003-derive-expectations-from-intent-and-review-defects.md)).
-- The agents do not always follow procedure. In demo runs the Author tried shell commands its rules deny, and one summary named a Unit that does not exist while the Units table was right. Read the tables, not only the summary. Moving these steps into scripts and hooks is planned.
+- The agents do not always follow procedure. In demo runs the Author used shell commands for file work and tried commands its rules deny; the guard hook now blocks every shell command outside `AGENT_COMMANDS` and names the tool to use instead. One summary named a Unit that does not exist while the Units table was right. Read the tables, not only the summary. Rendering summaries from the structured output is planned.
 
 **Workflow**
 
@@ -227,7 +227,7 @@ Items a production version would add.
 **Reliability**
 
 - One bounded revise round after review: the Author fixes the flagged tests, a narrow final review runs, and only then are blocked tests dropped. This replaces dropping whole files.
-- Agent procedure moved into scripts and hooks: summaries rendered from the structured output, and a hook that blocks shell reads and writes.
+- Agent procedure moved into scripts: summaries rendered from the structured output.
 - Citation checks on the Intent sources in the tests.
 - The mutation score as a gate on changed files.
 - A check for gaps in the lines a PR touches, reported as a separate required check.

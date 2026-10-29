@@ -1,23 +1,25 @@
-// Write guard: the agent may only touch test paths (see rules.ts).
-//   guard.ts hook          PreToolUse hook; reads the tool call as JSON on stdin.
+// Write guard: the agent may only touch test paths and run the shell commands listed in rules.ts.
+//   guard.ts hook          PreToolUse hook for the write tools and Bash; reads the tool call as JSON on stdin.
 //                          Exit 2 + reason on stderr blocks the call.
 //   guard.ts patch <file>  Exit 1 if a git patch touches a non-test path or adds a symlink.
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { die } from '../lib/cli.ts';
-import { isTestPath } from '../contracts/rules.ts';
+import { AGENT_COMMANDS, isTestPath } from '../contracts/rules.ts';
 import { scanLines } from '../lib/scan.ts';
 import type { LineRule } from '../lib/scan.ts';
 
 type HookInput = {
   tool_name?: string;
-  tool_input?: { file_path?: string; notebook_path?: string };
+  tool_input?: { file_path?: string; notebook_path?: string; command?: string };
   cwd?: string;
 };
+type HookHandler = (call: HookInput, projectDir: string | undefined) => void;
+type ShellForm = { pattern: RegExp; reason: string };
+type ShellHint = { words: readonly string[]; hint: string };
 type PatchScan = { paths: Set<string>; symlinks: string[]; current: string };
 
 const SCRIPT = 'guard';
-const WRITE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
 
 function block(reason: string): never {
   return die(SCRIPT, reason, 'blocked');
@@ -42,10 +44,7 @@ function readHookInput(): HookInput {
   }
 }
 
-function hook(projectDir: string | undefined) {
-  const call = readHookInput();
-  if (!WRITE_TOOLS.has(call.tool_name ?? '')) return;
-
+function guardWrite(call: HookInput, projectDir: string | undefined) {
   const target = call.tool_input?.file_path ?? call.tool_input?.notebook_path;
   if (!target) block(`${call.tool_name} call has no file path`);
 
@@ -54,6 +53,61 @@ function hook(projectDir: string | undefined) {
   if (path.startsWith('..') || !isTestPath(path)) {
     block(`${call.tool_name} to ${target} refused: only test files may be written (rules.ts)`);
   }
+}
+
+// Shell forms refused anywhere in a command, also after an allowed prefix.
+const SHELL_FORMS: readonly ShellForm[] = [
+  { pattern: /[<>]/, reason: 'redirects read or write files: use Read, Write or Edit' },
+  { pattern: /[;&|\n\r]/, reason: 'chains, pipes and background jobs are refused: run one command per call' },
+  { pattern: /[$`]/, reason: 'variables and command substitution are refused: write the value out' },
+  { pattern: /[()\\]/, reason: 'subshells and escapes are refused: run one plain command' },
+  { pattern: /(?:^|\s)--(?:output|no-index)(?:[=\s]|$)/, reason: 'git --output writes and --no-index reads files: use Write or Read' },
+];
+
+// The tool to use instead of a refused command, by its first word without the folder.
+const SHELL_HINTS: readonly ShellHint[] = [
+  { words: ['cat', 'head', 'tail', 'less', 'more', 'wc', 'nl', 'awk'], hint: 'use Read to read a file' },
+  { words: ['sed'], hint: 'use Read to read a file and Edit to change it' },
+  { words: ['grep', 'egrep', 'rg', 'find', 'ls', 'tree'], hint: 'use Grep to search file contents and Glob to find files' },
+  { words: ['echo', 'printf', 'tee', 'touch', 'cp', 'mv', 'rm', 'mkdir'], hint: 'use Write or Edit to change a file' },
+  { words: ['cd'], hint: 'do not cd: every command runs from the repo root' },
+  {
+    words: ['npm', 'npx', 'node', 'tsc', 'vitest', 'bash', 'sh', 'sandbox.sh'],
+    hint: 'run tests only as .github/scripts/agent/sandbox.sh test|typecheck <backend|frontend>, directly from the repo root',
+  },
+  { words: ['git'], hint: 'of git, only diff, log, show and status are allowed' },
+];
+
+const startsWithCommand = (words: readonly string[], allowed: string) =>
+  allowed.split(' ').every((word, i) => words[i] === word);
+
+function guardShell(call: HookInput) {
+  const command = call.tool_input?.command?.trim();
+  if (!command) block('Bash call has no command');
+
+  const reasons = SHELL_FORMS.filter(({ pattern }) => pattern.test(command)).map(({ reason }) => reason);
+  const words = command.split(/\s+/);
+  if (!AGENT_COMMANDS.some((allowed) => startsWithCommand(words, allowed))) {
+    const first = basename(words[0]);
+    reasons.push(SHELL_HINTS.find((rule) => rule.words.includes(first))?.hint ?? 'this command is not allowed');
+  }
+  if (reasons.length) {
+    block(`Bash command refused: ${reasons.join('; ')}. Allowed, one per call: ${AGENT_COMMANDS.join(', ')}`);
+  }
+}
+
+// Tools without an entry pass through.
+const HOOKS = new Map<string, HookHandler>([
+  ['Write', guardWrite],
+  ['Edit', guardWrite],
+  ['MultiEdit', guardWrite],
+  ['NotebookEdit', guardWrite],
+  ['Bash', guardShell],
+]);
+
+function hook(projectDir: string | undefined) {
+  const call = readHookInput();
+  HOOKS.get(call.tool_name ?? '')?.(call, projectDir);
 }
 
 // Every header that can introduce a file.

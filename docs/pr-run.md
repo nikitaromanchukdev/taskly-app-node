@@ -43,7 +43,7 @@ Files pass between jobs as workflow artifacts. A job never reads another job's d
 ## Step by step
 
 1. **`scope` decides the Scope.** It reads the live PR and its diff. `.github/scripts/contracts/rules.ts` sorts each changed file into a candidate or a skipped file with a reason. With no candidates, or on a draft or fork PR, the agents do not run.
-2. **The Author writes tests on the runner's disk.** In `agents`, the Author follows its skills: [`scope-change`](../.claude/skills/scope-change/SKILL.md), [`extract-intent`](../.claude/skills/extract-intent/SKILL.md), [`author-tests`](../.claude/skills/author-tests/SKILL.md), [`prove-tests`](../.claude/skills/prove-tests/SKILL.md). It may write only test files: a hook (`guard.ts hook`) blocks every other path. It runs the tests in a Docker container that has no access to the model key.
+2. **The Author writes tests on the runner's disk.** In `agents`, the Author follows its skills: [`scope-change`](../.claude/skills/scope-change/SKILL.md), [`extract-intent`](../.claude/skills/extract-intent/SKILL.md), [`author-tests`](../.claude/skills/author-tests/SKILL.md), [`prove-tests`](../.claude/skills/prove-tests/SKILL.md). It may write only test files: a hook (`guard.ts hook`) blocks every other path, and every shell command not listed in `AGENT_COMMANDS` in `rules.ts`. It runs the tests in a Docker container that has no access to the model key.
 3. **`agents` saves the change as a patch.** Everything the Author left in the checkout becomes `tests.patch`. The Reviewer then reads the patch, read-only, following [`review-tests`](../.claude/skills/review-tests/SKILL.md), and writes `reviewer.json`. The job uploads the three files. Its token is read-only, so it cannot push.
 4. **`bot_commit` checks the patch, then pushes it.** It runs the base branch's scripts, never the PR's:
    - `guard.ts patch` rejects a patch that touches any non-test path, renames into source, or adds a symlink.
@@ -58,7 +58,7 @@ Files pass between jobs as workflow artifacts. A job never reads another job's d
 
 | Risk | What stops it | Where |
 |---|---|---|
-| The Author edits source code | the write hook blocks the edit; `guard.ts patch` rejects the patch | `agents`, `bot_commit` |
+| The Author edits source code | the write hook blocks the edit, and a shell write; `guard.ts patch` rejects the patch | `agents`, `bot_commit` |
 | The PR description steers the Author into pushing something | the Author has no write token and no `gh` or `git push` | `agents` |
 | PR code reads the model key | PR code runs only in a container without the key, or in `suites`, which has no secrets | `agents`, `suites` |
 | A failing test reaches the branch | `prove-tests` moves it to its own file; `agent-output.ts` drops that file | `agents`, `bot_commit` |
