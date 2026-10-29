@@ -14,9 +14,9 @@ A few PRs cannot pass the gate at all, through no fault of their own. A PR run u
 
 - The workflow posts one status, `test-agent/verify`. It is pending when a PR run starts, and it is decided at the end, on the final commit of the run.
 - The status is red when any of these holds:
-  - `prepare` failed, for example because a budget variable is missing;
+  - `scope` failed, for example because a budget variable is missing;
   - typecheck or a test suite fails;
-  - the Author or the Reviewer crashed, timed out, returned invalid output, its patch was rejected, or the commit step failed, while there were candidate files;
+  - the Author or the Reviewer crashed, timed out, returned invalid output, its patch was rejected, or the `bot_commit` job failed, while there were candidate files;
   - verification did not finish;
   - a Defect is confirmed.
 - Otherwise the status is green. That includes "no candidate files", rejected Defects, `review-rejected` Units, and a skip by label. Suites must still pass on a skip by label.

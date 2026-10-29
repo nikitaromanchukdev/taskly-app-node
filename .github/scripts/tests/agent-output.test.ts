@@ -37,7 +37,7 @@ const author = (...units: Unit[]): AuthorOutput => ({ summary: 'summary', units 
 const reviewer = (findings: Finding[] = [], defects: ReviewerOutput['defects'] = []): ReviewerOutput => ({ summary: 'summary', findings, defects });
 const confirmed = { path: 'backend/src/stats.ts', unit: 'stats', decision: 'confirmed' as const, source_quote: 'due today is not overdue' };
 
-// Writes the inputs to files and runs the CLI, as the commit job does.
+// Writes the inputs to files and runs the CLI, as the bot_commit job does.
 function check({ author, reviewer, patch, maxAttempts = '3' }: Inputs): Outcome {
   const dir = tempDir();
   const file = (name: string, content: string) => {

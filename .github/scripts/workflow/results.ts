@@ -1,4 +1,4 @@
-// verify job: turn the raw reports of both packages into results.json.
+// suites job: turn the raw reports of both packages into results.json.
 // Usage: node results.ts <dir> --final-tree <path> [--baseline-tree <path>] [--out results.json]
 // <dir>/final/ (and <dir>/baseline/ when a bot commit exists) hold, per package written by verify.sh:
 //   <pkg>.typecheck (pass|fail) · <pkg>.vitest.json (vitest json reporter) · <pkg>.coverage.json (json-summary)

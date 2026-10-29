@@ -32,6 +32,10 @@ export TEST_AGENT_TIMEOUT_MINUTES ?= 20
 export TEST_AGENT_MAX_ATTEMPTS ?= 3
 
 SCRIPTS_DIR := .github/scripts
+# Recursive make, always through this variable. make runs a recipe line under -n (to pass the dry run on) only when
+# $(MAKE) is written in the line itself; through a variable the line is printed like any other, so `make -n demo`
+# and `make -n backfill-gaps` only print.
+SUBMAKE := $(MAKE) --no-print-directory
 SCRIPTS := node $(SCRIPTS_DIR)
 # Agent tool permissions and the write-guard hook; kept out of .claude/settings.json so they only bind agent runs.
 AGENT_SETTINGS := .claude/agent-settings.json
@@ -96,11 +100,11 @@ check:
 	  --out $(OUT)/checked.json \
 	  $$(test -f $(OUT)/reviewer.json && echo --reviewer $(OUT)/reviewer.json)
 
-# The verify job (coverage, mutation) is CI-only, so the report says verification did not finish.
+# The suites job (coverage, mutation) is CI-only, so the report says the suites did not finish.
 report:
 	jq -n --arg sha "$$(git rev-parse HEAD)" '{pr: 0, analyzed_sha: $$sha, final_sha: $$sha, run_url: "local", \
 	  same_repo: true, label_skip: false, label_actor: "", run_agent: true, \
-	  jobs: {prepare: "success", engineer: "success", commit: "success", verify: "skipped"}}' > $(OUT)/context.json
+	  jobs: {scope: "success", agents: "success", bot_commit: "success", suites: "skipped"}}' > $(OUT)/context.json
 	$(SCRIPTS)/workflow/report.ts --dir $(OUT)
 	@echo "Comments: $(OUT)/report.md $(OUT)/author.md $(OUT)/reviewer.md"
 
@@ -133,11 +137,11 @@ FIXTURE := $(CURDIR)/.github/agent-tests/$(CASE)
 REVIEW_ONLY := $(wildcard $(FIXTURE)/tests.patch)
 DEMO_GIT := git -C $(DEMO_TREE) -c user.name=demo -c user.email=demo@localhost
 # Trial steps inside the case worktree, with this Makefile; scope and install run before a review-only case's tests are applied.
-DEMO_MAKE := $(MAKE) --no-print-directory -C $(DEMO_TREE) -f $(CURDIR)/Makefile
+DEMO_MAKE := $(SUBMAKE) -C $(DEMO_TREE) -f $(CURDIR)/Makefile
 
 demo: preflight
 	@status=0; for c in $(or $(CASE),$(CASES)); do \
-	  $(MAKE) --no-print-directory demo-case CASE=$$c || status=1; \
+	  $(SUBMAKE) demo-case CASE=$$c || status=1; \
 	done; exit $$status
 
 demo-case:
@@ -175,7 +179,7 @@ backfill-gaps: need-package preflight clean-tree
 	@mkdir -p $(OUT)
 	$(SCRIPTS_DIR)/agent/sandbox.sh install $(PACKAGE)
 	$(call run_agent,pr-test-engineer,$(TEST_AGENT_MODEL),gaps,$(GAPS_PROMPT))
-	@$(MAKE) --no-print-directory backfill-approve PACKAGE=$(PACKAGE) OUT=$(OUT)
+	@$(SUBMAKE) backfill-approve PACKAGE=$(PACKAGE) OUT=$(OUT)
 
 # Asks on a terminal; without one, APPROVE picks the items (1,3, all or none).
 backfill-approve: need-package

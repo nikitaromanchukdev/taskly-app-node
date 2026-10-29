@@ -1,8 +1,9 @@
-# prepare -> engineer -> commit -> verify -> publish. Logic lives in .github/scripts; this file only wires jobs.
+# scope -> agents -> bot_commit -> suites -> publish. Logic lives in .github/scripts; this file only wires jobs.
 # Invariant: a job holding a write token or the model key never runs PR code on the host.
-#   engineer: model key, read-only token, PR code only inside sandbox.sh containers.
-#   commit/publish: write tokens, no model, no PR code, scripts from the base commit.
-#   verify: runs PR code, read-only token, no secrets.
+#   agents: model key, read-only token, PR code only inside sandbox.sh containers.
+#   bot_commit/publish: write tokens, no model, no PR code, scripts from the base commit.
+#   suites: runs PR code, read-only token, no secrets.
+# The status these jobs end in keeps its name, test-agent/verify: the ruleset requires it.
 name: pr-test-engineer
 
 on:
@@ -27,7 +28,8 @@ env:
   OUT: .test-agent
 
 jobs:
-  prepare:
+  scope:
+    name: "Scope: pick the files to test"
     # Label events matter only for skip-test-agent. A push by the Bot commit still creates a run that waits for approval;
     # it skips every job, because `publish` of the run that made the Bot commit already set its status.
     if: >-
@@ -46,14 +48,17 @@ jobs:
       run_agent: ${{ steps.scope.outputs.run_agent }}
     steps:
       # Base branch tip (scripts) with full history; the PR head is fetched as data for `git diff` only.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out the base branch (scripts and history)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with: { node-version: 24 }
-      - id: pr
+      - name: Read the PR and fetch its head
+        id: pr
         env: { GH_TOKEN: "${{ github.token }}" }
         run: |
           mkdir -p "$OUT"
@@ -61,7 +66,9 @@ jobs:
           jq -r '"# " + .title + "\n\n" + (.body // "")' "$RUNNER_TEMP/pr.json" > "$OUT/pr-body.md"
           echo "head_ref=$(jq -r .head.ref "$RUNNER_TEMP/pr.json")" >> "$GITHUB_OUTPUT"
           git fetch --no-tags origin "refs/pull/$PR_NUMBER/head"
-      - id: scope
+          jq -r '"PR #\(.number): head \(.head.sha) on \(.head.ref), base \(.base.ref)"' "$RUNNER_TEMP/pr.json"
+      - name: Check budgets and write scope.json
+        id: scope
         run: node .github/scripts/workflow/prepare.ts --out "$OUT/scope.json"
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -79,30 +86,35 @@ jobs:
         run: |
           gh api "repos/$GITHUB_REPOSITORY/statuses/${{ steps.scope.outputs.head_sha }}" \
             -f state=pending -f context=test-agent/verify -f description="test agent running" -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - name: Upload scope.json
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: scope
           path: ${{ env.OUT }}
           include-hidden-files: true
 
-  engineer:
-    needs: prepare
-    if: needs.prepare.outputs.run_agent == 'true'
+  agents:
+    name: "Agents: Author writes tests, Reviewer checks them"
+    needs: scope
+    if: needs.scope.outputs.run_agent == 'true'
     runs-on: ubuntu-latest
     permissions: { contents: read }
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out the PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.prepare.outputs.head_sha }}
+          ref: ${{ needs.scope.outputs.head_sha }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - name: Download scope.json
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: { name: scope, path: "${{ env.OUT }}" }
       # Agent config and scripts come from the base commit, never from the PR. The overlay is committed locally
       # so tests.patch (a diff against it) contains only what the agent wrote.
       - name: Overlay agent config from base
         env:
-          BASE: ${{ needs.prepare.outputs.base_sha }}
+          BASE: ${{ needs.scope.outputs.base_sha }}
+          HEAD_SHA: ${{ needs.scope.outputs.head_sha }}
         run: |
           # Drop every agent instruction file the PR could have added anywhere (nested CLAUDE.md files load too).
           git rm -rqf --ignore-unmatch -- ':(glob)**/.claude/**' ':(glob)**/CLAUDE.md' ':(glob)**/CLAUDE.local.md' \
@@ -112,11 +124,16 @@ jobs:
           done
           git -c user.name=ci -c user.email=ci@localhost commit -q --allow-empty -m overlay
           git rev-parse HEAD > "$OUT/overlay.sha"
+          echo "Agents run on PR head $HEAD_SHA, with agent config and scripts from base $BASE"
       - name: Install dependencies in the sandbox
         run: |
-          .github/scripts/agent/sandbox.sh install backend
-          .github/scripts/agent/sandbox.sh install frontend
-      - id: schemas
+          for pkg in backend frontend; do
+            echo "::group::$pkg · head · npm ci in the sandbox"
+            .github/scripts/agent/sandbox.sh install "$pkg"
+            echo "::endgroup::"
+          done
+      - name: Read the output schemas
+        id: schemas
         run: |
           echo "author=$(jq -c . .github/scripts/contracts/author.schema.json)" >> "$GITHUB_OUTPUT"
           echo "reviewer=$(jq -c . .github/scripts/contracts/reviewer.schema.json)" >> "$GITHUB_OUTPUT"
@@ -146,6 +163,7 @@ jobs:
         run: |
           echo "Permission denials:"
           jq -r '.[] | select(.type == "result") | .permission_denials[]? | "  \(.tool_name): \(.tool_input.command // .tool_input | tostring | .[0:300])"' "$RUNNER_TEMP/claude-execution-output.json"
+      # The summary lines carry counts and file stats only, never agent text.
       - name: Collect author output
         id: patch
         env:
@@ -154,8 +172,12 @@ jobs:
           printf '%s' "$AUTHOR" > "$OUT/author.json"
           git add --intent-to-add --all
           git diff --binary "$(cat "$OUT/overlay.sha")" > "$OUT/tests.patch"
+          echo "Author Verdicts: $(jq -r '[.units[].verdict] | group_by(.) | map("\(.[0]) \(length)") | join(", ") | if . == "" then "no Units" else . end' "$OUT/author.json" 2> /dev/null || echo "output not readable")"
+          echo "tests.patch:$(git diff --shortstat "$(cat "$OUT/overlay.sha")")"
           # The reviewer runs only when the author wrote tests or flagged a defect.
-          jq -e '[.units[] | select(.verdict != "not-needed")] | length > 0' "$OUT/author.json" > /dev/null && echo review=true >> "$GITHUB_OUTPUT" || true
+          if jq -e '[.units[] | select(.verdict != "not-needed")] | length > 0' "$OUT/author.json" > /dev/null; then
+            echo review=true >> "$GITHUB_OUTPUT"
+          fi
       - name: Reviewer
         id: reviewer
         if: steps.patch.outputs.review == 'true'
@@ -184,11 +206,14 @@ jobs:
         if: steps.patch.outputs.review == 'true'
         env:
           REVIEWER: ${{ steps.reviewer.outputs.structured_output }}
-        run: printf '%s' "$REVIEWER" > "$OUT/reviewer.json"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        run: |
+          printf '%s' "$REVIEWER" > "$OUT/reviewer.json"
+          jq -r '"Reviewer: \(.findings | length) Findings (\([.findings[] | select(.severity == "blocking")] | length) blocking), \(.defects | map(.decision) | group_by(.) | map("\(.[0]) \(length)") | join(", ") | if . == "" then "no Defects" else "Defects " + . end)"' "$OUT/reviewer.json" 2> /dev/null || echo "Reviewer: output not readable"
+      - name: Upload the agents' output
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() }}
         with:
-          name: engineer
+          name: agents
           path: |
             ${{ env.OUT }}/author.json
             ${{ env.OUT }}/reviewer.json
@@ -196,28 +221,33 @@ jobs:
           include-hidden-files: true
           if-no-files-found: ignore
 
-  commit:
-    needs: [prepare, engineer]
-    if: needs.engineer.result == 'success'
+  bot_commit:
+    name: "Bot commit: check the tests and push them"
+    needs: [scope, agents]
+    if: needs.agents.result == 'success'
     runs-on: ubuntu-latest
     permissions: { contents: write }
     outputs:
       final_sha: ${{ steps.push.outputs.final_sha }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out base branch scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.prepare.outputs.base_sha }}
+          ref: ${{ needs.scope.outputs.base_sha }}
           path: trusted
           sparse-checkout: .github/scripts
           persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out the PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.prepare.outputs.head_sha }}
+          ref: ${{ needs.scope.outputs.head_sha }}
           path: head
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with: { node-version: 24 }
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with: { name: engineer, path: "${{ env.OUT }}" }
+      - name: Download the agents' output
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: agents, path: "${{ env.OUT }}" }
       - name: Check agent output and patch
         env:
           MAX_ATTEMPTS: ${{ vars.TEST_AGENT_MAX_ATTEMPTS }}
@@ -227,7 +257,8 @@ jobs:
           reviewer=(); [ -f "$OUT/reviewer.json" ] && reviewer=(--reviewer "$OUT/reviewer.json")
           node $S/workflow/agent-output.ts "$OUT/author.json" "${reviewer[@]}" --patch "$OUT/tests.patch" --max-attempts "$MAX_ATTEMPTS" \
             --out "$OUT/checked.json"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - name: Upload checked.json
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() }}
         with:
           name: checked
@@ -236,55 +267,76 @@ jobs:
           if-no-files-found: ignore
       # Test files with a blocking finding, and new files holding a flagged Defect's test, are left out of the patch.
       # A plain push is rejected if the branch moved past the analyzed head.
-      - id: push
+      - name: Apply the patch and push the Bot commit
+        id: push
         working-directory: head
         env:
-          HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
-          HEAD_REF: ${{ needs.prepare.outputs.head_ref }}
+          HEAD_SHA: ${{ needs.scope.outputs.head_sha }}
+          HEAD_REF: ${{ needs.scope.outputs.head_ref }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           mapfile -t drop < <(jq -r '.dropFiles[] | "--exclude=" + .' "../$OUT/checked.json")
+          echo "Test files left out of the Bot commit: ${#drop[@]}"
           git apply --index "${drop[@]}" "../$OUT/tests.patch"
-          if ! git diff --cached --quiet; then
+          if git diff --cached --quiet; then
+            echo "No Bot commit: nothing left to commit. The final commit is the PR head $HEAD_SHA"
+          else
             git -c user.name=github-actions[bot] -c user.email=41898282+github-actions[bot]@users.noreply.github.com \
               commit -q -m "test(agent): add and update unit tests" -m "Run: $RUN_URL"
             git push origin "HEAD:refs/heads/$HEAD_REF"
+            echo "Pushed Bot commit $(git rev-parse HEAD) on PR head $HEAD_SHA:$(git diff --shortstat HEAD~1)"
           fi
           echo "final_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-  verify:
-    needs: [prepare, engineer, commit]
-    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.stop != 'true' }}
+  suites:
+    name: "Suites: typecheck, coverage, mutation"
+    needs: [scope, agents, bot_commit]
+    if: ${{ !cancelled() && needs.scope.result == 'success' && needs.scope.outputs.stop != 'true' }}
     runs-on: ubuntu-latest
     permissions: { contents: read }
     env:
-      FINAL_SHA: ${{ needs.commit.outputs.final_sha || needs.prepare.outputs.head_sha }}
+      HEAD_SHA: ${{ needs.scope.outputs.head_sha }}
+      FINAL_SHA: ${{ needs.bot_commit.outputs.final_sha || needs.scope.outputs.head_sha }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # head is the analyzed PR head; final is the Bot commit, or the head when there is none. verify.sh names both in its log.
+      - name: Name the commits under test
+        run: |
+          case "$FINAL_SHA" in
+            "$HEAD_SHA") echo "One tree. final = PR head $HEAD_SHA (no Bot commit): suites, coverage and mutation run on it." ;;
+            *) echo "Two trees. head = PR head $HEAD_SHA: baseline coverage only. final = Bot commit $FINAL_SHA: suites, coverage, mutation." ;;
+          esac
+      - name: Check out base branch scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.prepare.outputs.base_sha }}
+          ref: ${{ needs.scope.outputs.base_sha }}
           path: trusted
           sparse-checkout: .github/scripts
           persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out the final commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { ref: "${{ env.FINAL_SHA }}", path: final, persist-credentials: false }
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: env.FINAL_SHA != needs.prepare.outputs.head_sha
-        with: { ref: "${{ needs.prepare.outputs.head_sha }}", path: head, persist-credentials: false }
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - name: Check out the PR head for the baseline
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.FINAL_SHA != env.HEAD_SHA
+        with: { ref: "${{ env.HEAD_SHA }}", path: head, persist-credentials: false }
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with: { node-version: 24 }
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - name: Download scope.json
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: { name: scope, path: "${{ env.OUT }}" }
-      - name: Baseline coverage (analyzed head, only when a bot commit exists)
-        if: env.FINAL_SHA != needs.prepare.outputs.head_sha
+      - name: "head: baseline coverage (only when a Bot commit exists)"
+        if: env.FINAL_SHA != env.HEAD_SHA
         run: trusted/.github/scripts/workflow/verify.sh checks head "$OUT/baseline"
-      - name: Typecheck and suites with coverage (final commit)
+      - name: "final: typecheck and suites with coverage"
         run: trusted/.github/scripts/workflow/verify.sh checks final "$OUT/final"
-      - name: Mutation (information only)
+      - name: "final: mutation (information only)"
         continue-on-error: true
         run: trusted/.github/scripts/workflow/verify.sh mutation final "$OUT/final" "$OUT/scope.json"
-      - run: node trusted/.github/scripts/workflow/results.ts "$OUT" --final-tree "$PWD/final" --baseline-tree "$PWD/head" --out "$OUT/results.json"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - name: Write results.json
+        run: node trusted/.github/scripts/workflow/results.ts "$OUT" --final-tree "$PWD/final" --baseline-tree "$PWD/head" --out "$OUT/results.json"
+      - name: Upload results.json
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() }}
         with:
           name: results
@@ -294,24 +346,36 @@ jobs:
 
   # Runs after upstream failures too (not after a cancel by a newer push), so a crash still ends in a red status and comments.
   publish:
-    needs: [prepare, engineer, commit, verify]
-    if: ${{ !cancelled() && needs.prepare.result != 'skipped' && needs.prepare.outputs.stop != 'true' }}
+    name: "Publish: test-agent/verify status and comments"
+    needs: [scope, agents, bot_commit, suites]
+    if: ${{ !cancelled() && needs.scope.result != 'skipped' && needs.scope.outputs.stop != 'true' }}
     runs-on: ubuntu-latest
     permissions: { contents: read, statuses: write, pull-requests: write }
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out base branch scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.prepare.outputs.base_sha || github.event.pull_request.base.ref || github.event.repository.default_branch }}
+          ref: ${{ needs.scope.outputs.base_sha || github.event.pull_request.base.ref || github.event.repository.default_branch }}
           sparse-checkout: .github/scripts
           persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with: { node-version: 24 }
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - name: Download every job's output
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: { path: "${{ env.OUT }}", merge-multiple: true }
-      - run: |
-          node .github/scripts/workflow/context.ts --out "$OUT/context.json"
-          node .github/scripts/workflow/report.ts --dir "$OUT" --post
+      # The base branch's context.ts may predate the job rename, so `needs` is also sent under the old job ids
+      # (prepare, engineer, commit, verify). Remove the copy once main's context.ts reads the new ids.
+      - name: Write context.json
         env:
           GITHUB_TOKEN: ${{ github.token }}
           NEEDS: ${{ toJSON(needs) }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          NEEDS="$(jq -c '. + {prepare: .scope, engineer: .agents, commit: .bot_commit, verify: .suites}' <<< "$NEEDS")" \
+            node .github/scripts/workflow/context.ts --out "$OUT/context.json"
+          jq -r '"Job results: " + (.jobs | to_entries | map("\(.key) \(.value)") | join(", "))' "$OUT/context.json"
+      - name: Post the status and comments
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node .github/scripts/workflow/report.ts --dir "$OUT" --post

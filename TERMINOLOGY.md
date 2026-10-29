@@ -54,13 +54,13 @@ Avoid: snapshot test, golden test, intent test (for a test that is not backed by
 
 The agent that writes and proves tests for Units in a PR run or in a Backfill. It writes test files only. Its agent file is `.claude/agents/pr-test-engineer.md`.
 
-Avoid: test agent (that name covers the whole workflow), engineer (the name of the workflow job that runs the agents), writer.
+Avoid: test agent (that name covers the whole workflow), engineer (the agent file and the workflow are named `pr-test-engineer`; the job that runs the agents is `agents`), writer.
 
 ## Reviewer
 
 The second agent in a PR run and in a Backfill. It runs in a fresh session, reads the Author's tests and flagged Defects, and cannot edit files or run commands. Its agent file is `.claude/agents/pr-test-reviewer.md`.
 
-Avoid: critic, checker, verifier (verify is a workflow job).
+Avoid: critic, checker, verifier (`test-agent/verify` is the status).
 
 ## Finding
 
@@ -82,7 +82,7 @@ Avoid: Part B, PR test workflow, pipeline.
 
 ## PR run
 
-One execution of the PR workflow for one PR head, through the prepare, engineer, commit, verify and publish jobs. A push starts a new PR run and cancels the older run for the same PR. A manual dispatch also starts a PR run.
+One execution of the PR workflow for one PR head, through the `scope`, `agents`, `bot_commit`, `suites` and `publish` jobs. A push starts a new PR run and cancels the older run for the same PR. A manual dispatch also starts a PR run.
 
 Avoid: build, CI run, check run.
 

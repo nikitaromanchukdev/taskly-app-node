@@ -11,7 +11,7 @@ export type ReasonRule = { when: (run: Run) => boolean; reason: (run: Run) => st
 
 // GitHub's limit for a commit status description.
 const MAX_STATUS_DESCRIPTION = 140;
-export const PREPARE_FAILED = 'prepare failed';
+export const SCOPE_FAILED = 'scope job failed';
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
 export const firstReason = (rules: readonly ReasonRule[], run: Run) => rules.find((rule) => rule.when(run))?.reason(run);
@@ -24,14 +24,14 @@ function confirmedDefects(run: Run): Unit[] {
 
 // The first agent step that failed explains the agent part.
 const AGENT_FAILURES: readonly ReasonRule[] = [
-  { when: (run) => run.context.jobs.engineer !== 'success', reason: () => 'author or reviewer did not finish' },
-  { when: (run) => run.context.jobs.commit !== 'success', reason: () => 'commit step failed' },
+  { when: (run) => run.context.jobs.agents !== 'success', reason: () => 'author or reviewer did not finish' },
+  { when: (run) => run.context.jobs.bot_commit !== 'success', reason: () => 'Bot commit job failed' },
   { when: (run) => !run.author || !run.checked, reason: () => 'agent output missing' },
   { when: (run) => !run.checked?.ok, reason: () => 'agent output invalid or patch rejected' },
 ];
 
 function verifyFailure(run: Run): string | undefined {
-  if (run.context.jobs.verify !== 'success' || !run.results) return 'verification did not finish';
+  if (run.context.jobs.suites !== 'success' || !run.results) return 'suites did not finish';
   const failed = [
     ...Object.entries(run.results.typecheck).filter(([, check]) => check === 'fail').map(([pkg]) => `${pkg} typecheck`),
     ...Object.entries(run.results.tests).filter(([, suite]) => suite.status === 'fail').map(([pkg]) => `${pkg} tests`),
@@ -49,7 +49,7 @@ function headline(run: Run): string {
 export function decide(run: Run): Status {
   const defects = confirmedDefects(run).length;
   const reasons = [
-    run.context.jobs.prepare !== 'success' ? PREPARE_FAILED : undefined,
+    run.context.jobs.scope !== 'success' ? SCOPE_FAILED : undefined,
     run.context.run_agent ? firstReason(AGENT_FAILURES, run) : undefined,
     verifyFailure(run),
     defects ? plural(defects, 'confirmed defect') : undefined,

@@ -2,7 +2,7 @@
 import { isFlaggedDefect, packageRelative, unitKey, unitTests } from '../lib/artifacts.ts';
 import type { Context, Defect, DefectDecision, Kind, MutationResult, Results, Run, Unit } from '../lib/artifacts.ts';
 import { cell, code, sanitize } from './sanitize.ts';
-import { labelSkipNote, PREPARE_FAILED } from './status.ts';
+import { labelSkipNote, SCOPE_FAILED } from './status.ts';
 import type { ReasonRule, Status, StatusState } from './status.ts';
 import type { SkipReason } from '../contracts/rules.ts';
 
@@ -64,10 +64,10 @@ function testsOnly(run: Run): boolean {
 const NO_AGENT_REASONS: readonly NotRunRule[] = [
   { when: (run) => run.context.label_skip, reason: (run) => labelSkipNote(run.context), adr: ADR_LABEL },
   { when: (run) => !run.context.same_repo, reason: () => 'fork pull request', adr: ADR_FORKS },
-  { when: (run) => run.context.jobs.prepare !== 'success', reason: () => PREPARE_FAILED },
+  { when: (run) => run.context.jobs.scope !== 'success', reason: () => SCOPE_FAILED },
   { when: testsOnly, reason: () => TESTS_ONLY, adr: ADR_BACKFILL },
   { when: (run) => !run.scope?.candidates.length, reason: () => 'no testable changes', adr: ADR_SCOPE },
-  { when: (run) => run.context.jobs.engineer !== 'success', reason: () => 'the agent step failed or timed out' },
+  { when: (run) => run.context.jobs.agents !== 'success', reason: () => 'the agent step failed or timed out' },
 ];
 
 function whyNoAgent(run: Run): NotRunReason {
@@ -113,7 +113,7 @@ function skippedLines(run: Run, repo: string): string[] {
 }
 
 function resultLines(results: Results | undefined): string[] {
-  if (!results) return ['#### Test results', 'No results (verification did not finish).', ''];
+  if (!results) return ['#### Test results', 'No results (suites did not finish).', ''];
   const rows = [
     ...Object.entries(results.typecheck).map(([pkg, check]) => [`${pkg} typecheck`, check]),
     ...Object.entries(results.tests).map(([pkg, suite]) => [

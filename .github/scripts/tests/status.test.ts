@@ -13,7 +13,7 @@ const context = (overrides: Partial<Context> = {}): Context => ({
   label_skip: false,
   label_actor: '',
   run_agent: true,
-  jobs: { prepare: 'success', engineer: 'success', commit: 'success', verify: 'success' },
+  jobs: { scope: 'success', agents: 'success', bot_commit: 'success', suites: 'success' },
   ...overrides,
 });
 
@@ -80,17 +80,17 @@ describe('decide', () => {
   });
 
   it('is green with no agent run when the suites pass', () => {
-    const skipped = context({ run_agent: false, jobs: { prepare: 'success', engineer: 'skipped', commit: 'skipped', verify: 'success' } });
+    const skipped = context({ run_agent: false, jobs: { scope: 'success', agents: 'skipped', bot_commit: 'skipped', suites: 'success' } });
     assert.deepEqual(decide({ context: skipped, results: results() }), { state: 'success', description: 'no agent run; suites pass' });
   });
 
-  it('is red when prepare failed', () => {
-    const failed = context({ run_agent: false, jobs: { prepare: 'failure', engineer: 'skipped', commit: 'skipped', verify: 'skipped' } });
+  it('is red when the scope job failed', () => {
+    const failed = context({ run_agent: false, jobs: { scope: 'failure', agents: 'skipped', bot_commit: 'skipped', suites: 'skipped' } });
     assert.equal(decide({ context: failed }).state, 'failure');
-    assert.match(decide({ context: failed }).description, /^prepare failed/);
+    assert.match(decide({ context: failed }).description, /^scope job failed/);
   });
 
-  for (const [job, reason] of [['engineer', 'author or reviewer did not finish'], ['commit', 'commit step failed']] as const) {
+  for (const [job, reason] of [['agents', 'author or reviewer did not finish'], ['bot_commit', 'Bot commit job failed']] as const) {
     it(`is red when the ${job} job failed`, () => {
       const jobs = { ...context().jobs, [job]: 'failure' };
       assert.deepEqual(decide(run({ context: context({ jobs }) })), { state: 'failure', description: reason });
@@ -114,13 +114,13 @@ describe('decide', () => {
     assert.deepEqual(decide(run({ results: failing })), { state: 'failure', description: 'backend typecheck, frontend tests failed' });
   });
 
-  it('is red when verification did not finish', () => {
-    assert.deepEqual(decide(run({ results: undefined })), { state: 'failure', description: 'verification did not finish' });
+  it('is red when suites did not finish', () => {
+    assert.deepEqual(decide(run({ results: undefined })), { state: 'failure', description: 'suites did not finish' });
   });
 
   it('lists every reason, the agent first', () => {
     const status = decide(run({ author: undefined, results: undefined }));
-    assert.equal(status.description, 'agent output missing; verification did not finish');
+    assert.equal(status.description, 'agent output missing; suites did not finish');
   });
 
   it('names who skipped the agents by label, and the suites still decide', () => {
