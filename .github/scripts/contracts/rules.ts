@@ -31,6 +31,10 @@ export const SOURCE_PATHS: Record<Pkg, readonly string[]> = {
   frontend: ['frontend/src/**/*.ts', 'frontend/src/**/*.tsx'],
 };
 
+// Most candidate files one run sends to the Author. The files with the most changed lines are kept; the rest are skipped
+// as `over-cap`, so one session stays within its turn budget.
+export const MAX_CANDIDATES = 12;
+
 export type SkipReason =
   | 'tests'
   | 'stories'
@@ -41,6 +45,7 @@ export type SkipReason =
   | 'type-only'
   | 'barrel'
   | 'deleted'
+  | 'over-cap'
   | 'not-source';
 
 export type SkipRule = { reason: SkipReason; patterns: readonly string[] };

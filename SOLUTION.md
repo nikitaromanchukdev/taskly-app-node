@@ -193,6 +193,7 @@ These four decisions, and the gaps both Backfills found unreachable or not worth
 **Workflow**
 
 - Each push costs two agent runs. Local demo runs on a one-function change cost about $0.30 together; larger changes cost more. Each agent step is capped by `TEST_AGENT_MAX_TURNS` and `TEST_AGENT_TIMEOUT_MINUTES`. With `CLAUDE_CODE_OAUTH_TOKEN`, runs share the subscriber's usage limits.
+- A run tests at most `MAX_CANDIDATES` changed source files ([`rules.ts`](.github/scripts/contracts/rules.ts)); the rest are skipped as `over-cap` and shown in the report ([ADR 0002](docs/adr/0002-test-changed-units-and-write-only-tests.md)). The Author is still one session: if it hits `TEST_AGENT_MAX_TURNS` it returns no structured output, and the status is red with no tests. `claude -p` leaves no reliable partial result to use.
 - The final status waits for mutation testing, up to 8 minutes per package. The mutation score is reported, not enforced.
 - Each Bot commit leaves a PR run waiting for approval, because GitHub holds runs started by a `GITHUB_TOKEN` push. The run skips every job.
 - A PR that changes the agent config runs with the base copy, so CI cannot test the change. `make demo` tests it locally against two committed cases, a planted Defect and a tautology the Reviewer must block ([ADR 0009](docs/adr/0009-test-agent-config-changes-against-committed-cases.md)); nothing requires that it ran.
@@ -204,7 +205,7 @@ These four decisions, and the gaps both Backfills found unreachable or not worth
 
 **Scripts**
 
-- The script tests cover the scripts that decide what reaches the PR (`guard.ts`, `sanitize.ts`, `agent-output.ts`, `status.ts`), the comment renderers in `render.ts`, the job-result reading of `context.ts`, and the local `trial.ts`. The scripts that call GitHub (`prepare.ts`, `report.ts`, `github.ts`) and the shell scripts have no tests.
+- The script tests cover the scripts that decide what reaches the PR (`guard.ts`, `sanitize.ts`, `agent-output.ts`, `status.ts`), the comment renderers in `render.ts`, the job-result reading of `context.ts`, and the local `trial.ts`. `prepare.ts` is tested only for the candidate cap, via `--local`. The GitHub calls of `prepare.ts`, and `report.ts` and `github.ts`, and the shell scripts have no tests.
 - The TypeScript types in `artifacts.ts` repeat the schema enums by hand, so they can drift from the schemas.
 
 **App**
@@ -229,6 +230,7 @@ Items a production version would add.
 
 **Reliability**
 
+- One Author session per package or per batch of Units, so a large PR is tested in parts and one exhausted session loses only its part.
 - One bounded revise round after review: the Author fixes the flagged tests, a narrow final review runs, and only then are blocked tests dropped. This replaces dropping whole files.
 - Agent procedure moved into scripts: summaries rendered from the structured output.
 - Citation checks on the Intent sources in the tests.
