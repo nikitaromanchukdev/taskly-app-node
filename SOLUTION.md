@@ -34,7 +34,7 @@ This repo adds two ways to get tests written, both by the same agents and skills
 - **Locally.** `make trial` runs the same steps on your branch, and asks for the intended behaviour the first time. `make demo` runs them on committed cases (a planted Defect, and a tautology the Reviewer must block) and prints PASS or FAIL; it is the check for a PR that changes the agent config, which its own PR run cannot test. Prerequisites and the other local commands are in [AGENTS.md](AGENTS.md).
 - **Concurrency.** A newer push cancels the older run for the same PR. Label events other than `skip-test-agent`, and `pr-intake` runs that did not succeed, run in their own group, so they cannot cancel a real run. A dispatch is grouped by PR number and a push by branch name, so a dispatch does not cancel a run that a push started.
 
-Results appear as one status (`test-agent/verify`) and three PR comments. Review comments on the code are proposed, not built ([ADR 0007](docs/adr/0007-report-defects-next-to-the-code-with-a-suggested-fix.md)). On a PR that changes only tests and config, such as a Backfill PR, the agent comments say why the agents did not run: there is nothing new to test, and a Backfill PR lists its agent results in its description ([ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md)). How to read them is in [AGENTS.md](AGENTS.md).
+Results appear as one status (`test-agent/verify`) and three PR comments. The comments are updated in place; the Report keeps a line per earlier run in its "Previous runs" section, from a marker that `report.ts` reads back from the old comment and checks (`history.ts`). Review comments on the code are proposed, not built ([ADR 0007](docs/adr/0007-report-defects-next-to-the-code-with-a-suggested-fix.md)). On a PR that changes only tests and config, such as a Backfill PR, the agent comments say why the agents did not run: there is nothing new to test, and a Backfill PR lists its agent results in its description ([ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md)). How to read them is in [AGENTS.md](AGENTS.md).
 
 ## Prerequisites
 
@@ -214,7 +214,7 @@ These four decisions, and the gaps both Backfills found unreachable or not worth
 
 **Scripts**
 
-- The script tests cover the scripts that decide what reaches the PR (`guard.ts`, `sanitize.ts`, `agent-output.ts`, `status.ts`, `intake.ts`), the comment renderers in `render.ts`, the job-result reading of `context.ts`, and the local `trial.ts` and `gap-lines.ts`. `prepare.ts` is tested only for the candidate cap, via `--local`. The GitHub calls of `prepare.ts`, and `report.ts` and `github.ts`, and the shell scripts have no tests.
+- The script tests cover the scripts that decide what reaches the PR (`guard.ts`, `sanitize.ts`, `agent-output.ts`, `status.ts`, `intake.ts`), the comment renderers in `render.ts`, the run history of the Report in `history.ts`, the job-result reading of `context.ts`, and the local `trial.ts` and `gap-lines.ts`. `prepare.ts` is tested only for the candidate cap, via `--local`. The GitHub calls of `prepare.ts`, and `report.ts` and `github.ts`, and the shell scripts have no tests.
 - The TypeScript types in `artifacts.ts` repeat the schema enums by hand, so they can drift from the schemas.
 
 **App**

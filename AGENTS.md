@@ -23,7 +23,7 @@ The agents of the PR workflow and the Backfill follow their own agent files, whi
 
 Each comment has the title `### <name> · <outcome>`, where a script counts the outcome, then the analyzed commit and the run. What needs you comes first, then the tables; collapsed sections come last. 🟢 means passes, 🔴 fails or turns the status red, ⚠️ needs you but does not change the status.
 
-- **Report** (`### 🟢 Report · <status>`): the status, each Defect the Author flagged with its test, expected and received values, Intent source, the Reviewer's decision and whether the Defect is proven, test results, coverage of changed files, then skipped files and mutation results (information only), collapsed.
+- **Report** (`### 🟢 Report · <status>`): the status, each Defect the Author flagged with its test, expected and received values, Intent source, the Reviewer's decision and whether the Defect is proven, test results, coverage of changed files, then skipped files and mutation results (information only), collapsed. The comment is updated in place on each push, so its last section, collapsed, lists up to 10 earlier runs, newest first: analyzed commit, status, run and date. Read it to see an earlier red result that a later green one replaced.
 - **Test author**: what the Author tested. Each Unit has a Verdict, a kind (intent, characterization, or mixed with the number of tests of each), its tests and the number of attempts. Each Defect the Author flagged is one line, with expected and received values and its Intent source. The Author's own summary is last, collapsed, and is not checked: trust the table.
 - **Test reviewer**: the Reviewer's decision on each Defect, with its source quote, and its Findings. The Reviewer's own summary is last, collapsed.
 
