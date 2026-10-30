@@ -1,9 +1,11 @@
 ---
 name: report-backfill
-description: Turn a finished local Backfill run (make backfill-tests output: author.json, reviewer.json, coverage; plus Stryker) into the Backfill PR description and its Defects comment, and record the owner's decisions on Suspected Defects in SOLUTION.md. Use after the Author and Reviewer finish a Backfill for one package, or when the owner decides a Finding or Suspected Defect, e.g. "write the backfill PR", "report the backfill", "owner decided the suspected defects". Running the agents is run-local-workflow's job; posting goes through github-ops.
+description: Turn a finished local Backfill run (make backfill-tests output: author.json, reviewer.json, coverage; plus Stryker) into the Backfill PR description and its Defects comment, and record the owner's decisions on Suspected Defects in SOLUTION.md and the decided gaps in docs/backfill-decisions.json. Use after the Author and Reviewer finish a Backfill for one package, or when the owner decides a Finding or Suspected Defect, e.g. "write the backfill PR", "report the backfill", "owner decided the suspected defects". Running the agents is run-local-workflow's job; posting goes through github-ops.
 allowed-tools:
   - Bash(node .github/scripts/workflow/agent-output.ts:*)
   - Bash(make report:*)
+  - Bash(make backfill-record:*)
+  - Bash(node .github/scripts/local/trial.ts decide:*)
   - Bash(jq:*)
   - Read
   - Write
@@ -22,6 +24,8 @@ Write the Backfill PR description and the Defects comment from the run's artifac
 | Package | ask | `backend` or `frontend`, never both in one PR |
 | Artifacts dir | the branch's folder: `node .github/scripts/local/trial.ts dir` | written by `make backfill-gaps` and `make backfill-tests` (the `run-local-workflow` skill runs them) |
 | Approved gap list | `{dir}/approved.json`, rendered in `{dir}/gaps.md` | the owner's choice from `make backfill-approve` |
+| Declined gaps | `{dir}/declined.json` | Recommendations the owner declined, each with a reason |
+| Decided earlier | the **Decided earlier** section of `{dir}/gaps.md` | gaps left out because an earlier Backfill decided them |
 | Coverage before and after | `{dir}/coverage-before.json`, `{dir}/coverage-after.json` | `json-summary` reports from `make backfill-tests` |
 | Attempt budget | the one the run used | for `agent-output.ts` |
 
@@ -71,7 +75,7 @@ Write it to `{dir}/pr-body.md`. One H2 per bot comment, with that comment's tabl
 | Section | Content |
 |---|---|
 | `## Summary` | One paragraph on how it ran, a `diff` file tree of the test files |
-| `## Test author` | The title's outcome line and the Units table from `author.md`, as rendered (`Unit \| Verdict \| Kind \| Tests \| Attempts`); then `### Unreachable`, `### Out of scope` |
+| `## Test author` | The title's outcome line and the Units table from `author.md`, as rendered (`Unit \| Verdict \| Kind \| Tests \| Attempts`); then `### Declined` (from `declined.json`, with each reason), `### Unreachable`, `### Out of scope`, `### Decided earlier` (copied from `gaps.md`) |
 | `## Test reviewer` | Model, turns and cost per round; `### Defect decisions` and `### Findings` as in `reviewer.md`, with `Round` added on the left and `Owner decision` on the right |
 | `## Defects` | The Defects comment's outcome line, and a link to it |
 | `## Evidence` | `### Coverage`: `File \| Lines % \| Branches %`, each `before → after`, a **Total** row, then the per-file floors (level reached, rounded down). `### Mutation`: the Stryker score, the survivors in `<details><summary>Surviving mutants ({n})</summary>` |
@@ -135,12 +139,30 @@ When the owner decides a Finding or a Suspected Defect:
 1. **Finding** - fill its **Owner decision** cell in the PR description, e.g., "Fixed: …", "Disputed: …".
 2. **Suspected Defect** - put the decision in its heading, in place of "needs owner decision", and on its **Owner decision** line in the Defects comment.
 3. **SOLUTION.md** - add a row to the decision table under `## Backfill run`: `Suspected Defect | Owner decision`, with the reason in one sentence.
+4. **Kept as is** - when the owner keeps a Suspected Defect's behaviour, record it, so later Backfills skip that gap. `{pr}` is the PR where the owner decided:
+
+   ```bash
+   node .github/scripts/local/trial.ts decide --package {package} --path {path} --unit {Unit} --lines {a-b} \
+     --decision kept-as-is --reason "{what looks wrong}. {owner's reason}" --pr {pr}
+   ```
 
 ---
 
 ## Step 7: Publish
 
 Hand `{dir}/pr-body.md` and `{dir}/defects.md` to the `github-ops` skill: it previews them, gets the owner's confirmation, and posts.
+
+---
+
+## Step 8: Record the Decided Gaps
+
+Once the PR has a number, add this Backfill's declined Recommendations and not-needed Units to `docs/backfill-decisions.json`:
+
+```bash
+make backfill-record PACKAGE={package} PR={n}
+```
+
+The change goes in the same Backfill PR; commit it through the `ship-change` skill. **Why:** the next `make backfill-gaps` leaves these gaps out only once the record is on the base branch (ADR 0008).
 
 ---
 
@@ -151,3 +173,4 @@ Hand `{dir}/pr-body.md` and `{dir}/defects.md` to the `github-ops` skill: it pre
 - [ ] Every surviving mutant has a reason
 - [ ] Every **Where** link is pinned to the analyzed SHA
 - [ ] Every Finding and Suspected Defect has an owner decision before the merge
+- [ ] `docs/backfill-decisions.json` holds this PR's declines, not-needed Units and kept Suspected Defects

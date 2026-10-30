@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import type { AuthorOutput, Checked, ReviewerOutput } from '../lib/artifacts.ts';
+import { readSchema, validate } from '../lib/schema.ts';
 import { runScript, tempDir } from './run.ts';
 
 const BRANCH = 'feat/issue-1-truncate';
@@ -27,6 +28,14 @@ const file = (root: string, path: string, content: string) => {
   mkdirSync(join(root, path, '..'), { recursive: true });
   writeFileSync(join(root, path), content);
 };
+// JSON, or text with json false; undefined when the script did not write the file.
+const readIfExists = (path: string, json = true) =>
+  existsSync(path) ? (json ? JSON.parse(readFileSync(path, 'utf8')) : readFileSync(path, 'utf8')) : undefined;
+
+const DECISIONS = 'docs/backfill-decisions.json';
+// A source file's content, and its blob id as git itself computes it, so the test does not share the script's hashing.
+const source = (unit: string) => `export const ${unit} = 1;\n`;
+const gitBlob = (content: string) => execFileSync('git', ['hash-object', '--stdin'], { input: content, encoding: 'utf8' }).trim();
 
 describe('trial.ts dir', () => {
   it('names the output folder after the branch, with / turned into -', () => {
@@ -78,11 +87,13 @@ describe('trial.ts clean', () => {
     file(root, `${FOLDER}/author.json`, '{}');
     file(root, `${FOLDER}/round1/reviewer.json`, '{}');
     file(root, `${FOLDER}/approved.json`, '{}');
+    file(root, `${FOLDER}/declined.json`, '[]');
     const result = trial(root, 'clean');
     assert.equal(result.code, 0);
     assert.doesNotMatch(result.stdout, /no output for this branch/);
     assert.ok(existsSync(join(root, FOLDER, 'pr-body.md')));
     assert.ok(existsSync(join(root, FOLDER, 'approved.json')));
+    assert.ok(existsSync(join(root, FOLDER, 'declined.json')));
     assert.ok(!existsSync(join(root, FOLDER, 'author.json')));
     assert.ok(!existsSync(join(root, FOLDER, 'round1')));
   });
@@ -184,30 +195,36 @@ describe('trial.ts approve', () => {
     unit,
     lines: '50',
     branches: '25',
+    uncovered: '3, 5-6',
     expectations: [{ text: `when ${unit} fails, then it shows an error`, source: 'README', kind: 'intent' }],
   });
   const gaps = {
     summary: 'Three gaps.',
     recommendations: [recommendation('useA'), recommendation('useB'), recommendation('useC')],
-    unreachable: [{ path: 'frontend/src/main.tsx', unit: 'root', reason: 'runs on import' }],
+    unreachable: [{ path: 'frontend/src/main.tsx', unit: 'root', uncovered: '1-4', reason: 'runs on import' }],
     out_of_scope: [{ path: 'frontend/src/types.ts', reason: 'type-only' }],
   };
 
-  // Writes gaps.json and runs approve without a terminal.
-  function approve(items: string | undefined, content: unknown = gaps) {
+  // Writes gaps.json, the sources it names and the record of decisions into one folder, which is both the
+  // output folder and the repo root, and runs approve there without a terminal.
+  function approve(items: string | undefined, content: unknown = gaps, setup: { decisions?: object[]; args?: string[] } = {}) {
     const dir = tempDir();
     writeFileSync(join(dir, 'gaps.json'), JSON.stringify(content));
-    const result = runScript('local/trial.ts', ['approve', '--out', dir, ...(items === undefined ? [] : ['--items', items])]);
-    const approved = existsSync(join(dir, 'approved.json')) ? JSON.parse(readFileSync(join(dir, 'approved.json'), 'utf8')) : undefined;
-    return { ...result, dir, approved };
+    for (const name of ['useA.ts', 'useB.ts', 'useC.ts', 'main.tsx']) file(dir, `frontend/src/${name}`, source(name.split('.')[0]));
+    if (setup.decisions) file(dir, DECISIONS, JSON.stringify({ decisions: setup.decisions }));
+    const args = ['approve', '--out', dir, '--package', 'frontend', ...(items === undefined ? [] : ['--items', items]), ...(setup.args ?? [])];
+    const result = runScript('local/trial.ts', args, { cwd: dir });
+    const approved = readIfExists(join(dir, 'approved.json'));
+    const declined = readIfExists(join(dir, 'declined.json'));
+    return { ...result, dir, approved, declined, markdown: readIfExists(join(dir, 'gaps.md'), false) };
   }
 
   it('renders gaps.md with numbered Recommendations and the other two lists', () => {
     const { dir } = approve('all');
     const markdown = readFileSync(join(dir, 'gaps.md'), 'utf8');
-    assert.match(markdown, /## Recommendations\n1\. `frontend\/src\/useA\.ts` useA — lines 50%, branches 25%/);
+    assert.match(markdown, /## Recommendations\n1\. `frontend\/src\/useA\.ts` useA — lines 50%, branches 25%; uncovered: 3, 5-6\n/);
     assert.match(markdown, /3\. `frontend\/src\/useC\.ts` useC/);
-    assert.match(markdown, /## Unreachable\n- `frontend\/src\/main\.tsx` root — runs on import/);
+    assert.match(markdown, /## Unreachable\n- `frontend\/src\/main\.tsx` root — runs on import \(uncovered: 1-4\)/);
     assert.match(markdown, /## Out of scope\n- `frontend\/src\/types\.ts` — type-only/);
   });
 
@@ -247,6 +264,305 @@ describe('trial.ts approve', () => {
     assert.equal(code, 1);
     assert.match(stderr, /gaps\.json is invalid[\s\S]*"boring" not one of/);
     assert.equal(approved, undefined);
+  });
+
+  it('exits 64 without a package', () => {
+    const dir = tempDir();
+    writeFileSync(join(dir, 'gaps.json'), JSON.stringify(gaps));
+    assert.equal(runScript('local/trial.ts', ['approve', '--out', dir, '--items', 'all'], { cwd: dir }).code, 64);
+  });
+
+  // ---- gaps decided earlier ----
+
+  const decided = (unit: string | undefined, path: string, blob: string) => ({
+    package: 'frontend',
+    path,
+    ...(unit ? { unit } : {}),
+    decision: 'declined',
+    reason: `${unit ?? 'file'} is not worth testing`,
+    pr: 25,
+    blob,
+  });
+  const useB = decided('useB', 'frontend/src/useB.ts', gitBlob(source('useB')));
+
+  it('leaves out a gap decided earlier, numbers the rest, and lists it with its PR', () => {
+    const { code, markdown, approved, stdout } = approve('all', gaps, { decisions: [useB] });
+    assert.equal(code, 0);
+    assert.match(markdown, /## Recommendations\n1\. `frontend\/src\/useA\.ts` useA[\s\S]*\n2\. `frontend\/src\/useC\.ts` useC/);
+    assert.doesNotMatch(markdown, /\d\. `frontend\/src\/useB\.ts`/);
+    assert.match(markdown, /## Decided earlier\n[^\n]*\n\n- `frontend\/src\/useB\.ts` useB — declined in #25: useB is not worth testing/);
+    assert.deepEqual(approved.recommendations.map((item: { unit: string }) => item.unit), ['useA', 'useC']);
+    assert.match(stdout, /1 gaps decided earlier are left out/);
+  });
+
+  it('counts the lists above the Author\'s summary', () => {
+    assert.match(approve('all').markdown, /# Coverage gaps\n\n\*\*3 Recommendations, 1 Unreachable, 1 out of scope, 0 decided earlier\.\*\*\n\nThree gaps\./);
+  });
+
+  it('counts the open lists once gaps decided earlier are left out', () => {
+    const { markdown } = approve('all', gaps, { decisions: [useB] });
+    assert.match(markdown, /\*\*2 Recommendations, 1 Unreachable, 1 out of scope, 1 decided earlier\.\*\*/);
+  });
+
+  it('says None under Decided earlier when nothing matches', () => {
+    assert.match(approve('all').markdown, /## Decided earlier\nNone\./);
+  });
+
+  it('shows a gap again, with a note, when its file changed since the decision', () => {
+    const { markdown, approved } = approve('all', gaps, { decisions: [{ ...useB, blob: gitBlob('older content\n') }] });
+    assert.match(markdown, /2\. `frontend\/src\/useB\.ts` useB[\s\S]*- decided earlier \(declined in #25: useB is not worth testing\), but the file changed since: decide again/);
+    assert.match(markdown, /## Decided earlier\nNone\./);
+    assert.equal(approved.recommendations.length, 3);
+  });
+
+  it('takes a fresh decision over a stale one for the same gap', () => {
+    const stale = { ...useB, lines: '1', blob: gitBlob('older content\n') };
+    const { markdown } = approve('all', gaps, { decisions: [stale, useB] });
+    assert.doesNotMatch(markdown, /\d\. `frontend\/src\/useB\.ts`/);
+    assert.doesNotMatch(markdown, /file changed since/);
+  });
+
+  it('leaves out every Unit of a file decided without a Unit, Unreachable items too', () => {
+    const { markdown, approved } = approve('all', gaps, { decisions: [{ ...decided(undefined, 'frontend/src/main.tsx', gitBlob(source('main'))), decision: 'unreachable' }] });
+    assert.match(markdown, /## Unreachable\nNone\./);
+    assert.match(markdown, /- `frontend\/src\/main\.tsx` root — unreachable in #25/);
+    assert.deepEqual(approved.unreachable, []);
+  });
+
+  it('matches a gap named from the package folder, with a note after the Unit name', () => {
+    const named = { ...gaps, recommendations: [{ ...recommendation('useB'), path: 'src/useB.ts', unit: '`useB` (error path)' }] };
+    const { markdown } = approve('all', named, { decisions: [useB] });
+    assert.match(markdown, /## Recommendations\nNone\./);
+  });
+
+  it('does not match another Unit of the same file', () => {
+    const { markdown } = approve('all', gaps, { decisions: [{ ...useB, unit: 'useBee' }] });
+    assert.match(markdown, /2\. `frontend\/src\/useB\.ts` useB/);
+  });
+
+  // ---- line-level decisions ----
+
+  const lines = (value: string) => ({ ...useB, lines: value });
+
+  for (const [name, records] of [
+    ['one record covers every uncovered line', [lines('3, 5-6')]],
+    ['a wider range covers them', [lines('1-10')]],
+    ['two records cover them together', [lines('3'), { ...lines('5-6'), decision: 'kept-as-is' }]],
+  ] as const) {
+    it(`leaves out a gap when ${name}`, () => {
+      const { markdown, approved } = approve('all', gaps, { decisions: [...records] });
+      assert.doesNotMatch(markdown, /\d\. `frontend\/src\/useB\.ts`/);
+      assert.deepEqual(approved.recommendations.map((item: { unit: string }) => item.unit), ['useA', 'useC']);
+    });
+  }
+
+  it('lists a gap decided by two records once, with both decisions', () => {
+    const { markdown } = approve('all', gaps, { decisions: [lines('3'), { ...lines('5-6'), decision: 'kept-as-is', reason: 'kept' }] });
+    assert.match(markdown, /- `frontend\/src\/useB\.ts` useB — declined in #25, lines 3: useB is not worth testing; kept-as-is in #25, lines 5-6: kept\n/);
+  });
+
+  it('keeps a gap open, with a note naming the lines left, when the records cover only some of its lines', () => {
+    const { markdown, approved } = approve('all', gaps, { decisions: [lines('3, 5')] });
+    assert.match(markdown, /2\. `frontend\/src\/useB\.ts` useB[\s\S]*- decided earlier only in part \(declined in #25, lines 3, 5: useB is not worth testing\); line 6 is not: decide again/);
+    assert.match(markdown, /## Decided earlier\nNone\./);
+    assert.equal(approved.recommendations.length, 3);
+  });
+
+  for (const [name, uncovered, decided] of [
+    ['the gap\'s line list', 'line 3', '3'],
+    ['the record\'s line list', '3, 5-6', 'three'],
+    ['a backwards range', '3, 5-6', '6-5'],
+  ] as const) {
+    it(`keeps a gap open when ${name} cannot be read`, () => {
+      const content = { ...gaps, recommendations: gaps.recommendations.map((item) => ({ ...item, uncovered })) };
+      const { markdown } = approve('all', content, { decisions: [lines(decided)] });
+      assert.match(markdown, /2\. `frontend\/src\/useB\.ts` useB[\s\S]*the rest may not be: decide again/);
+    });
+  }
+
+  it('rejects a gap list without the uncovered lines', () => {
+    const { uncovered, ...withoutLines } = gaps.recommendations[0];
+    const { code, stderr } = approve('all', { ...gaps, recommendations: [withoutLines] });
+    assert.equal(uncovered, '3, 5-6');
+    assert.equal(code, 1);
+    assert.match(stderr, /gaps\.json is invalid[\s\S]*uncovered/);
+  });
+
+  it('rejects a record of decisions that breaks its schema', () => {
+    const { code, stderr, approved } = approve('all', gaps, { decisions: [{ ...useB, decision: 'ignored' }] });
+    assert.equal(code, 1);
+    assert.match(stderr, /backfill-decisions\.json is invalid[\s\S]*"ignored" not one of/);
+    assert.equal(approved, undefined);
+  });
+
+  // ---- declining ----
+
+  it('writes the declined Recommendations with the reason to declined.json', () => {
+    const { code, declined, stdout } = approve('1', gaps, { args: ['--decline', '3,2', '--reason', 'thin wrapper'] });
+    assert.equal(code, 0);
+    assert.deepEqual(declined, [
+      { path: 'frontend/src/useC.ts', unit: 'useC', lines: '3, 5-6', reason: 'thin wrapper' },
+      { path: 'frontend/src/useB.ts', unit: 'useB', lines: '3, 5-6', reason: 'thin wrapper' },
+    ]);
+    assert.match(stdout, /declined 2[\s\S]*make backfill-record PACKAGE=frontend PR=<n>/);
+  });
+
+  it('writes an empty declined.json when nothing is declined', () => {
+    assert.deepEqual(approve('1').declined, []);
+  });
+
+  for (const [name, args] of [
+    ['a decline without a reason', ['--decline', '2']],
+    ['a blank reason', ['--decline', '2', '--reason', ' ']],
+    ['an item both approved and declined', ['--decline', '1', '--reason', 'x']],
+    ['a decline outside the list', ['--decline', '4', '--reason', 'x']],
+  ] as const) {
+    it(`rejects ${name} with exit 64 and writes nothing`, () => {
+      const { code, approved, declined } = approve('1', gaps, { args: [...args] });
+      assert.equal(code, 64);
+      assert.equal(approved, undefined);
+      assert.equal(declined, undefined);
+    });
+  }
+});
+
+describe('trial.ts record', () => {
+  // A Backfill folder at the repo root with its sources, the owner's declines and the Author's Verdicts.
+  function backfill(run: { declined?: object[]; units?: object[]; unreachable?: object[] }) {
+    const root = tempDir();
+    for (const unit of ['useA', 'useB', 'main']) file(root, `frontend/src/${unit}.ts`, source(unit));
+    const out = join(root, 'out');
+    if (run.declined) file(out, 'declined.json', JSON.stringify(run.declined));
+    if (run.units) file(out, 'author.json', JSON.stringify({ summary: '', units: run.units }));
+    if (run.unreachable) file(out, 'approved.json', JSON.stringify({ summary: '', recommendations: [], unreachable: run.unreachable, out_of_scope: [] }));
+    return { root, out };
+  }
+  const record = (root: string, out: string, ...args: string[]) => {
+    const result = runScript('local/trial.ts', ['record', '--out', out, '--package', 'frontend', ...args], { cwd: root });
+    return { ...result, decisions: readIfExists(join(root, DECISIONS))?.decisions };
+  };
+  const unit = (name: string, verdict: string, reason?: string) => ({
+    path: `src/${name}.ts`,
+    unit: name,
+    verdict,
+    ...(reason ? { reason } : {}),
+    expectations: [],
+    attempts: 0,
+  });
+
+  it('records declines and not-needed Units with the PR and the blob of each file', () => {
+    const { root, out } = backfill({
+      declined: [{ path: 'frontend/src/useA.ts', unit: 'useA', lines: '2', reason: 'thin wrapper' }],
+      units: [unit('useB', 'not-needed', 'trivial'), unit('main', 'not-needed', 'unreachable'), unit('useA', 'added')],
+      unreachable: [{ path: 'frontend/src/main.ts', unit: 'main (startup)', uncovered: '1-3', reason: 'runs on import' }],
+    });
+    const { code, decisions, stdout } = record(root, out, '--pr', '41');
+    assert.equal(code, 0);
+    assert.deepEqual(decisions, [
+      { package: 'frontend', path: 'frontend/src/main.ts', unit: 'main', lines: '1-3', decision: 'unreachable', reason: 'runs on import', pr: 41, blob: gitBlob(source('main')) },
+      { package: 'frontend', path: 'frontend/src/useA.ts', unit: 'useA', lines: '2', decision: 'declined', reason: 'thin wrapper', pr: 41, blob: gitBlob(source('useA')) },
+      { package: 'frontend', path: 'frontend/src/useB.ts', unit: 'useB', decision: 'declined', reason: 'Verdict not-needed (trivial)', pr: 41, blob: gitBlob(source('useB')) },
+    ]);
+    assert.match(stdout, /recorded 3 decisions from #41/);
+  });
+
+  it('replaces the decision for the same gap instead of adding a second one', () => {
+    const { root, out } = backfill({ declined: [{ path: 'frontend/src/useA.ts', unit: 'useA', lines: '2', reason: 'thin wrapper' }] });
+    record(root, out, '--pr', '41');
+    file(root, 'frontend/src/useA.ts', 'export const useA = 2;\n');
+    const { decisions } = record(root, out, '--pr', '42');
+    assert.equal(decisions.length, 1);
+    assert.equal(decisions[0].pr, 42);
+    assert.equal(decisions[0].blob, gitBlob('export const useA = 2;\n'));
+  });
+
+  it('a recorded decline leaves its gap out of the next approval', () => {
+    const { root, out } = backfill({ declined: [{ path: 'frontend/src/useA.ts', unit: 'useA', lines: '2', reason: 'thin wrapper' }] });
+    record(root, out, '--pr', '41');
+    const gaps = { summary: '', recommendations: [{ path: 'frontend/src/useA.ts', unit: 'useA', lines: '0', branches: '0', uncovered: '2', expectations: [] }], unreachable: [], out_of_scope: [] };
+    file(out, 'gaps.json', JSON.stringify(gaps));
+    const result = runScript('local/trial.ts', ['approve', '--out', out, '--package', 'frontend', '--items', 'none'], { cwd: root });
+    assert.equal(result.code, 0);
+    assert.match(readFileSync(join(out, 'gaps.md'), 'utf8'), /## Recommendations\nNone\.[\s\S]*useA — declined in #41, lines 2: thin wrapper/);
+  });
+
+  it('records nothing and says so when the run decided nothing, even for a tested Unit with a stray reason', () => {
+    const { root, out } = backfill({ units: [unit('useA', 'added', 'trivial')] });
+    const { code, decisions, stdout } = record(root, out, '--pr', '41');
+    assert.equal(code, 0);
+    assert.equal(decisions, undefined);
+    assert.match(stdout, /nothing to record/);
+  });
+
+  for (const pr of [undefined, '0', 'x', '4.5']) {
+    it(`exits 64 for --pr ${pr ?? 'missing'}`, () => {
+      const { root, out } = backfill({ declined: [{ path: 'frontend/src/useA.ts', unit: 'useA', lines: '2', reason: 'thin wrapper' }] });
+      const { code, decisions } = record(root, out, ...(pr === undefined ? [] : ['--pr', pr]));
+      assert.equal(code, 64);
+      assert.equal(decisions, undefined);
+    });
+  }
+});
+
+describe('trial.ts decide', () => {
+  const decide = (root: string, ...args: string[]) => {
+    const result = runScript('local/trial.ts', ['decide', '--package', 'backend', '--pr', '33', ...args], { cwd: root });
+    return { ...result, decisions: readIfExists(join(root, DECISIONS))?.decisions };
+  };
+  const repoRoot = () => {
+    const root = tempDir();
+    file(root, 'backend/src/factory.ts', source('createApp'));
+    return root;
+  };
+
+  it('records a kept-as-is Suspected Defect for one line range, and a second range of the same Unit beside it', () => {
+    const root = repoRoot();
+    decide(root, '--path', 'src/factory.ts', '--unit', 'createApp', '--lines', '20', '--decision', 'unreachable', '--reason', 'no route fails late');
+    const { code, decisions } = decide(root, '--path', 'backend/src/factory.ts', '--unit', 'createApp', '--lines', '21-24', '--decision', 'kept-as-is', '--reason', ' kept on purpose ');
+    assert.equal(code, 0);
+    assert.deepEqual(decisions.map((entry: { lines: string; decision: string }) => `${entry.lines} ${entry.decision}`), ['20 unreachable', '21-24 kept-as-is']);
+    assert.deepEqual(decisions[1], {
+      package: 'backend',
+      path: 'backend/src/factory.ts',
+      unit: 'createApp',
+      lines: '21-24',
+      decision: 'kept-as-is',
+      reason: 'kept on purpose',
+      pr: 33,
+      blob: gitBlob(source('createApp')),
+    });
+  });
+
+  it('records a whole-file decision without a Unit', () => {
+    const { decisions } = decide(repoRoot(), '--path', 'src/factory.ts', '--decision', 'unreachable', '--reason', 'runs on import');
+    assert.equal(decisions[0].unit, undefined);
+  });
+
+  for (const [name, args, exit] of [
+    ['an unknown decision', ['--path', 'src/factory.ts', '--decision', 'ignored', '--reason', 'x'], 64],
+    ['a missing reason', ['--path', 'src/factory.ts', '--decision', 'declined'], 64],
+    ['a missing path', ['--decision', 'declined', '--reason', 'x'], 64],
+    ['a file that does not exist', ['--path', 'src/gone.ts', '--decision', 'declined', '--reason', 'x'], 1],
+  ] as const) {
+    it(`exits ${exit} for ${name} and writes nothing`, () => {
+      const { code, decisions } = decide(repoRoot(), ...args);
+      assert.equal(code, exit);
+      assert.equal(decisions, undefined);
+    });
+  }
+
+  it('exits 64 for an unknown package', () => {
+    const result = runScript('local/trial.ts', ['decide', '--package', 'mobile', '--pr', '1', '--path', 'x', '--decision', 'declined', '--reason', 'x'], { cwd: repoRoot() });
+    assert.equal(result.code, 64);
+  });
+});
+
+// A hand edit that breaks the committed record would stop every later approval; catch it in verify instead.
+// A stale entry is fine here: approve shows its gap again.
+describe('the committed record of decisions', () => {
+  it('matches its schema', () => {
+    const record = JSON.parse(readFileSync(new URL(`../../../${DECISIONS}`, import.meta.url), 'utf8'));
+    assert.deepEqual(validate(record, readSchema('../contracts/backfill-decisions.schema.json')), []);
   });
 });
 
