@@ -13,7 +13,7 @@ export type ReasonRule = { when: (run: Run) => boolean; reason: (run: Run) => st
 const MAX_STATUS_DESCRIPTION = 140;
 export const SCOPE_FAILED = 'scope job failed';
 
-const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
+export const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
 export const firstReason = (rules: readonly ReasonRule[], run: Run) => rules.find((rule) => rule.when(run))?.reason(run);
 export const labelSkipNote = (context: Context) => `${LABEL_SKIP_PHRASE} (@${context.label_actor})`;
 

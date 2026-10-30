@@ -21,9 +21,11 @@ The agents of the PR workflow and the Backfill follow their own agent files, whi
 
 ## Reading the PR comments
 
-- **Report** (`### <status>`): the status, the counts of confirmed Defects and Suspected Defects with a link to their review comments, skipped files, test results, coverage of changed files, and mutation results (information only).
-- **Test author**: what the Author tested. Each Unit has a Verdict, a kind (intent, characterization, or mixed with the number of tests of each), its tests and the number of attempts. Each Defect the Author flagged is one line, with a link to its review comment.
-- **Test reviewer**: the Reviewer's decision on each Defect, with a link to its review comment, and its Findings.
+Each comment has the title `### <name> · <outcome>`, where a script counts the outcome, then the analyzed commit and the run. What needs you comes first, then the tables; collapsed sections come last. 🟢 means passes, 🔴 fails or turns the status red, ⚠️ needs you but does not change the status.
+
+- **Report** (`### 🟢 Report · <status>`): the status, the counts of confirmed Defects and Suspected Defects with a link to their review comments, test results, coverage of changed files, then skipped files and mutation results (information only), collapsed.
+- **Test author**: what the Author tested. Each Unit has a Verdict, a kind (intent, characterization, or mixed with the number of tests of each), its tests and the number of attempts. Each Defect the Author flagged is one line, with a link to its review comment. The Author's own summary is last, collapsed, and is not checked: trust the table.
+- **Test reviewer**: the Reviewer's decision on each Defect, with a link to its review comment, and its Findings. The Reviewer's own summary is last, collapsed.
 - **Review comments on the code**: one per Defect or Suspected Defect, on the line where it was found, with expected and received values (or what looks wrong), the Intent source quote, the Reviewer's decision or note, and a suggested fix. This is the only place with a Defect's details. See [ADR 0007](docs/adr/0007-report-defects-next-to-the-code-with-a-suggested-fix.md).
 
 On a PR that changes only tests and config, such as a Backfill PR, the agents have nothing to test, and the Test author and Test reviewer comments say so. A Backfill PR lists the Author and Reviewer results in its description. It has no changed source lines, so its Defects go in a fourth comment, **Defects**, with the same entries. See [ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md).
