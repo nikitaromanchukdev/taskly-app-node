@@ -1,7 +1,7 @@
 // status.ts decides test-agent/verify, the merge gate (ADR 0005).
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import type { AuthorOutput, Context, DefectDecision, Results, ReviewerOutput, Run, Unit } from '../lib/artifacts.ts';
+import type { AuthorOutput, Context, DefectDecision, Proof, Results, ReviewerOutput, Run, Unit } from '../lib/artifacts.ts';
 import { decide } from '../workflow/status.ts';
 
 const context = (overrides: Partial<Context> = {}): Context => ({
@@ -42,6 +42,7 @@ const flagged: Unit = {
   defect: { test: 'backend/tests/stats.test.ts > due today is not overdue', expected: '0', received: '1', source: 'PR body' },
 };
 
+const proof = (state: Proof['state'], reason = ''): Proof[] => [{ path: flagged.path, unit: flagged.unit, state, reason }];
 const author = (...units: Unit[]): AuthorOutput => ({ summary: '', units });
 const reviewer = (decision?: DefectDecision): ReviewerOutput => ({
   summary: '',
@@ -61,22 +62,42 @@ const run = (overrides: Partial<Run> = {}): Run => ({
 
 describe('decide', () => {
   it('is green when every job succeeded and no Defect was confirmed', () => {
-    assert.deepEqual(decide(run()), { state: 'success', description: '1 unit tested, 0 confirmed defects' });
+    assert.deepEqual(decide(run()), { state: 'success', description: '1 unit tested, 0 proven defects' });
   });
 
-  it('is red for a Defect the Reviewer confirmed', () => {
+  it('is red for a Defect the Reviewer confirmed and the Defect test proved', () => {
+    const status = decide(run({ author: author(added('todos'), flagged), reviewer: reviewer('confirmed'), proof: proof('proven') }));
+    assert.deepEqual(status, { state: 'failure', description: '1 proven defect' });
+  });
+
+  it('stays green, and says so, for a confirmed Defect whose test is unproven', () => {
+    const unproven = decide(run({ author: author(added('todos'), flagged), reviewer: reviewer('confirmed'), proof: proof('unproven', 'the test passed') }));
+    assert.deepEqual(unproven, { state: 'success', description: '1 unit tested, 0 proven defects, 1 unproven defect' });
+  });
+
+  it('counts a confirmed Defect with no proof as unproven', () => {
     const status = decide(run({ author: author(added('todos'), flagged), reviewer: reviewer('confirmed') }));
-    assert.deepEqual(status, { state: 'failure', description: '1 confirmed defect' });
+    assert.deepEqual(status, { state: 'success', description: '1 unit tested, 0 proven defects, 1 unproven defect' });
+  });
+
+  it('does not let the proof of another Unit prove this Defect', () => {
+    const other: Proof[] = [{ path: 'backend/src/other.ts', unit: flagged.unit, state: 'proven', reason: '' }];
+    assert.equal(decide(run({ author: author(added('todos'), flagged), reviewer: reviewer('confirmed'), proof: other })).state, 'success');
+  });
+
+  it('is red for a proven Defect only when the Reviewer confirmed it', () => {
+    const status = decide(run({ author: author(added('todos'), flagged), reviewer: reviewer('rejected'), proof: proof('proven') }));
+    assert.equal(status.state, 'success');
   });
 
   it('stays green for a Defect the Reviewer rejected', () => {
     const status = decide(run({ author: author(added('todos'), flagged), reviewer: reviewer('rejected') }));
-    assert.deepEqual(status, { state: 'success', description: '1 unit tested, 0 confirmed defects' });
+    assert.deepEqual(status, { state: 'success', description: '1 unit tested, 0 proven defects' });
   });
 
   it('does not count a Unit whose tests the Reviewer blocked', () => {
     const checked = { ok: true, errors: [], dropFiles: ['backend/tests/todos.test.ts'], reviewRejected: ['backend/src/todos.ts#todos'], unknownNames: { author: [], reviewer: [] } };
-    assert.equal(decide(run({ checked })).description, '0 units tested, 0 confirmed defects');
+    assert.equal(decide(run({ checked })).description, '0 units tested, 0 proven defects');
   });
 
   it('is green with no agent run when the suites pass', () => {

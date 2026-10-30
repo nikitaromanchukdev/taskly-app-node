@@ -136,9 +136,10 @@ const agentRun = (summaries: { author?: string; reviewer?: string } = {}): Run =
   },
   checked: { ok: true, errors: [], dropFiles: [], reviewRejected: [unitKey(tested('dropped'))], unknownNames: { author: [], reviewer: [] } },
   results,
+  proof: [{ path: flagged.path, unit: flagged.unit, state: 'proven', reason: '' }],
 });
 
-const FAILED: Status = { state: 'failure', description: '1 confirmed defect' };
+const FAILED: Status = { state: 'failure', description: '1 proven defect' };
 const render = (name: CommentName, run: Run, status: Status = FAILED) => RENDERERS[name]({ run, status, repo: REPO });
 const titleOf = (name: CommentName, run: Run, status?: Status) => render(name, run, status).split('\n')[1];
 // Where a part starts in a comment, to check the order of parts.
@@ -159,7 +160,7 @@ describe('one format for every comment', () => {
   }
 
   it('the Report title names the comment after the status emoji and keeps the status description word for word', () => {
-    assert.equal(titleOf('report', agentRun()), '### 🔴 Report · 1 confirmed defect');
+    assert.equal(titleOf('report', agentRun()), '### 🔴 Report · 1 proven defect');
     assert.equal(titleOf('report', agentRun(), { state: 'success', description: 'no agent run; suites pass' }), '### 🟢 Report · no agent run; suites pass');
   });
 
@@ -203,6 +204,15 @@ describe('one format for every comment', () => {
     const parts = ['#### Defects', '#### Test results', '#### Coverage of changed files', '<details><summary>Skipped files (1)</summary>', '<details><summary>Mutation'];
     const positions = parts.map((part) => at(body, part));
     assert.deepEqual(positions, [...positions].sort((a, b) => a - b));
+  });
+
+  it('the Report says per Defect whether it is proven, and warns for a confirmed Defect that is not', () => {
+    const proofOf = (state: 'proven' | 'unproven', reason: string): Run => ({ ...agentRun(), proof: [{ path: flagged.path, unit: flagged.unit, state, reason }] });
+    const proven = render('report', proofOf('proven', ''));
+    assert.ok(proven.includes('- 🔴 confirmed ·') && proven.includes('  - proof: proven\n'), proven);
+    const unproven = render('report', proofOf('unproven', 'the test passed'));
+    assert.ok(unproven.includes('- ⚠️ confirmed, not proven (warning) ·') && unproven.includes('  - proof: unproven (the test passed)'), unproven);
+    assert.ok(render('report', { ...agentRun(), proof: undefined }).includes('proof: unproven (no proof of the Defect test)'));
   });
 
   it('the Report shows its Defects section once the Author ran, even with none flagged, and leaves it out before', () => {

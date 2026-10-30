@@ -4,14 +4,14 @@
 import { isFlaggedDefect, packageRelative, unitKey, unitTests, writesTests } from '../lib/artifacts.ts';
 import type { Check, Context, Defect, DefectDecision, Kind, MutationResult, Results, ReviewerOutput, Run, Severity, SummaryAgent, Unit } from '../lib/artifacts.ts';
 import { cell, code, sanitize } from './sanitize.ts';
-import { labelSkipNote, plural, SCOPE_FAILED } from './status.ts';
+import { labelSkipNote, plural, proofOf, SCOPE_FAILED } from './status.ts';
 import type { ReasonRule, Status, StatusState } from './status.ts';
 import type { SkipReason } from '../contracts/rules.ts';
 
 export type CommentName = 'report' | 'author' | 'reviewer';
 // What every comment is rendered from: the run's artifacts, its decided status and the repo for links.
 export type Report = { run: Run; status: Status; repo: string };
-type DefectLabel = DefectDecision | 'undecided';
+type DefectLabel = DefectDecision | 'confirmed-unproven' | 'undecided';
 
 export const COMMENTS: readonly CommentName[] = ['report', 'author', 'reviewer'];
 // Each comment starts with its marker, so publish finds and updates it instead of adding another.
@@ -22,6 +22,7 @@ const STATUS_EMOJI: Record<StatusState, string> = { success: '🟢', failure: '�
 const CHECK_LABELS: Record<Check, string> = { pass: '🟢 pass', fail: '🔴 fail', skipped: 'skipped' };
 const DEFECT_LABELS: Record<DefectLabel, string> = {
   confirmed: '🔴 confirmed',
+  'confirmed-unproven': '⚠️ confirmed, not proven (warning)',
   rejected: '⚠️ rejected (warning)',
   undecided: '⚠️ no Reviewer decision (warning)',
 };
@@ -122,8 +123,11 @@ function defectLines(run: Run, repo: string): string[] {
   const lines = flagged.flatMap((unit) => {
     const review = run.reviewer?.defects.find((decision) => unitKey(decision) === unitKey(unit));
     const defect = unit.defect;
+    const proof = proofOf(run, unit);
+    const label = review?.decision === 'confirmed' && proof.state === 'unproven' ? 'confirmed-unproven' : (review?.decision ?? 'undecided');
     return [
-      `- ${DEFECT_LABELS[review?.decision ?? 'undecided']} · ${unitName(unit, repo)}`,
+      `- ${DEFECT_LABELS[label]} · ${unitName(unit, repo)}`,
+      `  - proof: ${proof.state === 'proven' ? 'proven' : `unproven (${proof.reason})`}`,
       ...(defect
         ? [
             `  - test: ${cell(defect.test, repo)}`,

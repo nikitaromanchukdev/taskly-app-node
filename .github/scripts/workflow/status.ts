@@ -1,6 +1,6 @@
 // The final test-agent/verify status, decided from the run's artifacts.
 import { isFlaggedDefect, unitKey, writesTests } from '../lib/artifacts.ts';
-import type { Context, Run, Unit } from '../lib/artifacts.ts';
+import type { Context, Proof, Run, Unit } from '../lib/artifacts.ts';
 import { LABEL_SKIP_PHRASE } from '../contracts/rules.ts';
 
 export type StatusState = 'success' | 'failure';
@@ -21,6 +21,16 @@ function confirmedDefects(run: Run): Unit[] {
   const confirmed = new Set((run.reviewer?.defects ?? []).filter((defect) => defect.decision === 'confirmed').map(unitKey));
   return (run.author?.units ?? []).filter((unit) => isFlaggedDefect(unit) && confirmed.has(unitKey(unit)));
 }
+
+// The proof of a Defect's test, made by a trusted step (defect-proof.ts) from a report that PR code wrote. No proof
+// counts as unproven. A forged report can only say "unproven", which keeps a confirmed Defect from turning the status
+// red; the same PR author can already edit the code under test (SOLUTION.md, limitations).
+export const proofOf = (run: Run, unit: { path: string; unit: string }): Proof =>
+  run.proof?.find((proof) => unitKey(proof) === unitKey(unit)) ?? { ...unit, state: 'unproven', reason: 'no proof of the Defect test' };
+
+// Only a confirmed Defect whose test was seen failing makes the status red (ADR 0005).
+const provenDefects = (run: Run) => confirmedDefects(run).filter((unit) => proofOf(run, unit).state === 'proven');
+const unprovenDefects = (run: Run) => confirmedDefects(run).filter((unit) => proofOf(run, unit).state === 'unproven');
 
 // The first agent step that failed explains the agent part.
 const AGENT_FAILURES: readonly ReasonRule[] = [
@@ -53,16 +63,17 @@ function headline(run: Run): string {
   if (!run.context.run_agent) return 'no agent run; suites pass';
   const rejected = new Set(run.checked?.reviewRejected ?? []);
   const tested = (run.author?.units ?? []).filter((unit) => writesTests(unit.verdict) && !rejected.has(unitKey(unit))).length;
-  return `${plural(tested, 'unit')} tested, ${plural(confirmedDefects(run).length, 'confirmed defect')}`;
+  const unproven = unprovenDefects(run).length;
+  return `${plural(tested, 'unit')} tested, ${plural(provenDefects(run).length, 'proven defect')}${unproven ? `, ${plural(unproven, 'unproven defect')}` : ''}`;
 }
 
 export function decide(run: Run): Status {
-  const defects = confirmedDefects(run).length;
+  const defects = provenDefects(run).length;
   const reasons = [
     run.context.jobs.scope !== 'success' ? SCOPE_FAILED : undefined,
     run.context.run_agent ? firstReason(AGENT_FAILURES, run) : undefined,
     verifyFailure(run),
-    defects ? plural(defects, 'confirmed defect') : undefined,
+    defects ? plural(defects, 'proven defect') : undefined,
   ].filter((reason) => reason !== undefined);
 
   const prefix = run.context.label_skip ? `${labelSkipNote(run.context)}; ` : '';
