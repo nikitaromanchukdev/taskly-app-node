@@ -31,6 +31,16 @@ preflight() {
 b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
 
 # A 5-minute App JWT, signed with the key file. Prints the token only; the key is never printed.
+# GET as the App itself. GitHub takes an App JWT only as "Authorization: Bearer"; gh sends "token", so curl is used.
+# Prints GitHub's error message on failure, never the token.
+app_get() { # <jwt> <api path>
+  local out
+  out="$(curl -sS -w '\n%{http_code}' -H "Authorization: Bearer $1" -H 'Accept: application/vnd.github+json' \
+    -H 'X-GitHub-Api-Version: 2022-11-28' "https://api.github.com/$2")" || return 1
+  [[ "${out##*$'\n'}" == 200 ]] || { echo "GitHub: HTTP ${out##*$'\n'}: $(jq -r '.message // empty' <<< "${out%$'\n'*}" 2> /dev/null)" >&2; return 1; }
+  printf '%s' "${out%$'\n'*}"
+}
+
 app_jwt() { # <client id or app id> <key file>
   local now head body sig
   now="$(date +%s)"
@@ -71,12 +81,12 @@ app_config() {
   grep -q 'BEGIN .*PRIVATE KEY' "$key_file" || die "$key_file is not a PEM private key"
 
   jwt="$(app_jwt "$client_id" "$key_file")"
-  app="$(GH_TOKEN="$jwt" gh api /app)" || die "GitHub rejected the key or the Client ID"
+  app="$(app_get "$jwt" app)" || die "GitHub rejected the key or the Client ID"
   slug="$(jq -r .slug <<< "$app")"
   app_id="$(jq -r .id <<< "$app")"
   [[ "$(jq -r .client_id <<< "$app")" == "$client_id" ]] || die "the key belongs to another App than Client ID $client_id"
   echo "App: $slug (id $app_id)"
-  inst="$(GH_TOKEN="$jwt" gh api "repos/$repo/installation")" || die "the App $slug is not installed on $repo: install it from its settings page"
+  inst="$(app_get "$jwt" "repos/$repo/installation")" || die "the App $slug is not installed on $repo: install it from its settings page"
   bad="$(jq -r '[(.permissions.contents, .permissions.statuses, .permissions.pull_requests) | select(. != "write")] | length' <<< "$inst")"
   [[ "$bad" == 0 ]] || die "the App needs write access to contents, statuses and pull requests on $repo; see its permissions: $(jq -r .html_url <<< "$app")/permissions"
   echo "  ✓ installed on $repo with contents, statuses and pull requests write"
