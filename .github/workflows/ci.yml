@@ -1,0 +1,45 @@
+# Checks on main after a merge. PRs are covered by the `suites` job of pr-test-engineer.yml.
+# No pull_request trigger, so nothing here runs for fork PRs. No secrets.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scripts:
+    name: "Workflow script tests"
+    runs-on: ubuntu-latest
+    permissions: { contents: read }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: { node-version: 24 }
+      - run: node --test '.github/scripts/tests/*.test.ts'
+
+  packages:
+    name: "${{ matrix.package }}: typecheck, coverage"
+    runs-on: ubuntu-latest
+    permissions: { contents: read }
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [backend, frontend]
+    defaults:
+      run: { working-directory: "${{ matrix.package }}" }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: { node-version: 24 }
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm run test:coverage

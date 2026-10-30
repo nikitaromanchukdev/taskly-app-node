@@ -8,12 +8,12 @@
 import { execFileSync } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
-import type { Budgets, FileStatus, Hunk, Scope } from '../lib/artifacts.ts';
+import type { Budgets, Candidate, FileStatus, Hunk, Scope, Skipped } from '../lib/artifacts.ts';
 import { die } from '../lib/cli.ts';
 import { githubFromEnv, PAGE_SIZE } from './github.ts';
 import type { GitHub } from './github.ts';
 import { writeJson } from '../lib/json.ts';
-import { classify, LABEL_SKIP_PHRASE, SKIP_LABEL, STATUS_CONTEXT } from '../contracts/rules.ts';
+import { classify, LABEL_SKIP_PHRASE, MAX_CANDIDATES, SKIP_LABEL, STATUS_CONTEXT } from '../contracts/rules.ts';
 import { scanLines } from '../lib/scan.ts';
 import type { LineRule } from '../lib/scan.ts';
 
@@ -100,6 +100,22 @@ const gitDiff = (base: string, head: string) =>
     maxBuffer: 256 * 1024 * 1024,
   });
 
+const changedLines = (candidate: Candidate) => candidate.hunks.reduce((sum, hunk) => sum + hunk.count, 0);
+
+// Keep the `max` candidates with the most changed lines (ties by path); the rest are skipped as over-cap.
+export function capCandidates(scope: Scope, max: number = MAX_CANDIDATES): Scope {
+  if (scope.candidates.length <= max) return scope;
+  const ranked = [...scope.candidates].sort((a, b) => changedLines(b) - changedLines(a) || a.path.localeCompare(b.path));
+  const kept = new Set(ranked.slice(0, max).map((candidate) => candidate.path));
+  const dropped = scope.candidates.filter((candidate) => !kept.has(candidate.path));
+  console.log(`${SCRIPT}: ${dropped.length} of ${scope.candidates.length} candidates skipped as over-cap (max ${max})`);
+  return {
+    ...scope,
+    candidates: scope.candidates.filter((candidate) => kept.has(candidate.path)),
+    skipped: [...scope.skipped, ...dropped.map((candidate): Skipped => ({ path: candidate.path, reason: 'over-cap' }))],
+  };
+}
+
 function scopeFromDiff(diff: string, base: string, head: string, budgets: Budgets): Scope {
   const scope: Scope = { base, head, budgets, candidates: [], skipped: [] };
   for (const file of parseDiff(diff)) {
@@ -117,7 +133,7 @@ function scopeFromDiff(diff: string, base: string, head: string, budgets: Budget
         break;
     }
   }
-  return scope;
+  return capCandidates(scope);
 }
 
 // ---- Skip label ----

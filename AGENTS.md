@@ -84,7 +84,7 @@ Setup is in [README.md](README.md). Run these from the package folder, `backend/
 | Tests with coverage | `npm run test:coverage` | `npm run test:coverage` |
 | Typecheck | `npm run typecheck` | `npm run typecheck` |
 
-The workflow's own scripts in `.github/scripts/` have their own tests: run `make script-tests` from the repo root. They need Node 24 and no install. `suites` runs them on every PR.
+After a merge, `.github/workflows/ci.yml` runs these checks on `main`. The workflow's own scripts in `.github/scripts/` have their own tests: run `make script-tests` from the repo root. They need Node 24 and no install. `suites` runs them on every PR.
 
 ## Local runs of the PR workflow
 
