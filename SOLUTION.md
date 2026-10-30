@@ -103,6 +103,7 @@ The same steps with raw `gh` commands:
   | `lib/` | Shared helpers, no CLI | `artifacts.ts`, `cli.ts`, `json.ts`, `schema.ts`, `scan.ts` |
   | `tests/` | Tests of the scripts above | `run.ts`, `*.test.ts` |
 
+- **CI on `main`.** `.github/workflows/ci.yml` runs on each push to `main` and by hand: the script tests, and typecheck and tests with coverage per package. It has no secrets and no `pull_request` trigger, so it never runs for a PR or a fork.
 - **Workflow.** `.github/workflows/pr-test-engineer.yml`. It wires the jobs below. [docs/pr-run.md](docs/pr-run.md) follows one PR run step by step: which job writes the tests, which pushes them, and what keeps a bad patch out.
 
 | Job | Runs a model | Write access | Runs PR code | What it does |
