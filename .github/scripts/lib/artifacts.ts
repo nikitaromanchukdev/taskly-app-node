@@ -91,6 +91,7 @@ export type Checked = {
   errors: string[];
   dropFiles: string[]; // test files with a blocking finding, and new files holding a flagged Defect's failing test
   reviewRejected: string[]; // unitKey of units whose tests live in a file with a blocking finding (report-only state)
+  missingDefectTests: string[]; // unitKey of flagged Defects whose test is in no file of the patch (the Author removed it)
   unknownNames: UnknownNames;
 };
 
@@ -173,6 +174,8 @@ export const VERDICT_RULES: Record<Verdict, VerdictRule> = {
 };
 
 export const writesTests = (verdict: Verdict) => VERDICT_RULES[verdict].writesTests;
+// Whether a test's name appears in lines a patch adds to its file (the lines of one file, without the `+`).
+export const namedIn = (lines: readonly string[], test: string) => lines.some((line) => line.includes(testName(test)));
 export const isFlaggedDefect = (unit: Unit) => unit.verdict === 'flagged-defect';
 
 // A test checks one Expectation, so a Unit's tests are its Expectations' tests.

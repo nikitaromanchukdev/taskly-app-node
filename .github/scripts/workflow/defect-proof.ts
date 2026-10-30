@@ -3,14 +3,14 @@
 //   node defect-proof.ts build <author.json> --patch <tests.patch> --out-dir <dir>     (bot_commit, no PR code)
 //   node defect-proof.ts decide <defects.json> --reports <dir> [--out proof.json]       (publish, no PR code)
 // build writes <dir>/defects.patch (the new test files that hold a flagged Defect's test, as the Author wrote them) and
-// <dir>/defects.json (one DefectCase each), and nothing when no Defect has a test file in the patch. agent-output.ts keeps
+// <dir>/defects.json (one DefectCase each), and nothing when no Defect has its test in a new file of the patch. agent-output.ts keeps
 // those files out of the Bot commit; the suites job applies defects.patch to a copy of the final tree and runs them.
 // decide reads <dir>/<package>.defects.json (the vitest JSON report of that run, written by PR code, so untrusted) and
 // writes a Proof per DefectCase. A Proof carries a fixed label, never report text, because it reaches the PR comment.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { isFlaggedDefect, testName } from '../lib/artifacts.ts';
+import { isFlaggedDefect, namedIn, testName } from '../lib/artifacts.ts';
 import type { AuthorOutput, DefectCase, Proof } from '../lib/artifacts.ts';
 import { die } from '../lib/cli.ts';
 import { readJson, writeJson } from '../lib/json.ts';
@@ -43,16 +43,21 @@ function patchBlocks(patch: string): Map<string, string> {
   return blocks;
 }
 
+// The lines a file's block adds, without the `+`.
+const addedLines = (block: string) => block.split('\n').filter((line) => line.startsWith('+') && !line.startsWith('+++')).map((line) => line.slice(1));
+
 // A flagged Defect's test lives in a new file (agent-output.ts rejects one in an existing file), and agent-output.ts drops
 // that whole file from the Bot commit. So the Defect patch is the file as the Author wrote it: it does not exist in the
-// final tree, any passing tests in it run too, and only the named test is judged.
+// final tree, any passing tests in it run too, and only the named test is judged. A file that does not hold the named
+// test (the Author removed it) is not a Defect file: it stays in the Bot commit, and agent-output.ts reports the missing test.
 export function buildDefects(author: AuthorOutput, patch: string): { cases: DefectCase[]; patch: string } {
   const blocks = patchBlocks(patch);
   const cases = author.units.flatMap((unit): DefectCase[] => {
     if (!isFlaggedDefect(unit) || !unit.defect) return [];
     const file = testFile(unit.defect.test);
     const pkg = packageOf(file);
-    if (!pkg || !blocks.has(file)) return [];
+    const block = blocks.get(file);
+    if (!pkg || block === undefined || !namedIn(addedLines(block), unit.defect.test)) return [];
     const { expected, received, test } = unit.defect;
     return [{ package: pkg, path: unit.path, unit: unit.unit, file, packageFile: file.slice(pkg.length + 1), test: testName(test), expected, received }];
   });
@@ -149,7 +154,7 @@ function build(args: string[]) {
   const [file] = positionals;
   if (!file || !values.patch || !values['out-dir']) die(SCRIPT, 'usage: defect-proof.ts build <author.json> --patch <tests.patch> --out-dir <dir>', 'usage');
   const { cases, patch } = buildDefects(readJson<AuthorOutput>(file), readFileSync(values.patch, 'utf8'));
-  if (cases.length === 0) return console.log(`${SCRIPT}: no flagged Defect has a test file in the patch`);
+  if (cases.length === 0) return console.log(`${SCRIPT}: no flagged Defect has its test in a new file of the patch`);
   mkdirSync(values['out-dir'], { recursive: true });
   writeFileSync(join(values['out-dir'], 'defects.patch'), patch);
   writeJson(join(values['out-dir'], 'defects.json'), cases);

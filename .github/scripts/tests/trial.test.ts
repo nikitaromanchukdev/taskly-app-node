@@ -126,7 +126,7 @@ describe('trial.ts check', () => {
   const expected = { units: [{ ...unit, verdict: 'flagged-defect' }], defects: [{ ...unit, decision: 'confirmed' }] };
   const author = (verdict: string): AuthorOutput => ({ summary: '', units: [{ ...unit, verdict, expectations: [], attempts: 1 } as never] });
   const reviewer = (decision: string): ReviewerOutput => ({ summary: '', findings: [], defects: [{ ...unit, decision, source_quote: 'q' } as never] });
-  const okCheck: Checked = { ok: true, errors: [], dropFiles: [], reviewRejected: [], unknownNames: { author: [], reviewer: [] } };
+  const okCheck: Checked = { ok: true, errors: [], dropFiles: [], reviewRejected: [], missingDefectTests: [], unknownNames: { author: [], reviewer: [] } };
 
   // Writes a run's output and the expected outcome, then checks one against the other.
   function check(run: { author?: AuthorOutput; reviewer?: ReviewerOutput; checked?: Checked }, outcome: object = expected) {
@@ -154,6 +154,12 @@ describe('trial.ts check', () => {
     const result = check({ author: author('flagged-defect'), reviewer: reviewer('confirmed'), checked: { ...okCheck, ok: false, errors: ['patch rejected'] } });
     assert.equal(result.code, 1);
     assert.match(result.stderr, /agent output check: patch rejected/);
+  });
+
+  it('fails when the Author removed the Defect test instead of keeping it', () => {
+    const result = check({ author: author('flagged-defect'), reviewer: reviewer('confirmed'), checked: { ...okCheck, missingDefectTests: ['backend/src/core/truncate.ts#truncate'] } });
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /truncate\.ts#truncate: the Defect test is in no file of the patch/);
   });
 
   // A review-only case: the Reviewer must block the tautology, and only its file is dropped.

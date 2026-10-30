@@ -35,6 +35,8 @@ Read the quotes and the Intent sources they cite. The agents can be wrong.
 
 A confirmed and proven Defect means the code contradicts an Intent source and its test failed in the suites run. A confirmed Defect marked unproven is a warning: read the reason shown, and check the code yourself. Fix the source code, then push. The workflow's agents never change source code; they report Defects. The next PR run writes the test again.
 
+A confirmed Defect with no test (the Report says the Author removed it) turns the status red too: the Reviewer confirmed the code contradicts an Intent source, but no test proves it. Check the code against the Reviewer's quote and fix it, or re-run the workflow with a dispatch (see [SOLUTION.md](SOLUTION.md#how-to-run-the-pr-workflow)) to get the test.
+
 If you think the Intent source is wrong, fix the source in the same PR and explain why in the PR description. Do not change a test to match the code.
 
 A rejected Defect is only a warning. Read the Reviewer's quote, then decide.
