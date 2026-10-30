@@ -34,6 +34,26 @@ describe('judge: a Defect is proven only by an assertion that shows the Author v
     assert.equal(judge(failed("AssertionError: expected 'overdue' to be 'due today'"), quoted).state, 'proven');
   });
 
+  it('proves values the Author wrote in prose, by the literals in them (live run 41044948156)', () => {
+    const prose = { ...found, expected: 'ids [2, 3, 1]: the todo with a null due_date comes last', received: 'ids [1, 2, 3]: the null-dated todo comes first' };
+    assert.equal(judge(failed('AssertionError: expected [ 1, 2, 3 ] to deeply equal [ 2, 3, 1 ]\n    at /tmp/tree/backend/tests/sort.test.ts:11:51'), prose).state, 'proven');
+  });
+
+  it('proves quoted values inside prose', () => {
+    const prose = { ...found, expected: "truncate('abcde', 5) returns 'abcde'", received: "'abcd…'" };
+    assert.equal(judge(failed("AssertionError: expected 'abcd…' to be 'abcde' // Object.is equality"), prose).state, 'proven');
+  });
+
+  it('does not match a bare number against a stack line', () => {
+    const numbers = { ...found, expected: '0', received: '51' };
+    assert.equal(judge(failed('AssertionError: expected 3 to be +0\n    at /tmp/tree/backend/tests/sort.test.ts:11:51'), numbers).state, 'unproven');
+  });
+
+  it('leaves prose values unproven when the runner shows other literals', () => {
+    const prose = { ...found, expected: 'ids [2, 3, 1]', received: 'ids [1, 2, 3]' };
+    assert.equal(judge(failed('AssertionError: expected [ 3, 2, 1 ] to deeply equal [ 2, 3, 1 ]'), prose).state, 'unproven');
+  });
+
   it('proves a message that starts with "expected" and no error name', () => {
     assert.equal(judge(failed('expected 1 to equal 0'), found).state, 'proven');
   });
