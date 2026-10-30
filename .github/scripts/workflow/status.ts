@@ -30,17 +30,27 @@ const AGENT_FAILURES: readonly ReasonRule[] = [
   { when: (run) => !run.checked?.ok, reason: () => 'agent output invalid or patch rejected' },
 ];
 
+// Green needs the suites job to have succeeded: that job fails when a typecheck or a suite fails, and its result comes
+// from GitHub, not from a file. results.json comes from a job that ran PR code, so it is untrusted: it can add red
+// reasons (they name what failed) and never remove one.
 function verifyFailure(run: Run): string | undefined {
-  if (run.context.jobs.suites !== 'success' || !run.results) return 'suites did not finish';
   const failed = [
-    ...Object.entries(run.results.typecheck).filter(([, check]) => check === 'fail').map(([pkg]) => `${pkg} typecheck`),
-    ...Object.entries(run.results.tests).filter(([, suite]) => suite.status === 'fail').map(([pkg]) => `${pkg} tests`),
+    ...Object.entries(run.results?.typecheck ?? {}).filter(([, check]) => check === 'fail').map(([pkg]) => `${pkg} typecheck`),
+    ...Object.entries(run.results?.tests ?? {}).filter(([, suite]) => suite.status === 'fail').map(([pkg]) => `${pkg} tests`),
   ];
   const reasons = [
     failed.length ? `${failed.join(', ')} failed` : undefined,
-    run.results.flaky.length ? `${plural(run.results.flaky.length, 'new test file')} flaky in shuffled reruns` : undefined,
-  ];
-  return reasons.filter((reason) => reason !== undefined).join('; ') || undefined;
+    run.results?.flaky.length ? `${plural(run.results.flaky.length, 'new test file')} flaky in shuffled reruns` : undefined,
+  ].filter((reason) => reason !== undefined);
+  if (reasons.length) return reasons.join('; ');
+  switch (run.context.jobs.suites) {
+    case 'success':
+      return run.results ? undefined : 'suites did not finish';
+    case 'failure':
+      return run.results ? 'suites job failed' : 'suites did not finish';
+    default:
+      return 'suites did not finish';
+  }
 }
 
 function headline(run: Run): string {

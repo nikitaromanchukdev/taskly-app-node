@@ -3,6 +3,8 @@
 //        node prepare.ts --local <base> [--out scope.json]   scope for `git diff <base>...HEAD`, no GitHub calls
 // Env: the 5 TEST_AGENT_* variables, GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER, GITHUB_EVENT_NAME,
 //      EVENT_ACTION and EVENT_LABEL (label events only), TEST_AGENT_SKIP_ACTORS (optional fallback).
+// PR_NUMBER, EVENT_ACTION and EVENT_LABEL come from the outputs of the intake job (intake.ts), which validated them;
+// the workflow's own event is workflow_run or workflow_dispatch and says nothing about the PR. A dispatch has action "dispatch".
 import { execFileSync } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';

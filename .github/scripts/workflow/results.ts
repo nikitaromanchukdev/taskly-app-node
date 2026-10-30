@@ -6,6 +6,8 @@
 //   <pkg>.rerun.files and <pkg>.rerun.<n>.json (shuffled reruns of the Bot commit's tests, final only; see flaky.ts)
 // and once: scripts.tap (node --test TAP report of the workflow's own scripts)
 // A missing report counts as a failure; a missing baseline falls back to the final coverage.
+// The reports come from a job that ran PR code, so they are untrusted: every value taken from them is coerced to a
+// number or a known label here, and results.json can only make the status worse (status.ts needs the suites job result).
 import { existsSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -29,6 +31,9 @@ const SCRIPT = 'results';
 
 // ---- Typecheck and tests ----
 
+// A count from a report: a finite non-negative number, else 0.
+const count = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0);
+
 const CHECKS: Record<string, Check> = { pass: 'pass', fail: 'fail' };
 
 function typecheck(dir: string, pkg: Pkg): Check {
@@ -39,9 +44,9 @@ function typecheck(dir: string, pkg: Pkg): Check {
 function suite(dir: string, pkg: Pkg): SuiteResult {
   const report = readJsonIfExists<VitestReport>(join(dir, `${pkg}.vitest.json`));
   if (!report) return { status: 'fail', passed: 0, failed: 0 };
-  const failed = report.numFailedTests ?? 0;
-  const ok = report.success === true && failed === 0 && (report.numFailedTestSuites ?? 0) === 0;
-  return { status: ok ? 'pass' : 'fail', passed: report.numPassedTests ?? 0, failed };
+  const failed = count(report.numFailedTests);
+  const ok = report.success === true && failed === 0 && count(report.numFailedTestSuites) === 0;
+  return { status: ok ? 'pass' : 'fail', passed: count(report.numPassedTests), failed };
 }
 
 // The workflow's own scripts. TAP ends with "# pass N" and "# fail N"; a run with no passing test fails too.
@@ -49,9 +54,9 @@ function scriptsSuite(dir: string): SuiteResult {
   const file = join(dir, 'scripts.tap');
   if (!existsSync(file)) return { status: 'fail', passed: 0, failed: 0 };
   const tap = readFileSync(file, 'utf8');
-  const count = (name: string) => Number(new RegExp(`^# ${name} (\\d+)$`, 'm').exec(tap)?.[1] ?? 0);
-  const passed = count('pass');
-  const failed = count('fail') + count('cancelled');
+  const tapCount = (name: string) => Number(new RegExp(`^# ${name} (\\d+)$`, 'm').exec(tap)?.[1] ?? 0);
+  const passed = tapCount('pass');
+  const failed = tapCount('fail') + tapCount('cancelled');
   return { status: passed > 0 && failed === 0 ? 'pass' : 'fail', passed, failed };
 }
 

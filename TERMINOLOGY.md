@@ -76,19 +76,19 @@ Avoid: rejected (that word belongs to a Defect), failed, dropped.
 
 ## PR workflow
 
-The GitHub Actions workflow `pr-test-engineer`, which adds or updates tests for the Units each PR changes, on every push. Each execution is a PR run.
+The GitHub Actions workflows `pr-intake` and `pr-test-engineer`, which add or update tests for the Units each PR changes, on every push. `pr-intake` only records the PR event; `pr-test-engineer` does the work. Each execution of `pr-test-engineer` is a PR run.
 
 Avoid: Part B, PR test workflow, pipeline.
 
 ## PR run
 
-One execution of the PR workflow for one PR head, through the `scope`, `agents`, `bot_commit`, `suites` and `publish` jobs. A push starts a new PR run and cancels the older run for the same PR. A manual dispatch also starts a PR run.
+One execution of the PR workflow for one PR head, through the `intake`, `scope`, `agents`, `bot_commit`, `suites` and `publish` jobs. A push starts a new PR run and cancels the older run for the same PR. A manual dispatch also starts a PR run.
 
 Avoid: build, CI run, check run.
 
 ## Bot commit
 
-The commit that the `github-actions[bot]` account adds to the PR branch with the Author's tests. A Bot commit starts no agent run: GitHub creates a PR run for it that waits for approval, and that run skips every job.
+The commit that the `github-actions[bot]` account adds to the PR branch with the Author's tests. A Bot commit starts no agent run: GitHub creates a `pr-intake` run for it that waits for approval, and that run does nothing.
 
 Avoid: auto-commit, agent commit, fix commit.
 
