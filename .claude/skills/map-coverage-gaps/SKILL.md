@@ -62,7 +62,7 @@ Group the gaps by Unit. Every logic file under 100% appears exactly once in the 
 ## Step 5: Write and Rank Recommendations
 
 1. **Expectations** - write each gap as an Expectation ("when X, then Y") with its Intent source.
-2. **Coverage now** - record the current lines and branches percent per Unit, and the line numbers of its gaps (Step 2) as `uncovered`.
+2. **Coverage now** - record the current lines and branches percent per Unit, and the line numbers of its gaps (Step 2) as `uncovered`. `make backfill-gaps` then checks them against `lcov.info`: it drops a line that is covered and adds the ones you left out between your first and last line.
 3. **Rank** - in this order:
    1. failure paths a user sees
    2. branches that choose an outcome

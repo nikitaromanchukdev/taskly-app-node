@@ -190,6 +190,7 @@ backfill-gaps: need-package preflight
 	@mkdir -p $(OUT)
 	$(SCRIPTS_DIR)/agent/sandbox.sh install $(PACKAGE)
 	$(call run_agent,pr-test-engineer,$(TEST_AGENT_MODEL),gaps,$(GAPS_PROMPT))
+	$(SCRIPTS)/local/gap-lines.ts --out $(OUT) --package $(PACKAGE)
 	@$(SUBMAKE) backfill-approve PACKAGE=$(PACKAGE) OUT=$(OUT)
 
 # Asks on a terminal; without one, APPROVE picks the items (1,3, all or none), and DECLINE with REASON declines others.
