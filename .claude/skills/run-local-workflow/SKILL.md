@@ -108,7 +108,7 @@ Run `node .github/scripts/local/trial.ts dir`. **If that folder does NOT exist:*
 
 ### Path D: The Backfill
 
-1. **Check the working tree** - as in Path A; `tests.patch` must hold only the Author's tests.
+1. **Check the working tree before Part 2** - as in Path A; `make backfill-tests` needs a clean tree, because `tests.patch` must hold only the Author's tests. Part 1 (`make backfill-gaps`) runs on any tree.
 2. **Package** - never default it. Ask: `backend` or `frontend`. One package per run and per PR.
 3. **Part 1** - run `make backfill-gaps PACKAGE={package}`. Without a terminal it ends with "not approved yet": that is expected, not a failure.
 4. **Approve** - show the user `{folder}/gaps.md`, then ask which Recommendations to approve, by number, `all` or `none`, and which of the others to decline as not worth testing, with one reason. Free text: ask in the reply, not with options. Gaps under **Decided earlier** are already left out. Then run:

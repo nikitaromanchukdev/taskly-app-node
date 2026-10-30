@@ -1,5 +1,7 @@
 # Taskly App Node
 
+On each ready pull request, the PR workflow has agents write and review unit tests for the changed code, and sets the status `test-agent/verify`. How it works and how to run it: [SOLUTION.md](SOLUTION.md). How to work in this repo: [AGENTS.md](AGENTS.md).
+
 ## Setup
 
 ```sh

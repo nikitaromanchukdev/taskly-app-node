@@ -115,7 +115,7 @@ The same steps with raw `gh` commands:
 
 Agents never post. Only `scope` (the pending status) and `publish` (the final status and the comments) post to the PR. `bot_commit` pushes the Bot commit.
 
-The PR checks list shows each job by its `name:`, such as "Suites: typecheck, coverage, mutation". The status the run ends in is still `test-agent/verify`: the ruleset requires that name. Before the rename, the jobs were `prepare`, `engineer`, `commit` and `verify`.
+The PR checks list shows each job by its `name:`, such as "Suites: typecheck, coverage, mutation". The status the run ends in is still `test-agent/verify`: the ruleset requires that name.
 
 In the `suites` log, `head` is the analyzed PR head and `final` is the Bot commit, or the head when there is none. The first step names both commits. Each package's install, typecheck, tests and mutation sit in a folded group named `<package> · <head|final> · <what>`, and each step ends with one summary line per package.
 
@@ -199,11 +199,11 @@ These four decisions, and the gaps both Backfills found unreachable or not worth
 **Backfill**
 
 - No CI run proves a Backfill's results. Its PR description is written from the tables `make backfill-tests` renders, so the prose around them can drift ([ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md)).
-- A decided gap is left out of later gap lists only while its file is unchanged and the agent names its Unit the same way. Otherwise the owner decides it again ([ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md)).
+- A decided gap is left out of later gap lists only while its file is unchanged and the records cover all of the gap's uncovered lines, which the Author lists for each gap. Otherwise the owner decides it again ([ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md)).
 
 **Scripts**
 
-- The script tests cover the scripts that decide what reaches the PR (`guard.ts`, `sanitize.ts`, `agent-output.ts`, `status.ts`, the not-run notes of `render.ts`) and the local `trial.ts`. The scripts that call GitHub (`prepare.ts`, `context.ts`, `report.ts`) and the shell scripts have no tests.
+- The script tests cover the scripts that decide what reaches the PR (`guard.ts`, `sanitize.ts`, `agent-output.ts`, `status.ts`), the comment renderers in `render.ts`, the job-result reading of `context.ts`, and the local `trial.ts`. The scripts that call GitHub (`prepare.ts`, `report.ts`, `github.ts`) and the shell scripts have no tests.
 - The TypeScript types in `artifacts.ts` repeat the schema enums by hand, so they can drift from the schemas.
 
 **App**
@@ -212,7 +212,7 @@ These four decisions, and the gaps both Backfills found unreachable or not worth
 
 ### Not verified on the live repo yet
 
-- The `skip-test-agent` label from a user without maintain rights, which must be ignored. This needs a second GitHub account. The admin half is proven: run 40949797997 shows "skipped by label", with the suites job (then named `verify`) still run.
+- The `skip-test-agent` label from a user without maintain rights, which must be ignored. This needs a second GitHub account. The admin half is proven: run 40949797997 shows "skipped by label", with the `suites` job still run.
 - A tautological test dropped from a real Bot commit. The same chain is proven locally: the `tautology` case of `make demo` gets a blocking `tautology` Finding from the Reviewer, and `agent-output.ts` drops exactly that test file ([ADR 0009](docs/adr/0009-test-agent-config-changes-against-committed-cases.md)).
 
 ## Production version
@@ -234,7 +234,7 @@ Items a production version would add.
 - The mutation score as a gate on changed files.
 - A check for gaps in the lines a PR touches, reported as a separate required check.
 - Tests for the scripts that call GitHub, against a fake API.
-- More committed agent-test cases next to `truncate`, such as a tautology the Reviewer must block, run in a scheduled CI job.
+- The committed agent-test cases (`truncate`, `tautology`) run in a scheduled CI job, with more cases added over time.
 - The whole Backfill PR description rendered by a script.
 
 **Usability and cost**

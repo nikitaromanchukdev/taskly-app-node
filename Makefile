@@ -51,8 +51,10 @@ BACKFILL_AUTHOR_PROMPT := Backfill. Package: $(PACKAGE). The owner approved the 
 BACKFILL_REVIEW_PROMPT := Backfill. Review $(OUT)/tests.patch. Author output: $(OUT)/author.json. Approved gap list: $(OUT)/approved.json. There is no PR description.
 
 # $(call run_agent,<agent>,<model>,<role>,<prompt>): one agent run; its structured output goes to $(OUT)/<role>.json.
+# When the run fails, the reason (the .result of <role>-run.json) is printed.
 run_agent = $(CLAUDE) --agent $(1) --model $(2) --json-schema "$$(cat $(SCRIPTS_DIR)/contracts/$(3).schema.json)" "$(4)" \
-  > $(OUT)/$(3)-run.json && jq -e '.structured_output' $(OUT)/$(3)-run.json > $(OUT)/$(3).json
+  > $(OUT)/$(3)-run.json && jq -e '.structured_output' $(OUT)/$(3)-run.json > $(OUT)/$(3).json \
+  || { status=$$?; echo "make: $(3) run failed; reason: $$(jq -r '.result // "no result field"' $(OUT)/$(3)-run.json 2> /dev/null || echo "no readable $(OUT)/$(3)-run.json")" >&2; exit $$status; }
 # Units the reviewer has something to look at: tests written or a defect flagged.
 REVIEWABLE := [.units[] | select(.verdict != "not-needed")] | length > 0
 
@@ -184,7 +186,7 @@ need-package:
 need-approved:
 	@test -f $(OUT)/approved.json || { echo "make: no approved gap list in $(OUT); run make backfill-gaps PACKAGE=$(PACKAGE) first" >&2; exit 1; }
 
-backfill-gaps: need-package preflight clean-tree
+backfill-gaps: need-package preflight
 	@mkdir -p $(OUT)
 	$(SCRIPTS_DIR)/agent/sandbox.sh install $(PACKAGE)
 	$(call run_agent,pr-test-engineer,$(TEST_AGENT_MODEL),gaps,$(GAPS_PROMPT))
