@@ -437,7 +437,8 @@ jobs:
         run: |
           mapfile -t drop < <(jq -r '.dropFiles[] | "--exclude=" + .' "../$OUT/checked.json")
           echo "Test files left out of the Bot commit: ${#drop[@]}"
-          git apply --index "${drop[@]}" "../$OUT/tests.patch"
+          # An Author run that changed no test file leaves an empty patch, which git apply refuses (live PR #76, run 41080157151).
+          if [ -s "../$OUT/tests.patch" ]; then git apply --index "${drop[@]}" "../$OUT/tests.patch"; fi
           if git diff --cached --quiet; then
             echo "No Bot commit: nothing left to commit. The final commit is the PR head $HEAD_SHA"
           else
