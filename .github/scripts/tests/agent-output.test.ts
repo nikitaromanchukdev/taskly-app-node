@@ -239,13 +239,19 @@ describe('agent-output.ts', () => {
     assert.equal(check({ author: author(repositoryUnit('TodoRepository.stats'), route), reviewer: reviewer(), tree }).code, 0);
   });
 
+  // The schema pattern rejects a test without its path from the repo root (live run 41046325172 named a describe block).
   it('rejects a test named by its bare file name', () => {
     const expectations = [{ text: 'counts open todos', source: 'PR body', kind: 'intent' as const, tests: ['todos.test.ts > counts open todos'] }];
-    rejects({ author: author(unit({ expectations })), reviewer: reviewer() }, /test file "todos\.test\.ts" is in neither the checkout nor the patch/);
+    rejects({ author: author(unit({ expectations })), reviewer: reviewer() }, /tests\[0\]: "todos\.test\.ts > counts open todos" does not match/);
   });
 
-  it('rejects a flagged Defect test named by its bare file name', () => {
-    rejects({ author: author(flagged('stats.test.ts > due today is not overdue')), reviewer: reviewer([], [confirmed]) }, /test file "stats\.test\.ts"/);
+  it('rejects a flagged Defect test named by its describe block', () => {
+    rejects({ author: author(flagged('sortForTriage null due date > puts todos without a due date last')), reviewer: reviewer([], [confirmed]) }, /defect\.test: "sortForTriage null due date > .*" does not match/);
+  });
+
+  it('rejects a test with a full path to a file that is in neither the checkout nor the patch', () => {
+    const expectations = [{ text: 'counts open todos', source: 'PR body', kind: 'intent' as const, tests: ['backend/tests/missing.test.ts > counts open todos'] }];
+    rejects({ author: author(unit({ expectations })), reviewer: reviewer() }, /test file "backend\/tests\/missing\.test\.ts" is in neither the checkout nor the patch/);
   });
 
   it('accepts a test file that only the patch creates', () => {

@@ -11,7 +11,7 @@
         "additionalProperties": false,
         "required": ["test", "severity", "reason", "note"],
         "properties": {
-          "test": { "type": "string", "maxLength": 300 },
+          "test": { "type": "string", "maxLength": 300, "pattern": "^(backend|frontend)/[^ >]+\\.test\\.tsx? > .+", "description": "<path from the repo root> > <describe> > <test name>, e.g. backend/tests/sort.test.ts > sortForTriage > orders by priority." },
           "severity": { "type": "string", "enum": ["blocking", "advisory"] },
           "reason": {
             "type": "string",
