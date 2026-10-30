@@ -89,7 +89,7 @@ The same steps with raw `gh` commands:
 ## Agents, skills and the workflow
 
 - **Agents.** `.claude/agents/pr-test-engineer.md` (the Author) and `.claude/agents/pr-test-reviewer.md` (the Reviewer).
-- **Agent skills.** `.claude/skills/`, one folder per skill, preloaded through each agent's `skills:` list: `scope-change`, `map-coverage-gaps`, `extract-intent`, `author-tests`, `prove-tests` and `review-tests`. The package playbooks are `author-tests/backend.md` and `author-tests/frontend.md`.
+- **Agent skills.** `.claude/skills/`, one folder per skill, preloaded through each agent's `skills:` list: `scope-change`, `extract-intent`, `author-tests`, `prove-tests` and `review-tests`. `map-coverage-gaps` is Backfill only: the Backfill prompt tells the Author to read it. The package playbooks are `author-tests/backend.md` and `author-tests/frontend.md`.
 - **Contributor skills.** Also in `.claude/skills/`, for a person's or a coding agent's own Claude Code session: `ship-change` (branch, checks, review, commit, cleanup), `github-ops` (issues, PRs, comments, statuses and re-runs through `gh`), `prove-script-test` (break each defence a script test covers and see it fail), `run-local-workflow` (runs the local make commands, asking for the intent first) and `report-backfill` (the Backfill PR description and Defects comment). The Author and Reviewer cannot load them: neither has the `Skill` tool, so each sees only the skills its agent file lists.
 - **Settings.** `.claude/agent-settings.json` holds the tool allow and deny lists and the guard hook, which blocks writes outside the test paths and shell commands outside `AGENT_COMMANDS` in `rules.ts`. Every agent run receives it; see [ADR 0001](docs/adr/0001-use-claude-code-action-as-agent-runtime.md).
 - **Rules, schemas and scripts.** `.github/scripts/`. These run without a model and are the source for the rules, the output schemas and the status decision.
@@ -108,7 +108,7 @@ The same steps with raw `gh` commands:
 | Job | Runs a model | Write access | Runs PR code | What it does |
 |---|---|---|---|---|
 | `scope` | no | commit status | no | Reads the live PR. Checks the budget variables. Writes `scope.json`. Sets the status to pending. |
-| `agents` | yes: Author, then Reviewer | none (read-only token) | only in containers | Restores base-branch config. Installs dependencies in the sandbox. Runs the agents. Saves `author.json`, `reviewer.json` and `tests.patch`. |
+| `agents` | yes: Author, then Reviewer | none (read-only token) | only in containers | Restores base-branch config, and checks it again before each agent. Installs dependencies in the sandbox. Runs the agents. Saves `author.json`, `reviewer.json` and `tests.patch`. |
 | `bot_commit` | no | repo contents | no | Checks the patch and the agent output. Drops test files with blocking Findings, and new files that hold a flagged Defect's test. Pushes the Bot commit. |
 | `suites` | no | none (read-only token) | yes, on the host, with no secrets | Typecheck and suites with coverage on the final commit, and the tests of the workflow's own scripts. Mutation testing for information only. |
 | `publish` | no | commit status, PR comments | no | Decides the status. Renders the three comments and the job summary. |
@@ -179,7 +179,7 @@ These four decisions, and the gaps both Backfills found unreachable or not worth
 
 **Trust boundary**
 
-- Same-repo PR code is trusted more than fork code. A PR can edit the workflow file it runs with, including its budgets and guard steps. `suites` runs the PR's own test setup (`npm ci`, configs, tests) on the host, without secrets. PR code in the sandbox can write files the Author later reads, such as a nested `CLAUDE.md`. The controls are a person reading the diff and the limits in [ADR 0004](docs/adr/0004-isolate-pr-code-from-secrets.md). CODEOWNERS would add a required review, which a sole maintainer cannot give.
+- Same-repo PR code is trusted more than fork code. A PR can edit the workflow file it runs with, including its budgets and guard steps. `suites` runs the PR's own test setup (`npm ci`, configs, tests) on the host, without secrets. The sandbox mounts the checkout read-only, and the overlay is checked again before each agent; one writable path remains, `backend/src/generated`, which that check covers for instruction files. The controls are a person reading the diff and the limits in [ADR 0004](docs/adr/0004-isolate-pr-code-from-secrets.md). CODEOWNERS would add a required review, which a sole maintainer cannot give.
 - Fork PRs get no agent run and no status. A maintainer pushes the branch into the repo to merge it.
 - The owner is the only admin, so they can merge past the gate with the bypass. Every bypass shows on the PR and in the audit log, and [ADR 0005](docs/adr/0005-gate-merges-on-test-agent-verify.md) limits when it is used.
 
