@@ -4,6 +4,8 @@
 #                                                    then the tests of the workflow's own scripts
 #   verify.sh mutation <tree> <out-dir> <scope.json> StrykerJS on the changed files, per package (after checks)
 # Runs PR code, so the job holding it has a read-only token and no secrets.
+# `checks` exits 1 when any install, typecheck, suite or script test failed, after writing every report: the job result
+# (needs.suites.result) is what lets the status be green. The reports are untrusted data and can only make it worse.
 # The log names the tree (head: the analyzed PR head; final: the Bot commit, or the head when there is none) and its
 # SHA, folds each package's work into a `<package> · <tree> · <what>` group, and ends with one summary line per package.
 set -uo pipefail
@@ -14,6 +16,7 @@ out="$(cd "$3" && pwd)"
 scope="${4:+$(realpath "$4")}"
 label="$(basename "$tree")"
 summary=()
+failed=0
 
 case "$mode" in
   checks | mutation) ;;
@@ -49,13 +52,14 @@ checks() {
   local pkg="$1" typecheck=fail
   if ! group "$pkg" "npm ci" npm ci --no-audit --no-fund; then
     echo fail > "$out/$pkg.typecheck"
+    failed=1
     summary+=("$pkg: npm ci failed, nothing else ran")
     return
   fi
-  group "$pkg" typecheck npm run typecheck && typecheck=pass
+  group "$pkg" typecheck npm run typecheck && typecheck=pass || failed=1
   echo "$typecheck" > "$out/$pkg.typecheck"
   group "$pkg" "tests with coverage" npx vitest run --coverage --coverage.reportOnFailure --reporter=default --reporter=json \
-    --outputFile.json="$out/$pkg.vitest.json"
+    --outputFile.json="$out/$pkg.vitest.json" || failed=1
   cp coverage/coverage-summary.json "$out/$pkg.coverage.json"
   summary+=("$pkg: typecheck $typecheck, $(suite_summary "$out/$pkg.vitest.json")")
 }
@@ -83,10 +87,11 @@ done
 if [[ "$mode" == checks ]]; then
   cd "$tree" || exit 1
   group scripts "script tests" node --test --test-reporter=spec --test-reporter-destination=stdout \
-    --test-reporter=tap --test-reporter-destination="$out/scripts.tap" '.github/scripts/tests/*.test.ts'
+    --test-reporter=tap --test-reporter-destination="$out/scripts.tap" '.github/scripts/tests/*.test.ts' || failed=1
   summary+=("scripts: $(awk '/^# (pass|fail) / { printf "%s%s %s", (n++ ? ", " : ""), $2, $3 }' "$out/scripts.tap" 2> /dev/null)")
 fi
 
 echo "verify.sh $mode: $label summary"
 printf '  %s\n' "${summary[@]}"
+[[ "$mode" == checks && "$failed" == 1 ]] && { echo "verify.sh checks: $label failed"; exit 1; }
 exit 0

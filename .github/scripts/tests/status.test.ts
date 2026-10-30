@@ -118,6 +118,29 @@ describe('decide', () => {
     assert.deepEqual(decide(run({ results: undefined })), { state: 'failure', description: 'suites did not finish' });
   });
 
+  it('is red when the suites job failed, even if results.json says everything passed', () => {
+    const jobs = { ...context().jobs, suites: 'failure' as const };
+    assert.deepEqual(decide(run({ context: context({ jobs }), results: results() })), { state: 'failure', description: 'suites job failed' });
+  });
+
+  it('keeps the named reason when the suites job failed and results.json shows what', () => {
+    const jobs = { ...context().jobs, suites: 'failure' as const };
+    const failing = results({ typecheck: { backend: 'fail', frontend: 'pass' } });
+    assert.equal(decide(run({ context: context({ jobs }), results: failing })).description, 'backend typecheck failed');
+  });
+
+  it('is red when the suites job was cancelled or skipped, whatever results.json says', () => {
+    for (const suites of ['cancelled', 'skipped'] as const) {
+      const jobs = { ...context().jobs, suites };
+      assert.equal(decide(run({ context: context({ jobs }), results: results() })).description, 'suites did not finish', suites);
+    }
+  });
+
+  it('is red from results.json even when the suites job succeeded (results only worsen)', () => {
+    const failing = results({ tests: { backend: { status: 'fail', passed: 0, failed: 1 }, frontend: { status: 'pass', passed: 1, failed: 0 } } });
+    assert.deepEqual(decide(run({ results: failing })), { state: 'failure', description: 'backend tests failed' });
+  });
+
   it('lists every reason, the agent first', () => {
     const status = decide(run({ author: undefined, results: undefined }));
     assert.equal(status.description, 'agent output missing; suites did not finish');

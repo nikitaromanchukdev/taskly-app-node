@@ -1,0 +1,43 @@
+# Workflow A. Runs from the PR, so a PR can edit this file: it holds no secrets, no token scopes, no PR code and no
+# budget variables. Its only output is the intake artifact, which workflow pr-test-engineer treats as untrusted data
+# and checks against the live PR (ADR 0004). Fork PRs: the job does not run.
+name: pr-intake
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+
+permissions: {}
+
+# The run name is how workflow pr-test-engineer tells label events it ignores from real ones. A forged name can only
+# make a PR ignore itself. Ignored runs and runs of the Bot commit get their own group so they cannot cancel a real run.
+run-name: pr-${{ github.event.pull_request.number }}${{ (github.event.label && github.event.label.name != 'skip-test-agent') && ' ignored' || '' }}
+
+concurrency:
+  group: pr-intake-${{ github.event.pull_request.number }}${{ ((github.event.label && github.event.label.name != 'skip-test-agent') || github.actor == 'github-actions[bot]') && format('-ignored-{0}', github.run_id) || '' }}
+  cancel-in-progress: true
+
+jobs:
+  intake:
+    name: "Intake: record the PR event"
+    # The Bot commit's push still creates a run that waits for approval; it does nothing.
+    if: github.actor != 'github-actions[bot]' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Write intake.json
+        env:
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          ACTION: ${{ github.event.action }}
+          LABEL: ${{ github.event.label.name }}
+        run: |
+          # Only the skip label matters downstream; any other label name is recorded as empty.
+          [ "$LABEL" = skip-test-agent ] || LABEL=""
+          jq -n --argjson pr "$PR" --arg head_sha "$HEAD_SHA" --arg action "$ACTION" --arg label "$LABEL" \
+            '{pr: $pr, head_sha: $head_sha, action: $action, label: $label}' | tee intake.json
+      - name: Upload intake.json
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: intake
+          path: intake.json

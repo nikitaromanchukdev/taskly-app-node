@@ -1,14 +1,18 @@
-# scope -> agents -> bot_commit -> suites -> publish. Logic lives in .github/scripts; this file only wires jobs.
+# Workflow B: intake -> scope -> agents -> bot_commit -> suites -> publish. Logic lives in .github/scripts; this file only wires jobs.
+# Runs from the default branch (workflow_run) or by dispatch from it, so a PR cannot edit it (ADR 0004). Workflow
+# pr-intake runs from the PR and hands over an artifact that the `intake` job checks against the live PR.
 # Invariant: a job holding a write token or the model key never runs PR code on the host.
-#   agents: model key, read-only token, PR code only inside sandbox.sh containers.
+#   agents: model key (Environment test-agent, main only), read-only token, PR code only inside sandbox.sh containers.
 #   bot_commit/publish: write tokens, no model, no PR code, scripts from the base commit.
-#   suites: runs PR code, read-only token, no secrets.
+#   suites: runs PR code, read-only token, no secrets, no environment.
+# Every value from the event or the artifact reaches a shell only through `env:`.
 # The status these jobs end in keeps its name, test-agent/verify: the ruleset requires it.
 name: pr-test-engineer
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+  workflow_run:
+    workflows: [pr-intake]
+    types: [completed]
   workflow_dispatch:
     inputs:
       pull-request:
@@ -17,31 +21,81 @@ on:
 
 permissions: {}
 
-# One run per PR. Label events other than skip-test-agent, and runs the Bot commit starts, get their own group so they
-# cannot cancel a real run.
+# One run per PR, keyed by branch name until `intake` knows the PR number. A cancelled or ignored pr-intake run (other
+# labels, failures) gets its own group so it cannot cancel a real run.
 concurrency:
-  group: pr-test-engineer-${{ github.event.pull_request.number || inputs.pull-request }}${{ ((github.event.label && github.event.label.name != 'skip-test-agent') || github.actor == 'github-actions[bot]') && format('-ignored-{0}', github.run_id) || '' }}
+  group: pr-test-engineer-${{ github.event.workflow_run.head_branch || inputs.pull-request }}${{ (github.event_name == 'workflow_run' && (github.event.workflow_run.conclusion != 'success' || contains(github.event.workflow_run.display_title, 'ignored'))) && format('-ignored-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:
-  PR_NUMBER: ${{ github.event.pull_request.number || inputs.pull-request }}
   OUT: .test-agent
 
 jobs:
+  intake:
+    name: "Intake: check the PR event against the live PR"
+    # workflow_run: only a successful pr-intake run for a pull_request, not started by the Bot (its push creates a run
+    # that waits for approval and does nothing), and not an ignored label event. Dispatch: only from main.
+    if: >-
+      ${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.actor.login != 'github-actions[bot]' &&
+      !contains(github.event.workflow_run.display_title, 'ignored')) }}
+    runs-on: ubuntu-latest
+    permissions: { contents: read, actions: read, pull-requests: read }
+    outputs:
+      stop: ${{ steps.intake.outputs.stop }}
+      pr: ${{ steps.intake.outputs.pr }}
+      head_sha: ${{ steps.intake.outputs.head_sha }}
+      head_ref: ${{ steps.intake.outputs.head_ref }}
+      base_ref: ${{ steps.intake.outputs.base_ref }}
+      action: ${{ steps.intake.outputs.action }}
+      label: ${{ steps.intake.outputs.label }}
+    steps:
+      # The default branch's scripts: intake.ts runs before anything is known about the PR, and never runs PR code.
+      - name: Check out the default branch scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: { node-version: 24 }
+      - name: Download the intake artifact of the pr-intake run
+        if: github.event_name == 'workflow_run'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: intake
+          path: ${{ runner.temp }}/intake
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+      - name: Check the artifact and the live PR
+        id: intake
+        run: node .github/scripts/workflow/intake.ts
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          INTAKE_FILE: ${{ runner.temp }}/intake/intake.json
+          RUN_PR: ${{ github.event.workflow_run.pull_requests[0].number }}
+          RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_HEAD_REPO: ${{ github.event.workflow_run.head_repository.full_name }}
+          DISPATCH_PR: ${{ inputs.pull-request }}
+
   scope:
     name: "Scope: pick the files to test"
-    # Label events matter only for skip-test-agent. A push by the Bot commit still creates a run that waits for approval;
-    # it skips every job, because `publish` of the run that made the Bot commit already set its status.
-    if: >-
-      ${{ github.actor != 'github-actions[bot]' &&
-      (!contains(fromJSON('["labeled","unlabeled"]'), github.event.action) || github.event.label.name == 'skip-test-agent') }}
+    needs: intake
+    # Label events matter only for skip-test-agent: prepare.ts stops the others. A stop by `intake` skips every job.
+    if: needs.intake.outputs.stop == 'false'
     runs-on: ubuntu-latest
     permissions: { contents: read, statuses: write, pull-requests: read, issues: read }
+    env:
+      PR_NUMBER: ${{ needs.intake.outputs.pr }}
     outputs:
       stop: ${{ steps.scope.outputs.stop }}
       head_sha: ${{ steps.scope.outputs.head_sha }}
       base_sha: ${{ steps.scope.outputs.base_sha }}
-      head_ref: ${{ steps.pr.outputs.head_ref }}
       same_repo: ${{ steps.scope.outputs.same_repo }}
       label_skip: ${{ steps.scope.outputs.label_skip }}
       label_actor: ${{ steps.scope.outputs.label_actor }}
@@ -51,7 +105,7 @@ jobs:
       - name: Check out the base branch (scripts and history)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}
+          ref: ${{ needs.intake.outputs.base_ref }}
           fetch-depth: 0
           persist-credentials: false
       - name: Set up Node
@@ -64,7 +118,6 @@ jobs:
           mkdir -p "$OUT"
           gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > "$RUNNER_TEMP/pr.json"
           jq -r '"# " + .title + "\n\n" + (.body // "")' "$RUNNER_TEMP/pr.json" > "$OUT/pr-body.md"
-          echo "head_ref=$(jq -r .head.ref "$RUNNER_TEMP/pr.json")" >> "$GITHUB_OUTPUT"
           git fetch --no-tags origin "refs/pull/$PR_NUMBER/head"
           jq -r '"PR #\(.number): head \(.head.sha) on \(.head.ref), base \(.base.ref)"' "$RUNNER_TEMP/pr.json"
       - name: Check budgets and write scope.json
@@ -78,13 +131,16 @@ jobs:
           TEST_AGENT_TIMEOUT_MINUTES: ${{ vars.TEST_AGENT_TIMEOUT_MINUTES }}
           TEST_AGENT_MAX_ATTEMPTS: ${{ vars.TEST_AGENT_MAX_ATTEMPTS }}
           TEST_AGENT_SKIP_ACTORS: ${{ vars.TEST_AGENT_SKIP_ACTORS }}
-          EVENT_ACTION: ${{ github.event.action }}
-          EVENT_LABEL: ${{ github.event.label.name }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ needs.intake.outputs.action }}
+          EVENT_LABEL: ${{ needs.intake.outputs.label }}
       - name: Post pending status
         if: steps.scope.outputs.same_repo == 'true' && steps.scope.outputs.stop != 'true'
-        env: { GH_TOKEN: "${{ github.token }}" }
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ steps.scope.outputs.head_sha }}
         run: |
-          gh api "repos/$GITHUB_REPOSITORY/statuses/${{ steps.scope.outputs.head_sha }}" \
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" \
             -f state=pending -f context=test-agent/verify -f description="test agent running" -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
       - name: Upload scope.json
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -99,6 +155,8 @@ jobs:
     if: needs.scope.outputs.run_agent == 'true'
     runs-on: ubuntu-latest
     permissions: { contents: read }
+    # The only job that reads the model secrets. The Environment allows the main branch only, which a PR cannot edit.
+    environment: test-agent
     steps:
       - name: Check out the PR head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -229,7 +287,7 @@ jobs:
 
   bot_commit:
     name: "Bot commit: check the tests and push them"
-    needs: [scope, agents]
+    needs: [intake, scope, agents]
     if: needs.agents.result == 'success'
     runs-on: ubuntu-latest
     permissions: { contents: write }
@@ -278,7 +336,7 @@ jobs:
         working-directory: head
         env:
           HEAD_SHA: ${{ needs.scope.outputs.head_sha }}
-          HEAD_REF: ${{ needs.scope.outputs.head_ref }}
+          HEAD_REF: ${{ needs.intake.outputs.head_ref }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           mapfile -t drop < <(jq -r '.dropFiles[] | "--exclude=" + .' "../$OUT/checked.json")
@@ -296,13 +354,14 @@ jobs:
 
   suites:
     name: "Suites: typecheck, coverage, mutation"
-    needs: [scope, agents, bot_commit]
+    needs: [intake, scope, agents, bot_commit]
     if: ${{ !cancelled() && needs.scope.result == 'success' && needs.scope.outputs.stop != 'true' }}
     runs-on: ubuntu-latest
     permissions: { contents: read }
     env:
       HEAD_SHA: ${{ needs.scope.outputs.head_sha }}
       FINAL_SHA: ${{ needs.bot_commit.outputs.final_sha || needs.scope.outputs.head_sha }}
+      REPORTS: reports
     steps:
       # head is the analyzed PR head; final is the Bot commit, or the head when there is none. verify.sh names both in its log.
       - name: Name the commits under test
@@ -331,29 +390,32 @@ jobs:
       - name: Download scope.json
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: { name: scope, path: "${{ env.OUT }}" }
+      # From here on PR code runs on this host and may take the job's tokens (including the artifact token): no cache,
+      # no trusted decision after it. The job fails when checks fail, which is what lets `publish` set a green status;
+      # the reports are untrusted data that publish turns into results.json.
       - name: "head: baseline coverage (only when a Bot commit exists)"
         if: env.FINAL_SHA != env.HEAD_SHA
-        run: trusted/.github/scripts/workflow/verify.sh checks head "$OUT/baseline"
-      - name: "final: typecheck and suites with coverage"
-        run: trusted/.github/scripts/workflow/verify.sh checks final "$OUT/final"
-      - name: "final: mutation (information only)"
         continue-on-error: true
-        run: trusted/.github/scripts/workflow/verify.sh mutation final "$OUT/final" "$OUT/scope.json"
-      - name: Write results.json
-        run: node trusted/.github/scripts/workflow/results.ts "$OUT" --final-tree "$PWD/final" --baseline-tree "$PWD/head" --out "$OUT/results.json"
-      - name: Upload results.json
+        run: trusted/.github/scripts/workflow/verify.sh checks head "$REPORTS/baseline"
+      - name: "final: typecheck and suites with coverage"
+        run: trusted/.github/scripts/workflow/verify.sh checks final "$REPORTS/final"
+      - name: "final: mutation (information only)"
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: trusted/.github/scripts/workflow/verify.sh mutation final "$REPORTS/final" "$OUT/scope.json"
+      - name: Upload the raw reports
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() }}
         with:
-          name: results
-          path: ${{ env.OUT }}/results.json
+          name: reports
+          path: ${{ env.REPORTS }}
           include-hidden-files: true
           if-no-files-found: ignore
 
   # Runs after upstream failures too (not after a cancel by a newer push), so a crash still ends in a red status and comments.
   publish:
     name: "Publish: test-agent/verify status and comments"
-    needs: [scope, agents, bot_commit, suites]
+    needs: [intake, scope, agents, bot_commit, suites]
     if: ${{ !cancelled() && needs.scope.result != 'skipped' && needs.scope.outputs.stop != 'true' }}
     runs-on: ubuntu-latest
     permissions: { contents: read, statuses: write, pull-requests: write }
@@ -361,18 +423,45 @@ jobs:
       - name: Check out base branch scripts
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.scope.outputs.base_sha || github.event.pull_request.base.ref || github.event.repository.default_branch }}
+          ref: ${{ needs.scope.outputs.base_sha || needs.intake.outputs.base_ref }}
           sparse-checkout: .github/scripts
           persist-credentials: false
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with: { node-version: 24 }
-      - name: Download every job's output
+      # One download per artifact, only when its producer succeeded. Artifact names are unique per run and immutable
+      # (upload-artifact v4+), so `suites`, which runs PR code and holds an artifact token, cannot upload a name that a
+      # successful producer already used. `reports` is the one artifact `suites` makes; it is untrusted.
+      - name: Download scope
+        if: needs.scope.result == 'success'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with: { path: "${{ env.OUT }}", merge-multiple: true }
+        with: { name: scope, path: "${{ env.OUT }}" }
+      - name: Download the agents' output
+        if: needs.agents.result == 'success'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: agents, path: "${{ env.OUT }}" }
+      - name: Download checked
+        if: needs.bot_commit.result == 'success'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: checked, path: "${{ env.OUT }}" }
+      - name: Download the raw reports (untrusted)
+        if: needs.suites.result == 'success' || needs.suites.result == 'failure'
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: reports, path: "${{ env.OUT }}/reports" }
+      # Reads PR-written files with a trusted script that keeps only numbers and known labels. If it fails, there are
+      # no results and the status is red. The suites job result, not this file, lets the status be green.
+      - name: Write results.json
+        continue-on-error: true
+        run: |
+          [ -d "$OUT/reports" ] || { echo "no reports artifact"; exit 0; }
+          base=()
+          [ -d "$OUT/reports/baseline" ] && base=(--baseline-tree "$GITHUB_WORKSPACE/head")
+          node .github/scripts/workflow/results.ts "$OUT/reports" --final-tree "$GITHUB_WORKSPACE/final" "${base[@]}" --out "$OUT/results.json"
       - name: Write context.json
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.intake.outputs.pr }}
           NEEDS: ${{ toJSON(needs) }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |

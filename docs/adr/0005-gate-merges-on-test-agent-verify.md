@@ -12,13 +12,14 @@ A few PRs cannot pass the gate at all, through no fault of their own. A PR run u
 
 ## Decision
 
-- The workflow posts one status, `test-agent/verify`. It is pending when a PR run starts, and it is decided at the end, on the final commit of the run.
+- The workflow posts one status, `test-agent/verify`. It is pending once `scope` has read the PR, and it is decided at the end, on the final commit of the run. Because `pr-intake` runs first ([ADR 0004](0004-isolate-pr-code-from-secrets.md)), the pending status appears about a minute after the push. Until then the ruleset shows the required status as expected, and the merge stays blocked.
 - The status is red when any of these holds:
   - `scope` failed, for example because a budget variable is missing;
   - typecheck or a test suite fails;
   - the Author or the Reviewer crashed, timed out, returned invalid output, its patch was rejected, or the `bot_commit` job failed, while there were candidate files;
   - verification did not finish;
   - a Defect is confirmed.
+- The status is green only if the `suites` job succeeded. That job fails when a typecheck or suite fails, and GitHub reports its result. `results.json` comes from a job that ran PR code, so it can add red reasons and never remove one.
 - Otherwise the status is green. That includes "no candidate files", rejected Defects, `review-rejected` Units, and a skip by label. Suites must still pass on a skip by label.
 - The merge gate is a ruleset on the default branch. It requires a pull request, requires the status from GitHub Actions on a branch that is up to date with the default branch (a green status from an older base does not count), blocks force pushes and branch deletion, and requires no review approvals. Its only bypass actor is the repository admin role, in pull-request mode: an admin can merge a PR without the status, but cannot push to the default branch directly. The ruleset file is `.github/rulesets/main.json`.
 - The `skip-test-agent` label skips the Author and the Reviewer for a PR run. It exists for:
@@ -31,9 +32,12 @@ A few PRs cannot pass the gate at all, through no fault of their own. A PR run u
 - A label that counts shows in the status and the report as "skipped by label" with the actor's login.
 - The admin bypass is a break-glass path, not a faster label. It is used only for:
   - a PR that changes the workflow's own scripts or paths, so its run cannot pass by design (for example, moving `.github/scripts/`);
-  - an urgent fix while GitHub Actions or the model API is down.
+  - an urgent fix while GitHub Actions or the model API is down;
+  - a PR that changes `pr-test-engineer.yml` or `pr-intake.yml`. The workflow runs from the default branch, so the PR's own run is the old workflow or none, and the new one cannot post the status.
 - A change that can be split is split instead, the way a database migration is: first a PR that adds the new form next to the old one, then a PR that removes the old one. Each PR then passes the gate on its own.
 - Before a bypassed merge, the admin comments on the PR with the reason and the checks they ran in place of the gate. The merge uses `gh pr merge <n> --admin`, or the "bypass rules" option of the merge button.
+- The label event starts `pr-intake`, which passes the action and the label to `pr-test-engineer`; the permission lookup above happens there. Any other label is recorded as ignored and starts no run.
+- A manual dispatch (`gh workflow run pr-test-engineer.yml -f pull-request=<n>`) re-runs a PR on its live head. It is accepted only from `main`.
 - Removing the label starts a normal run when the current status says the head was skipped by label. Adding any other label starts nothing.
 
 ## Consequences

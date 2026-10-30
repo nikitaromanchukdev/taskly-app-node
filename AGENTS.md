@@ -13,10 +13,10 @@ The agents of the PR workflow and the Backfill follow their own agent files, whi
 
 ## What happens when you push to a PR
 
-- The PR workflow runs on each push. Its jobs and triggers are in [SOLUTION.md](SOLUTION.md); one run step by step is in [docs/pr-run.md](docs/pr-run.md).
+- Two workflows run on each push. `pr-intake` runs from your PR and records the event. When it ends, `pr-test-engineer` runs from `main`, so the agents start about a minute after the push. A PR cannot change `pr-test-engineer`, so a PR that edits it is not tested by its own run. Their jobs and triggers are in [SOLUTION.md](SOLUTION.md); one run step by step is in [docs/pr-run.md](docs/pr-run.md).
 - On a draft PR the agents do not run; only the suites do. Open the PR as a draft while you iterate, and mark it ready for review when the change is done.
 - It may add one Bot commit with tests to your branch. Run `git pull --rebase` before your next push, or your push will be rejected.
-- GitHub then asks to approve a workflow run for the Bot commit. Approving it or not changes nothing: that run skips every job.
+- GitHub then asks to approve a workflow run for the Bot commit. Approving it or not changes nothing: that run is `pr-intake`, and it does nothing.
 - It sets the status `test-agent/verify` and writes three PR comments. Review comments on the changed code, with a suggested fix for each Defect, are proposed in [ADR 0007](docs/adr/0007-report-defects-next-to-the-code-with-a-suggested-fix.md) and not built yet.
 
 ## Reading the PR comments

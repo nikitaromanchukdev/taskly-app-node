@@ -1,6 +1,7 @@
 // publish job: build context.json (what the report comment needs to know about this run) from the job results.
 // Usage: node context.ts [--out context.json]
 // Env: NEEDS (toJSON(needs)), GITHUB_REPOSITORY, PR_NUMBER, RUN_URL, GITHUB_TOKEN.
+// PR_NUMBER is the intake job's validated output; `needs` also holds the intake job, which is not a report Job.
 // When the scope job did not get far enough to name the head commit, the live PR is read instead.
 import { parseArgs } from 'node:util';
 import type { Context, Job, JobResult } from '../lib/artifacts.ts';

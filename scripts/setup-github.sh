@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One-time repo setup for the PR test engineer. Safe to re-run.
-#   setup-github.sh config    model secret, 5 budget variables, skip label
+#   setup-github.sh config    Environment test-agent (main only) with the model secret, 5 budget variables, skip label
 #   setup-github.sh ruleset   merge-gate ruleset from .github/rulesets/main.json, then a read-back check
 # Needs gh (logged in as a repo admin) and jq.
 set -euo pipefail
@@ -8,6 +8,7 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ruleset_file="$root/.github/rulesets/main.json"
 status_context="test-agent/verify"
+environment="test-agent"
 budget_vars=(TEST_AGENT_MODEL TEST_AGENT_REVIEWER_MODEL TEST_AGENT_MAX_TURNS TEST_AGENT_TIMEOUT_MINUTES TEST_AGENT_MAX_ATTEMPTS)
 
 die() { echo "setup-github: $*" >&2; exit 1; }
@@ -22,16 +23,29 @@ preflight() {
 }
 
 config() {
-  local secret value current name
+  local secret value current name id policies
   read -rp "Model secret name [ANTHROPIC_API_KEY | CLAUDE_CODE_OAUTH_TOKEN] (Enter = ANTHROPIC_API_KEY): " secret
   secret="${secret:-ANTHROPIC_API_KEY}"
   read -rsp "$secret value (hidden, Enter keeps the existing one): " value || true
   echo
+  # The model secret lives in the Environment, which only the main branch may deploy to (ADR 0004).
+  gh api -X PUT "repos/$repo/environments/$environment" -F deployment_branch_policy[protected_branches]=false \
+    -F deployment_branch_policy[custom_branch_policies]=true > /dev/null
+  policies="$(gh api "repos/$repo/environments/$environment/deployment-branch-policies" -q .branch_policies)"
+  for id in $(jq -r '.[] | select(.name != "main") | .id' <<< "$policies"); do
+    gh api -X DELETE "repos/$repo/environments/$environment/deployment-branch-policies/$id"
+  done
+  jq -e 'any(.[]; .name == "main")' <<< "$policies" > /dev/null \
+    || gh api -X POST "repos/$repo/environments/$environment/deployment-branch-policies" -f name=main -f type=branch > /dev/null
+  echo "Environment $environment: deployment branches limited to main"
   if [[ -n "$value" ]]; then
-    gh secret set "$secret" --body "$value"
+    gh secret set "$secret" --env "$environment" --body "$value"
   else
-    gh secret list --json name -q '.[].name' | grep -qx "$secret" || die "$secret is not set yet"
+    gh secret list --env "$environment" --json name -q '.[].name' | grep -qx "$secret" || die "$secret is not set in Environment $environment yet"
     echo "secret $secret kept"
+  fi
+  if gh secret list --json name -q '.[].name' | grep -Eqx 'ANTHROPIC_API_KEY|CLAUDE_CODE_OAUTH_TOKEN'; then
+    echo "Reminder: once the workflow works, delete the repo-level model secrets (gh secret delete <name>). Workflow pr-intake runs from PRs and must not see them."
   fi
 
   for name in "${budget_vars[@]}"; do
