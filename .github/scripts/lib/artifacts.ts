@@ -118,6 +118,9 @@ export type Proof = { path: string; unit: string; state: ProofState; reason: str
 export type Check = 'pass' | 'fail' | 'skipped';
 export type CoverageFigures = { lines: number; branches: number };
 export type Coverage = Record<string, Record<string, CoverageFigures>>;
+// Of the lines a PR changed in one source file, those the final suite ran: `total` counts executable lines only.
+// `uncovered` holds the first uncovered line numbers, capped.
+export type ChangedLines = { covered: number; total: number; uncovered: number[] };
 export type SuiteResult = { status: Check; passed: number; failed: number };
 export type Mutant = { file: string; line: number; mutator: string };
 export type MutationResult = { score: number; survived: Mutant[] };
@@ -128,6 +131,8 @@ export type Results = {
   tests: Record<string, SuiteResult>;
   flaky: FlakyFile[];
   coverage: { baseline: Coverage; final: Coverage };
+  // By repo path of each changed source file; missing when the run had no scope.
+  changedLines?: Record<string, ChangedLines>;
   mutation: Record<string, MutationResult | null>;
 };
 

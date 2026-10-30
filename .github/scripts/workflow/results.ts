@@ -1,7 +1,8 @@
 // suites job: turn the raw reports of both packages into results.json.
-// Usage: node results.ts <dir> --final-tree <path> [--baseline-tree <path>] [--out results.json]
+// Usage: node results.ts <dir> --final-tree <path> [--baseline-tree <path>] [--scope scope.json] [--out results.json]
 // <dir>/final/ (and <dir>/baseline/ when a bot commit exists) hold, per package written by verify.sh:
 //   <pkg>.typecheck (pass|fail) · <pkg>.vitest.json (vitest json reporter) · <pkg>.coverage.json (json-summary)
+//   <pkg>.lcov.info (lcov, for the changed lines; see changed-lines.ts)
 //   <pkg>.mutation.json (Stryker json report, final only, missing when not run)
 //   <pkg>.rerun.files and <pkg>.rerun.<n>.json (shuffled reruns of the Bot commit's tests, final only; see flaky.ts)
 // and once: scripts.tap (node --test TAP report of the workflow's own scripts)
@@ -11,9 +12,11 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { parseArgs } from 'node:util';
-import type { Check, Coverage, CoverageFigures, MutationResult, Results, SuiteResult } from '../lib/artifacts.ts';
+import { packageRelative } from '../lib/artifacts.ts';
+import type { ChangedLines, Check, Coverage, CoverageFigures, MutationResult, Results, Scope, SuiteResult } from '../lib/artifacts.ts';
 import { die } from '../lib/cli.ts';
 import { readJson, readJsonIfExists, writeJson } from '../lib/json.ts';
+import { changedLineNumbers, coverChanged, parseLcov } from './changed-lines.ts';
 import { flakyFiles } from './flaky.ts';
 import { PACKAGES } from '../contracts/rules.ts';
 import type { Pkg } from '../contracts/rules.ts';
@@ -77,6 +80,23 @@ function coverageOf(dir: string, tree: string): Coverage {
   return Object.fromEntries(PACKAGES.map((pkg) => [pkg, coverage(dir, tree, pkg)]));
 }
 
+// Changed lines of each candidate that the final suite ran. A package without an lcov report has no figure.
+function changedLines(dir: string, tree: string, scope: Scope): Record<string, ChangedLines> {
+  const lcov = Object.fromEntries(
+    PACKAGES.map((pkg) => {
+      const file = join(dir, `${pkg}.lcov.info`);
+      return [pkg, existsSync(file) ? parseLcov(readFileSync(file, 'utf8'), join(tree, pkg)) : undefined];
+    }),
+  );
+  return Object.fromEntries(
+    scope.candidates.flatMap((candidate) => {
+      const files = lcov[candidate.package];
+      if (!files) return [];
+      return [[candidate.path, coverChanged(changedLineNumbers(candidate.hunks), files.get(packageRelative(candidate)))]];
+    }),
+  );
+}
+
 // ---- Mutation ----
 
 const OUTCOMES: Record<MutantStatus, MutantOutcome> = {
@@ -115,22 +135,24 @@ function mutation(dir: string, tree: string, pkg: Pkg): MutationResult | null {
 function main() {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
-    options: { 'final-tree': { type: 'string' }, 'baseline-tree': { type: 'string' }, out: { type: 'string', default: 'results.json' } },
+    options: { 'final-tree': { type: 'string' }, 'baseline-tree': { type: 'string' }, scope: { type: 'string' }, out: { type: 'string', default: 'results.json' } },
   });
   const [dir] = positionals;
   const finalTree = values['final-tree'];
-  if (!dir || !finalTree) die(SCRIPT, 'usage: results.ts <dir> --final-tree <path> [--baseline-tree <path>] [--out results.json]', 'usage');
+  if (!dir || !finalTree) die(SCRIPT, 'usage: results.ts <dir> --final-tree <path> [--baseline-tree <path>] [--scope scope.json] [--out results.json]', 'usage');
 
   const finalDir = join(dir, 'final');
   const final = coverageOf(finalDir, finalTree);
   const baselineDir = join(dir, 'baseline');
   const baseline = values['baseline-tree'] && existsSync(baselineDir) ? coverageOf(baselineDir, values['baseline-tree']) : final;
 
+  const scope = values.scope ? readJsonIfExists<Scope>(values.scope) : null;
   const results: Results = {
     typecheck: Object.fromEntries(PACKAGES.map((pkg) => [pkg, typecheck(finalDir, pkg)])),
     tests: { ...Object.fromEntries(PACKAGES.map((pkg) => [pkg, suite(finalDir, pkg)])), scripts: scriptsSuite(finalDir) },
     flaky: PACKAGES.flatMap((pkg) => flakyFiles(finalDir, finalTree, pkg)),
     coverage: { baseline, final },
+    ...(scope ? { changedLines: changedLines(finalDir, finalTree, scope) } : {}),
     mutation: Object.fromEntries(PACKAGES.map((pkg) => [pkg, mutation(finalDir, finalTree, pkg)])),
   };
   writeJson(values.out, results);

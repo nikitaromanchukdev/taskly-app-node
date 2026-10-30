@@ -102,7 +102,7 @@ The same steps with raw `gh` commands:
   |---|---|---|
   | `contracts/` | Rules and output formats, no logic | `rules.ts`, `author.schema.json`, `reviewer.schema.json`, `gaps.schema.json`, `backfill-decisions.schema.json` |
   | `agent/` | Security controls that run inside or around an agent session | `sandbox.sh`, `guard.ts` |
-  | `workflow/` | The CI jobs' steps | `intake.ts`, `prepare.ts`, `agent-output.ts`, `verify.sh`, `results.ts`, `context.ts`, `report.ts`, `render.ts`, `status.ts`, `sanitize.ts`, `github.ts` |
+  | `workflow/` | The CI jobs' steps | `intake.ts`, `prepare.ts`, `agent-output.ts`, `verify.sh`, `results.ts`, `changed-lines.ts`, `context.ts`, `report.ts`, `render.ts`, `status.ts`, `sanitize.ts`, `github.ts` |
   | `local/` | Local runs only, from the Makefile and contributor skills | `trial.ts`, `gap-lines.ts` |
   | `lib/` | Shared helpers, no CLI | `artifacts.ts`, `cli.ts`, `json.ts`, `schema.ts`, `scan.ts` |
   | `tests/` | Tests of the scripts above | `run.ts`, `*.test.ts` |
@@ -117,7 +117,7 @@ The same steps with raw `gh` commands:
 | `agents` | yes: Author, then Reviewer (secret from the Environment `test-agent`) | none (read-only token) | only in containers | Restores base-branch config, and checks it again before each agent. Installs dependencies in the sandbox. Runs the agents. Saves `author.json`, `reviewer.json` and `tests.patch`. |
 | `bot_commit` | no | repo contents | no | Checks the patch and the agent output. Drops test files with blocking Findings, and new files that hold a flagged Defect's test; those Defect test files go to the artifact `defects`. Pushes the Bot commit. |
 | `suites` | no | none (read-only token) | yes, on the host, with no secrets | Typecheck and suites with coverage on the final commit, the tests of the workflow's own scripts, and three shuffled reruns of the test files the Bot commit added or changed (flaky check, see [`flaky.ts`](.github/scripts/workflow/flaky.ts)). The job fails when a typecheck or suite fails. Runs the `defects` test files once, on a copy of the final tree with no network where the runner allows it; the job result does not depend on them. Mutation testing for information only. Uploads the raw reports; no trusted step runs after PR code. |
-| `publish` | no | commit status, PR comments | no | Downloads each artifact only if its job succeeded. Turns the raw reports into `results.json`, and the Defect test run into `proof.json` (`defect-proof.ts`). Decides the status. Renders the three comments and the job summary. |
+| `publish` | no | commit status, PR comments | no | Downloads each artifact only if its job succeeded. Turns the raw reports into `results.json`, with the changed lines the suite ran (scope hunks and lcov line hits, as numbers only), and the Defect test run into `proof.json` (`defect-proof.ts`). Decides the status. Renders the three comments and the job summary. |
 
 Agents never post. Only `scope` (the pending status) and `publish` (the final status and the comments) post to the PR. `bot_commit` pushes the Bot commit.
 
@@ -245,7 +245,7 @@ Items a production version would add.
 - Agent procedure moved into scripts: summaries rendered from the structured output.
 - Citation checks on the Intent sources in the tests.
 - The mutation score as a gate on changed files.
-- A check for gaps in the lines a PR touches, reported as a separate required check.
+- A required check for gaps in the lines a PR touches. The Report already shows the changed lines the suite ran, for information only ([`changed-lines.ts`](.github/scripts/workflow/changed-lines.ts)).
 - Tests for the scripts that call GitHub, against a fake API.
 - The committed agent-test cases (`truncate`, `tautology`) run in a scheduled CI job, with more cases added over time.
 - The whole Backfill PR description rendered by a script.
