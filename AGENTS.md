@@ -39,6 +39,8 @@ If you think the Intent source is wrong, fix the source in the same PR and expla
 
 A rejected Defect is only a warning. Read the Reviewer's quote, then decide.
 
+A flaky test is a test the Bot commit added that failed in one of the `suites` job's shuffled reruns; it turns the status red. The Report names the file and the failing tests. Delete that test file or fix the test, then push.
+
 A Suspected Defect is behaviour that looks wrong but that no Intent source states. Only a Backfill reports them for now, in its Defects comment. It never changes the status. Decide which behaviour is intended: fix the code, or state the current behaviour in the PR description.
 
 ## Re-running the workflow

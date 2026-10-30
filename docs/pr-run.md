@@ -34,7 +34,7 @@ flowchart LR
 | `scope` | contents, pull requests, issues read; statuses write | no | no | the live PR, the diff | `scope.json`: changed files to test, skipped files with a reason; the pending status |
 | `agents` | contents read | yes, from the Environment `test-agent` | only in Docker containers | `scope.json`, the PR description | `tests.patch`, `author.json`, `reviewer.json` |
 | `bot_commit` | contents write | no | no | the `agents` files | the Bot commit; `checked.json` |
-| `suites` | contents read | no | yes, with no secrets | the final commit | the job result (fails when typecheck or a suite fails) and the raw reports: coverage, mutation |
+| `suites` | contents read | no | yes, with no secrets | the final commit | the job result (fails when typecheck or a suite fails) and the raw reports: coverage, flaky check, mutation |
 | `publish` | statuses write, pull-requests write | no | no | every file above | the `test-agent/verify` status and the three comments |
 
 Files pass between jobs as workflow artifacts. A job never reads another job's disk. `publish` downloads the artifacts of the four jobs by name, because `suites` runs PR code that could upload any other.

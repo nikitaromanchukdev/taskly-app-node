@@ -28,6 +28,8 @@ Run the new test files and the existing test files of each Unit, only through th
 .github/scripts/agent/sandbox.sh typecheck {backend|frontend}
 ```
 
+Once the new tests are green, run the new test files twice more with shuffled order: `.github/scripts/agent/sandbox.sh test {backend|frontend} --sequence.shuffle {new test files}`. A test that fails in one of those runs is flaky: fix it (shared state, time, randomness) before it counts as green. **Why:** the `suites` job reruns them shuffled and turns the status red on a flaky test.
+
 **Gate — stop here:** if the sandbox says dependencies are missing → stop and report it. Do not work around it.
 
 ---

@@ -145,13 +145,17 @@ function skippedLines(run: Run, repo: string): string[] {
   return [...details(`Skipped files (${skipped.length})`, items), ''];
 }
 
-function resultLines(results: Results | undefined): string[] {
+function resultLines(results: Results | undefined, repo: string): string[] {
   if (!results) return ['#### Test results', 'No results (suites did not finish).', ''];
   const rows = [
     ...Object.entries(results.typecheck).map(([pkg, check]) => [`${pkg} typecheck`, CHECK_LABELS[check]]),
     ...Object.entries(results.tests).map(([pkg, suite]) => [
       `${pkg} tests`,
       `${CHECK_LABELS[suite.status]} (${suite.passed} passed, ${suite.failed} failed)`,
+    ]),
+    ...results.flaky.map((flaky) => [
+      `flaky ${code(flaky.file, repo)}`,
+      `${CHECK_LABELS.fail}: failed in ${flaky.failedReruns} of ${flaky.reruns} shuffled reruns (${cell(flaky.tests.join('; '), repo)})`,
     ]),
   ];
   return ['#### Test results', ...table(['Check', 'Result'], rows, 'No checks.'), ''];
@@ -193,7 +197,7 @@ function renderReport({ run, status, repo }: Report): string {
     header(run.context),
     '',
     ...defectLines(run, repo),
-    ...resultLines(run.results),
+    ...resultLines(run.results, repo),
     ...coverageLines(run, repo),
     ...skippedLines(run, repo),
     ...mutationLines(run.results, repo),

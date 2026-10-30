@@ -20,6 +20,7 @@ const context = (overrides: Partial<Context> = {}): Context => ({
 const results = (overrides: Partial<Results> = {}): Results => ({
   typecheck: { backend: 'pass', frontend: 'pass' },
   tests: { backend: { status: 'pass', passed: 3, failed: 0 }, frontend: { status: 'pass', passed: 2, failed: 0 } },
+  flaky: [],
   coverage: { baseline: {}, final: {} },
   mutation: {},
   ...overrides,
@@ -104,6 +105,11 @@ describe('decide', () => {
   it('is red when the agent output was invalid or the patch was rejected', () => {
     const checked = { ok: false, errors: ['patch rejected'], dropFiles: [], reviewRejected: [], unknownNames: { author: [], reviewer: [] } };
     assert.deepEqual(decide(run({ checked })), { state: 'failure', description: 'agent output invalid or patch rejected' });
+  });
+
+  it('is red when a test the Bot commit added failed in a shuffled rerun', () => {
+    const flaky = [{ file: 'backend/tests/todos.test.ts', tests: ['works'], failedReruns: 1, reruns: 3 }];
+    assert.deepEqual(decide(run({ results: results({ flaky }) })), { state: 'failure', description: '1 new test file flaky in shuffled reruns' });
   });
 
   it('is red and names each failed check', () => {
