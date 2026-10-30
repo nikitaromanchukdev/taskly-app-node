@@ -348,3 +348,18 @@ describe('agent comments when a summary names something the run does not contain
     for (const agent of ['author', 'reviewer'] as const) assert.doesNotMatch(comment(agent, run), /notes name/);
   });
 });
+
+describe('skipped files', () => {
+  const report = (skipped: Skipped[]) =>
+    RENDERERS.report({ run: { context: context(), scope: scope([], skipped) }, status: { state: 'success', description: '' }, repo: REPO });
+
+  it("shows the owner's reason next to an ignored file", () => {
+    const body = report([{ path: 'frontend/src/design-system/Button.tsx', reason: 'ignored', note: 'Shown in Storybook.' }]);
+    assert.match(body, /`frontend\/src\/design-system\/Button\.tsx`.* · ignored: Shown in Storybook\./);
+  });
+
+  it('shows only the reason id for a file skipped by a built-in rule', () => {
+    const body = report([{ path: 'README.md', reason: 'docs' }]);
+    assert.match(body, /`README\.md`.* · docs$/m);
+  });
+});

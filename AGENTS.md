@@ -14,7 +14,7 @@ The agents of the PR workflow and the Backfill follow their own agent files, whi
 | `.github/workflows/ci.yml` | Tests and typecheck on `main` after a merge |
 | `.github/scripts/agent/` | `overlay.sh` (base-branch agent config), `sandbox.sh` (Docker), `guard.ts` (write guard hook and patch check) |
 | `.github/scripts/workflow/` | The job scripts. `intake` → intake.ts · `scope` → prepare.ts · `agents` → `agent/overlay.sh`, `agent/sandbox.sh` · `bot_commit` → `agent/guard.ts patch`, agent-output.ts, defect-proof.ts · `suites` → verify.sh (runs flaky.ts) · `publish` → results.ts, defect-proof.ts, context.ts, report.ts (with status, render, history, sanitize) |
-| `.github/scripts/contracts/` | `rules.ts` and the JSON schemas: the only home of the rules |
+| `.github/scripts/contracts/` | `rules.ts`, `ignored-paths.json` (source the owner chose not to test) and the JSON schemas: the only home of the rules |
 | `.github/scripts/lib/` | Shared helpers; `artifacts.ts` lists the files jobs pass to each other |
 | `.github/scripts/local/` | `make trial` and Backfill helpers |
 | `.github/scripts/tests/` | `<script>.test.ts` per script; `run.ts` runs a script as its own process |
@@ -33,6 +33,7 @@ Do not read: `node_modules/`, `coverage/`, `dist/`, `.test-agent/`, `backend/src
 | PR comment text or layout | `workflow/render.ts`, `tests/render.test.ts` | `node --test .github/scripts/tests/render.test.ts` |
 | Status policy | `workflow/status.ts` | `make script-tests` |
 | Test paths, skip rules, agent commands | `contracts/rules.ts` | `make script-tests` |
+| Ignore a source path, with a reason | `contracts/ignored-paths.json`, in its own PR ([ADR 0011](docs/adr/0011-let-the-owner-ignore-source-paths-with-a-reason.md)) | `make script-tests`, `npm run test:coverage` in the package |
 | Sandbox, overlay or write guard | `agent/` | `make script-tests`, `make hook-demo` |
 | Agent or skill prompt | `.claude/agents/`, `.claude/skills/` | `make demo` (uses model tokens) |
 
@@ -54,6 +55,7 @@ Paths in this table are under `.github/scripts/` unless they start with a packag
   | [0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md) | Backfill |
   | [0009](docs/adr/0009-test-agent-config-changes-against-committed-cases.md) | `make demo` for agent config changes |
   | [0010](docs/adr/0010-reject-one-unit-not-the-run-for-its-own-slip.md) | which `agent-output.ts` errors reject one Unit and which the whole run |
+  | [0011](docs/adr/0011-let-the-owner-ignore-source-paths-with-a-reason.md) | Ignored source paths, and coverage excludes |
 
 - **Terms.** Before you write docs, comments, prompts or any text people read, read [TERMINOLOGY.md](TERMINOLOGY.md) and use its terms as written, not the synonyms it lists. If a concept has no term there, say so instead of inventing one.
 - **Rules live in code.** Test paths and skip rules are in [`rules.ts`](.github/scripts/contracts/rules.ts); Verdicts, reasons and kinds in [`author.schema.json`](.github/scripts/contracts/author.schema.json) and [`reviewer.schema.json`](.github/scripts/contracts/reviewer.schema.json); the status policy in [`status.ts`](.github/scripts/workflow/status.ts). Link them; never copy their lists into a doc.

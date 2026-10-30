@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Ignored paths",
+  "description": "Source the repo owner chose not to test. rules.ts skips these files as `ignored`, and both packages' vitest configs leave them out of coverage. The workflow reads this file from the base branch, so a PR cannot ignore its own code.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ignored"],
+  "properties": {
+    "ignored": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["package", "paths", "reason"],
+        "properties": {
+          "package": { "type": "string", "enum": ["backend", "frontend"] },
+          "paths": {
+            "type": "array",
+            "description": "Globs relative to the package folder, as vitest's coverage.exclude takes them, e.g. src/design-system/**.",
+            "items": { "type": "string", "maxLength": 200 }
+          },
+          "reason": { "type": "string", "description": "Why it is not tested; shown next to each skipped file in the Report.", "maxLength": 300 }
+        }
+      }
+    }
+  }
+}
