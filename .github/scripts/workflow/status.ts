@@ -48,7 +48,11 @@ function verifyFailure(run: Run): string | undefined {
     ...Object.entries(run.results?.typecheck ?? {}).filter(([, check]) => check === 'fail').map(([pkg]) => `${pkg} typecheck`),
     ...Object.entries(run.results?.tests ?? {}).filter(([, suite]) => suite.status === 'fail').map(([pkg]) => `${pkg} tests`),
   ];
-  if (failed.length) return `${failed.join(', ')} failed`;
+  const reasons = [
+    failed.length ? `${failed.join(', ')} failed` : undefined,
+    run.results?.flaky.length ? `${plural(run.results.flaky.length, 'new test file')} flaky in shuffled reruns` : undefined,
+  ].filter((reason) => reason !== undefined);
+  if (reasons.length) return reasons.join('; ');
   switch (run.context.jobs.suites) {
     case 'success':
       return run.results ? undefined : 'suites did not finish';

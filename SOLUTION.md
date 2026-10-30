@@ -103,10 +103,11 @@ The same steps with raw `gh` commands:
   | `contracts/` | Rules and output formats, no logic | `rules.ts`, `author.schema.json`, `reviewer.schema.json`, `gaps.schema.json`, `backfill-decisions.schema.json` |
   | `agent/` | Security controls that run inside or around an agent session | `sandbox.sh`, `guard.ts` |
   | `workflow/` | The CI jobs' steps | `intake.ts`, `prepare.ts`, `agent-output.ts`, `verify.sh`, `results.ts`, `context.ts`, `report.ts`, `render.ts`, `status.ts`, `sanitize.ts`, `github.ts` |
-  | `local/` | Local runs only, from the Makefile and contributor skills | `trial.ts` |
+  | `local/` | Local runs only, from the Makefile and contributor skills | `trial.ts`, `gap-lines.ts` |
   | `lib/` | Shared helpers, no CLI | `artifacts.ts`, `cli.ts`, `json.ts`, `schema.ts`, `scan.ts` |
   | `tests/` | Tests of the scripts above | `run.ts`, `*.test.ts` |
 
+- **CI on `main`.** `.github/workflows/ci.yml` runs on each push to `main` and by hand: the script tests, and typecheck and tests with coverage per package. It has no secrets and no `pull_request` trigger, so it never runs for a PR or a fork.
 - **Workflows.** `.github/workflows/pr-intake.yml` (one job, no secrets) and `.github/workflows/pr-test-engineer.yml`. The second wires the jobs below. [docs/pr-run.md](docs/pr-run.md) follows one PR run step by step: which job writes the tests, which pushes them, and what keeps a bad patch out.
 
 | Job | Runs a model | Write access | Runs PR code | What it does |
@@ -115,7 +116,7 @@ The same steps with raw `gh` commands:
 | `scope` | no | commit status | no | Reads the live PR. Checks the budget variables. Writes `scope.json`. Sets the status to pending. |
 | `agents` | yes: Author, then Reviewer (secret from the Environment `test-agent`) | none (read-only token) | only in containers | Restores base-branch config, and checks it again before each agent. Installs dependencies in the sandbox. Runs the agents. Saves `author.json`, `reviewer.json` and `tests.patch`. |
 | `bot_commit` | no | repo contents | no | Checks the patch and the agent output. Drops test files with blocking Findings, and new files that hold a flagged Defect's test; those Defect test files go to the artifact `defects`. Pushes the Bot commit. |
-| `suites` | no | none (read-only token) | yes, on the host, with no secrets | Typecheck and suites with coverage on the final commit, and the tests of the workflow's own scripts. The job fails when one fails. Runs the `defects` test files once, on a copy of the final tree with no network where the runner allows it, for information only: the job result does not depend on it. Mutation testing for information only. Uploads the raw reports; no trusted step runs after PR code. |
+| `suites` | no | none (read-only token) | yes, on the host, with no secrets | Typecheck and suites with coverage on the final commit, the tests of the workflow's own scripts, and three shuffled reruns of the test files the Bot commit added or changed (flaky check, see [`flaky.ts`](.github/scripts/workflow/flaky.ts)). The job fails when a typecheck or suite fails. Runs the `defects` test files once, on a copy of the final tree with no network where the runner allows it; the job result does not depend on them. Mutation testing for information only. Uploads the raw reports; no trusted step runs after PR code. |
 | `publish` | no | commit status, PR comments | no | Downloads each artifact only if its job succeeded. Turns the raw reports into `results.json`, and the Defect test run into `proof.json` (`defect-proof.ts`). Decides the status. Renders the three comments and the job summary. |
 
 Agents never post. Only `scope` (the pending status) and `publish` (the final status and the comments) post to the PR. `bot_commit` pushes the Bot commit.
@@ -200,6 +201,7 @@ These four decisions, and the gaps both Backfills found unreachable or not worth
 **Workflow**
 
 - Each push costs two agent runs. Local demo runs on a one-function change cost about $0.30 together; larger changes cost more. Each agent step is capped by `TEST_AGENT_MAX_TURNS` and `TEST_AGENT_TIMEOUT_MINUTES`. With `CLAUDE_CODE_OAUTH_TOKEN`, runs share the subscriber's usage limits.
+- A run tests at most `MAX_CANDIDATES` changed source files ([`rules.ts`](.github/scripts/contracts/rules.ts)); the rest are skipped as `over-cap` and shown in the report ([ADR 0002](docs/adr/0002-test-changed-units-and-write-only-tests.md)). The Author is still one session: if it hits `TEST_AGENT_MAX_TURNS` it returns no structured output, and the status is red with no tests. `claude -p` leaves no reliable partial result to use.
 - The final status waits for mutation testing, up to 8 minutes per package. The mutation score is reported, not enforced.
 - Each Bot commit leaves a `pr-intake` run waiting for approval, because GitHub holds runs started by a `GITHUB_TOKEN` push. The run does nothing, and `pr-test-engineer` does not start.
 - The agents start about a minute after a push, because `pr-intake` runs first and `pr-test-engineer` starts when it ends. The pending status appears after `scope`, so until then the merge is blocked as "expected".
@@ -208,11 +210,11 @@ These four decisions, and the gaps both Backfills found unreachable or not worth
 **Backfill**
 
 - No CI run proves a Backfill's results. Its PR description is written from the tables `make backfill-tests` renders, so the prose around them can drift ([ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md)).
-- A decided gap is left out of later gap lists only while its file is unchanged and the records cover all of the gap's uncovered lines, which the Author lists for each gap. Otherwise the owner decides it again ([ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md)).
+- A decided gap is left out of later gap lists only while its file is unchanged and the records cover all of the gap's uncovered lines, which `gap-lines.ts` takes from `lcov.info` for each gap. Otherwise the owner decides it again ([ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md)).
 
 **Scripts**
 
-- The script tests cover the scripts that decide what reaches the PR (`guard.ts`, `sanitize.ts`, `agent-output.ts`, `status.ts`, `intake.ts`), the comment renderers in `render.ts`, the job-result reading of `context.ts`, and the local `trial.ts`. The scripts that call GitHub (`prepare.ts`, `report.ts`, `github.ts`) and the shell scripts have no tests.
+- The script tests cover the scripts that decide what reaches the PR (`guard.ts`, `sanitize.ts`, `agent-output.ts`, `status.ts`, `intake.ts`), the comment renderers in `render.ts`, the job-result reading of `context.ts`, and the local `trial.ts` and `gap-lines.ts`. `prepare.ts` is tested only for the candidate cap, via `--local`. The GitHub calls of `prepare.ts`, and `report.ts` and `github.ts`, and the shell scripts have no tests.
 - The TypeScript types in `artifacts.ts` repeat the schema enums by hand, so they can drift from the schemas.
 
 **App**
@@ -238,6 +240,7 @@ Items a production version would add.
 
 **Reliability**
 
+- One Author session per package or per batch of Units, so a large PR is tested in parts and one exhausted session loses only its part.
 - One bounded revise round after review: the Author fixes the flagged tests, a narrow final review runs, and only then are blocked tests dropped. This replaces dropping whole files.
 - Agent procedure moved into scripts: summaries rendered from the structured output.
 - Citation checks on the Intent sources in the tests.

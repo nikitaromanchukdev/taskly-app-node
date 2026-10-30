@@ -16,7 +16,7 @@
           "unit": { "type": "string", "description": "The Unit's name only, e.g. createApp; no notes.", "maxLength": 200 },
           "lines": { "type": "string", "description": "Lines covered now, in percent, e.g. \"61.25\".", "maxLength": 10 },
           "branches": { "type": "string", "description": "Branches covered now, in percent, e.g. \"45.39\".", "maxLength": 10 },
-          "uncovered": { "type": "string", "description": "Every line number of the Unit with an uncovered line, branch or function in lcov.info, e.g. \"18, 20-22\".", "maxLength": 200 },
+          "uncovered": { "type": "string", "description": "Every line number of the Unit with an uncovered line, branch or function in lcov.info, e.g. \"18, 20-22\". A script checks it against lcov.info.", "maxLength": 200 },
           "expectations": {
             "type": "array",
             "items": {
@@ -42,7 +42,7 @@
         "properties": {
           "path": { "type": "string", "description": "From the repo root, e.g. backend/src/main.ts.", "maxLength": 300 },
           "unit": { "type": "string", "description": "The Unit's name only, e.g. start; no notes.", "maxLength": 200 },
-          "uncovered": { "type": "string", "description": "Every line number of the Unit with an uncovered line, branch or function in lcov.info, e.g. \"12-28\".", "maxLength": 200 },
+          "uncovered": { "type": "string", "description": "Every line number of the Unit with an uncovered line, branch or function in lcov.info, e.g. \"12-28\". A script checks it against lcov.info.", "maxLength": 200 },
           "reason": { "type": "string", "description": "Why no unit test can exercise it.", "maxLength": 500 }
         }
       }
@@ -58,7 +58,7 @@
           "reason": {
             "type": "string",
             "description": "The skip rule in .github/scripts/contracts/rules.ts that matches the file.",
-            "enum": ["tests", "stories", "generated", "lockfiles", "docs", "config", "type-only", "barrel", "deleted", "not-source"]
+            "enum": ["tests", "stories", "generated", "lockfiles", "docs", "config", "type-only", "barrel", "deleted", "over-cap", "not-source"]
           }
         }
       }

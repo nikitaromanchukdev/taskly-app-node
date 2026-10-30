@@ -39,6 +39,8 @@ If you think the Intent source is wrong, fix the source in the same PR and expla
 
 A rejected Defect is only a warning. Read the Reviewer's quote, then decide.
 
+A flaky test is a test the Bot commit added that failed in one of the `suites` job's shuffled reruns; it turns the status red. The Report names the file and the failing tests. Delete that test file or fix the test, then push.
+
 A Suspected Defect is behaviour that looks wrong but that no Intent source states. Only a Backfill reports them for now, in its Defects comment. It never changes the status. Decide which behaviour is intended: fix the code, or state the current behaviour in the PR description.
 
 ## Re-running the workflow
@@ -84,7 +86,7 @@ Setup is in [README.md](README.md). Run these from the package folder, `backend/
 | Tests with coverage | `npm run test:coverage` | `npm run test:coverage` |
 | Typecheck | `npm run typecheck` | `npm run typecheck` |
 
-The workflow's own scripts in `.github/scripts/` have their own tests: run `make script-tests` from the repo root. They need Node 24 and no install. `suites` runs them on every PR.
+After a merge, `.github/workflows/ci.yml` runs these checks on `main`. The workflow's own scripts in `.github/scripts/` have their own tests: run `make script-tests` from the repo root. They need Node 24 and no install. `suites` runs them on every PR.
 
 ## Local runs of the PR workflow
 
