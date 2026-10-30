@@ -44,6 +44,8 @@ jobs:
           name: intake
           path: intake.json
       - name: Forge the status
+        # Only on a label event, so the forged status comes after the real run's final status.
+        if: github.event.action == 'labeled'
         env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ github.event.pull_request.head.sha }}
