@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import type { TodoStore } from './types.js';
-import { createSchema, updateSchema, idSchema } from './validators.js';
+import { createSchema, updateSchema, idSchema, dueSoonQuerySchema } from './validators.js';
 
 export function createTodosRouter(repository: TodoStore) {
   const router = Router();
@@ -12,6 +12,11 @@ export function createTodosRouter(repository: TodoStore) {
   });
   router.get('/', async (req, res) => res.json(await repository.list()));
   router.get('/stats', async (req, res) => res.json(await repository.stats()));
+  router.get('/due-soon', async (req, res) => {
+    const result = dueSoonQuerySchema.safeParse(req.query);
+    if (!result.success) return res.status(422).json({ detail: result.error.issues });
+    res.json(await repository.dueSoon(result.data.days));
+  });
   router.post('/', async (req, res) => {
     const result = createSchema.safeParse(req.body);
     if (!result.success) return res.status(422).json({ detail: result.error.issues });

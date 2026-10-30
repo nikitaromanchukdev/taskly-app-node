@@ -17,6 +17,7 @@ export type Database = PrismaClient;
 export interface TodoStore {
   list(): Promise<Todo[]>;
   stats(): Promise<TodoStats>;
+  dueSoon(days: number): Promise<Todo[]>;
   get(id: number): Promise<Todo | null>;
   create(payload: TodoCreate): Promise<Todo>;
   update(id: number, payload: TodoUpdate): Promise<Todo | null>;
