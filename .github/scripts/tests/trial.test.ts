@@ -115,7 +115,7 @@ describe('trial.ts check', () => {
   const expected = { units: [{ ...unit, verdict: 'flagged-defect' }], defects: [{ ...unit, decision: 'confirmed' }] };
   const author = (verdict: string): AuthorOutput => ({ summary: '', units: [{ ...unit, verdict, expectations: [], attempts: 1 } as never] });
   const reviewer = (decision: string): ReviewerOutput => ({ summary: '', findings: [], defects: [{ ...unit, decision, source_quote: 'q' } as never] });
-  const okCheck: Checked = { ok: true, errors: [], dropFiles: [], reviewRejected: [] };
+  const okCheck: Checked = { ok: true, errors: [], dropFiles: [], reviewRejected: [], unknownNames: { author: [], reviewer: [] } };
 
   // Writes a run's output and the expected outcome, then checks one against the other.
   function check(run: { author?: AuthorOutput; reviewer?: ReviewerOutput; checked?: Checked }, outcome: object = expected) {

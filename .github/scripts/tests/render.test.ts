@@ -134,7 +134,7 @@ const agentRun = (summaries: { author?: string; reviewer?: string } = {}): Run =
       { test: 'backend/tests/kept.test.ts > works', severity: 'advisory', reason: 'weak-assertion', note: 'loose' },
     ],
   },
-  checked: { ok: true, errors: [], dropFiles: [], reviewRejected: [unitKey(tested('dropped'))] },
+  checked: { ok: true, errors: [], dropFiles: [], reviewRejected: [unitKey(tested('dropped'))], unknownNames: { author: [], reviewer: [] } },
   results,
 });
 
@@ -227,5 +227,29 @@ describe('one format for every comment', () => {
 
   it('marks a blocking Finding with ⚠️ and says its test file left the Bot commit', () => {
     assert.ok(render('reviewer', agentRun()).includes('| ⚠️ blocking | tautology | cannot fail (test file dropped from the Bot commit) |'));
+  });
+});
+
+describe('agent comments when a summary names something the run does not contain', () => {
+  const ran = (unknownNames: { author: string[]; reviewer: string[] }): Run => ({
+    context: context({ run_agent: true, jobs: { scope: 'success', agents: 'success', bot_commit: 'success', suites: 'success' } }),
+    scope: scope([candidate]),
+    author: { summary: 'Tested `TodoStore.stats()`.', units: [] },
+    reviewer: { summary: 'Reviewed `TodoStore.stats()`.', findings: [], defects: [] },
+    checked: { ok: true, errors: [], dropFiles: [], reviewRejected: [], unknownNames },
+  });
+  const comment = (name: CommentName, run: Run) => RENDERERS[name]({ run, status: { state: 'success', description: '' }, repo: REPO });
+  const WARNING = /⚠️ The (Author|Reviewer)'s notes name `TodoStore\.stats\(\)`, which no Unit, test or file of this run contains/;
+
+  for (const agent of ['author', 'reviewer'] as const) {
+    it(`the ${agent} comment warns about the unknown name`, () => {
+      const names = { author: [], reviewer: [], [agent]: ['TodoStore.stats()'] };
+      assert.match(comment(agent, ran(names)), WARNING);
+    });
+  }
+
+  it('adds no warning when every name is known', () => {
+    const run = ran({ author: [], reviewer: [] });
+    for (const agent of ['author', 'reviewer'] as const) assert.doesNotMatch(comment(agent, run), /notes name/);
   });
 });

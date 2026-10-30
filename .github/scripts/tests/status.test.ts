@@ -54,7 +54,7 @@ const run = (overrides: Partial<Run> = {}): Run => ({
   context: context(),
   author: author(added('todos')),
   reviewer: reviewer(),
-  checked: { ok: true, errors: [], dropFiles: [], reviewRejected: [] },
+  checked: { ok: true, errors: [], dropFiles: [], reviewRejected: [], unknownNames: { author: [], reviewer: [] } },
   results: results(),
   ...overrides,
 });
@@ -75,7 +75,7 @@ describe('decide', () => {
   });
 
   it('does not count a Unit whose tests the Reviewer blocked', () => {
-    const checked = { ok: true, errors: [], dropFiles: ['backend/tests/todos.test.ts'], reviewRejected: ['backend/src/todos.ts#todos'] };
+    const checked = { ok: true, errors: [], dropFiles: ['backend/tests/todos.test.ts'], reviewRejected: ['backend/src/todos.ts#todos'], unknownNames: { author: [], reviewer: [] } };
     assert.equal(decide(run({ checked })).description, '0 units tested, 0 confirmed defects');
   });
 
@@ -102,7 +102,7 @@ describe('decide', () => {
   });
 
   it('is red when the agent output was invalid or the patch was rejected', () => {
-    const checked = { ok: false, errors: ['patch rejected'], dropFiles: [], reviewRejected: [] };
+    const checked = { ok: false, errors: ['patch rejected'], dropFiles: [], reviewRejected: [], unknownNames: { author: [], reviewer: [] } };
     assert.deepEqual(decide(run({ checked })), { state: 'failure', description: 'agent output invalid or patch rejected' });
   });
 

@@ -47,7 +47,7 @@ Files pass between jobs as workflow artifacts. A job never reads another job's d
 3. **`agents` saves the change as a patch.** Everything the Author left in the checkout becomes `tests.patch`. The Reviewer then reads the patch, read-only, following [`review-tests`](../.claude/skills/review-tests/SKILL.md), and writes `reviewer.json`. The job uploads the three files. Its token is read-only, so it cannot push.
 4. **`bot_commit` checks the patch, then pushes it.** It runs the base branch's scripts, never the PR's:
    - `guard.ts patch` rejects a patch that touches any non-test path, renames into source, or adds a symlink.
-   - `agent-output.ts` checks both agents' output against the schemas and lists the files to drop: test files with a blocking Finding, and new files that hold a flagged Defect's failing test.
+   - `agent-output.ts` checks both agents' output against the schemas and the head checkout, and lists the files to drop: test files with a blocking Finding, and new files that hold a flagged Defect's failing test. Each Unit's name must be in its file and each test's file must exist. A backticked name in a summary that no Unit, test or file contains is flagged in that agent's comment, not rejected.
    - It applies the rest and commits it as `github-actions[bot]`. The push is a plain push to the head the run analyzed. If the author pushed in the meantime, the push is rejected and the newer run takes over.
 5. **`suites` runs the suites on the final commit.** That is the Bot commit, or the PR head if there was none. It has no secrets, so PR code can run here on the host.
 6. **`publish` posts the result.** It decides `test-agent/verify` and writes the Report, Test author and Test reviewer comments.
