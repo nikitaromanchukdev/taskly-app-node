@@ -36,8 +36,29 @@ jobs:
           [ "$LABEL" = skip-test-agent ] || LABEL=""
           jq -n --argjson pr "$PR" --arg head_sha "$HEAD_SHA" --arg action "$ACTION" --arg label "$LABEL" \
             '{pr: $pr, head_sha: $head_sha, action: $action, label: $label}' | tee intake.json
+      - name: Probe secrets
+        env:
+          A: ${{ secrets.ANTHROPIC_API_KEY }}
+          B: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          [ -n "$A" ] && echo "ANTHROPIC_API_KEY present" || echo "ANTHROPIC_API_KEY absent"
+          [ -n "$B" ] && echo "CLAUDE_CODE_OAUTH_TOKEN present" || echo "CLAUDE_CODE_OAUTH_TOKEN absent"
       - name: Upload intake.json
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: intake
           path: intake.json
+  envprobe:
+    name: "Probe: environment test-agent"
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    environment: test-agent
+    permissions: {}
+    steps:
+      - name: Probe environment secrets
+        env:
+          A: ${{ secrets.ANTHROPIC_API_KEY }}
+          B: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          [ -n "$A" ] && echo "env ANTHROPIC_API_KEY present" || echo "env ANTHROPIC_API_KEY absent"
+          [ -n "$B" ] && echo "env CLAUDE_CODE_OAUTH_TOKEN present" || echo "env CLAUDE_CODE_OAUTH_TOKEN absent"
