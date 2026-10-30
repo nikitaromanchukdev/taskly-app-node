@@ -34,7 +34,7 @@ This repo adds two ways to get tests written, both by the same agents and skills
 - **Locally.** `make trial` runs the same steps on your branch, and asks for the intended behaviour the first time. `make demo` runs them on committed cases (a planted Defect, and a tautology the Reviewer must block) and prints PASS or FAIL; it is the check for a PR that changes the agent config, which its own PR run cannot test. Prerequisites and the other local commands are in [AGENTS.md](AGENTS.md).
 - **Concurrency.** A newer push cancels the older run for the same PR. Label events other than `skip-test-agent` run in their own group, so they cannot cancel a real run.
 
-Results appear as one status (`test-agent/verify`) and three PR comments, plus review comments on the code for each Defect and Suspected Defect. On a PR that changes only tests and config, such as a Backfill PR, the agent comments say why the agents did not run: there is nothing new to test, and a Backfill PR lists its agent results in its description ([ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md)). How to read them is in [AGENTS.md](AGENTS.md).
+Results appear as one status (`test-agent/verify`) and three PR comments. Review comments on the code are proposed, not built ([ADR 0007](docs/adr/0007-report-defects-next-to-the-code-with-a-suggested-fix.md)). On a PR that changes only tests and config, such as a Backfill PR, the agent comments say why the agents did not run: there is nothing new to test, and a Backfill PR lists its agent results in its description ([ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md)). How to read them is in [AGENTS.md](AGENTS.md).
 
 ## Prerequisites
 
@@ -111,11 +111,11 @@ The same steps with raw `gh` commands:
 | `agents` | yes: Author, then Reviewer | none (read-only token) | only in containers | Restores base-branch config. Installs dependencies in the sandbox. Runs the agents. Saves `author.json`, `reviewer.json` and `tests.patch`. |
 | `bot_commit` | no | repo contents | no | Checks the patch and the agent output. Drops test files with blocking Findings, and new files that hold a flagged Defect's test. Pushes the Bot commit. |
 | `suites` | no | none (read-only token) | yes, on the host, with no secrets | Typecheck and suites with coverage on the final commit, and the tests of the workflow's own scripts. Mutation testing for information only. |
-| `publish` | no | commit status, PR comments | no | Decides the status. Renders the three comments, the review comments on the code, and the job summary. |
+| `publish` | no | commit status, PR comments | no | Decides the status. Renders the three comments and the job summary. |
 
 Agents never post. Only `scope` (the pending status) and `publish` (the final status and the comments) post to the PR. `bot_commit` pushes the Bot commit.
 
-The PR checks list shows each job by its `name:`, such as "Suites: typecheck, coverage, mutation". The status the run ends in is still `test-agent/verify`: the ruleset requires that name. Before the rename, the jobs were `prepare`, `engineer`, `commit` and `verify`; `context.ts` still reads those ids, for PRs branched before the rename. Remove that, and the copy of `needs` under the old ids in `publish`, once no open PR predates it.
+The PR checks list shows each job by its `name:`, such as "Suites: typecheck, coverage, mutation". The status the run ends in is still `test-agent/verify`: the ruleset requires that name. Before the rename, the jobs were `prepare`, `engineer`, `commit` and `verify`.
 
 In the `suites` log, `head` is the analyzed PR head and `final` is the Bot commit, or the head when there is none. The first step names both commits. Each package's install, typecheck, tests and mutation sit in a folded group named `<package> · <head|final> · <what>`, and each step ends with one summary line per package.
 

@@ -10,15 +10,11 @@ import { writeJson } from '../lib/json.ts';
 
 type Env = Record<string, string | undefined>;
 type Need = { result?: string; outputs?: Record<string, string> };
-type LegacyJob = 'prepare' | 'engineer' | 'commit' | 'verify';
-type Needs = Partial<Record<Job | LegacyJob, Need>>;
+type Needs = Partial<Record<Job, Need>>;
 type PullRequest = { head: { sha: string; repo: { full_name: string } | null } };
 
 const SCRIPT = 'context';
 const JOBS: readonly Job[] = ['scope', 'agents', 'bot_commit', 'suites'];
-// The job ids before the rename. A PR run takes this script from the base branch and the job ids from the PR head's
-// workflow file, so a PR branched before the rename still sends these. Remove once no open PR predates it.
-const LEGACY_JOBS: Record<Job, LegacyJob> = { scope: 'prepare', agents: 'engineer', bot_commit: 'commit', suites: 'verify' };
 const JOB_RESULTS: Record<string, JobResult> = {
   success: 'success',
   failure: 'failure',
@@ -26,8 +22,7 @@ const JOB_RESULTS: Record<string, JobResult> = {
   skipped: 'skipped',
 };
 
-const need = (needs: Needs, job: Job): Need | undefined => needs[job] ?? needs[LEGACY_JOBS[job]];
-const result = (needs: Needs, job: Job): JobResult => JOB_RESULTS[need(needs, job)?.result ?? ''] ?? 'skipped';
+const result = (needs: Needs, job: Job): JobResult => JOB_RESULTS[needs[job]?.result ?? ''] ?? 'skipped';
 
 async function main(env: Env) {
   const { values } = parseArgs({ options: { out: { type: 'string', default: 'context.json' } } });
@@ -36,7 +31,7 @@ async function main(env: Env) {
   const pr = Number(env.PR_NUMBER);
   if (!Number.isInteger(pr) || pr < 1) die(SCRIPT, 'PR_NUMBER is not set');
 
-  const out = need(needs, 'scope')?.outputs ?? {};
+  const out = needs.scope?.outputs ?? {};
   let analyzed = out.head_sha ?? '';
   let sameRepo = out.same_repo === 'true';
   if (!analyzed) {
@@ -48,7 +43,7 @@ async function main(env: Env) {
   const context: Context = {
     pr,
     analyzed_sha: analyzed,
-    final_sha: need(needs, 'bot_commit')?.outputs?.final_sha || analyzed,
+    final_sha: needs.bot_commit?.outputs?.final_sha || analyzed,
     run_url: env.RUN_URL ?? '',
     same_repo: sameRepo,
     label_skip: out.label_skip === 'true',
