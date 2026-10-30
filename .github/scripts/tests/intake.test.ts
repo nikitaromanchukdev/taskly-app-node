@@ -18,7 +18,8 @@ const live = (overrides: Record<string, unknown> = {}) => ({
   base: { ref: 'main', repo: { full_name: REPO } },
   ...overrides,
 });
-const expected = { repo: REPO, headShas: [SHA, SHA], runHeadRepo: REPO };
+const BOT = 'taskly-test-agent[bot]';
+const expected = { repo: REPO, headShas: [SHA, SHA], runHeadRepo: REPO, runActor: 'alice', botLogin: BOT };
 
 describe('parseIntake', () => {
   const problem = (text: string) => {
@@ -96,6 +97,16 @@ describe('stopReason', () => {
     assert.match(stopReason(live(), { ...expected, headShas: [SHA, OTHER_SHA] }) ?? '', /newer push/);
   });
 
+  it('stops when the pr-intake run was started by the App bot or the legacy Bot account', () => {
+    for (const runActor of [BOT, 'github-actions[bot]']) {
+      assert.match(stopReason(live(), { ...expected, runActor }) ?? '', /started by the Bot/, runActor);
+    }
+  });
+
+  it('lets a person and another bot through', () => {
+    for (const runActor of ['alice', 'dependabot[bot]', 'taskly-test-agent', '']) assert.equal(stopReason(live(), { ...expected, runActor }), undefined, runActor);
+  });
+
   it('accepts any head when none is claimed (dispatch)', () => {
     assert.equal(stopReason(live(), { ...expected, headShas: [] }), undefined);
   });
@@ -119,14 +130,14 @@ describe('intake.ts main', () => {
     const dir = tempDir();
     const output = join(dir, 'output');
     writeFileSync(output, '');
-    return main({ GITHUB_REPOSITORY: REPO, GITHUB_OUTPUT: output, ...env }, fakeGitHub(pr)).then(() => readFileSync(output, 'utf8'));
+    return main({ GITHUB_REPOSITORY: REPO, GITHUB_OUTPUT: output, BOT_LOGIN: BOT, ...env }, fakeGitHub(pr)).then(() => readFileSync(output, 'utf8'));
   }
   const artifact = (value: unknown) => {
     const file = join(tempDir(), 'intake.json');
     writeFileSync(file, typeof value === 'string' ? value : JSON.stringify(value));
     return file;
   };
-  const runEnv = (file: string, runPr = '12') => ({ EVENT_NAME: 'workflow_run', INTAKE_FILE: file, RUN_PR: runPr, RUN_HEAD_SHA: SHA, RUN_HEAD_REPO: REPO });
+  const runEnv = (file: string, runPr = '12') => ({ EVENT_NAME: 'workflow_run', INTAKE_FILE: file, RUN_PR: runPr, RUN_HEAD_SHA: SHA, RUN_HEAD_REPO: REPO, RUN_ACTOR: 'alice' });
 
   it('writes the validated outputs from the live PR', async () => {
     const out = await run(runEnv(artifact(GOOD)), live());
@@ -143,8 +154,16 @@ describe('intake.ts main', () => {
     const gh: GitHub = { request: (async (path: string) => ((asked = path), live())) as GitHub['request'], paginate: async <T>() => [] as T[] };
     const output = join(tempDir(), 'output');
     writeFileSync(output, '');
-    await main({ GITHUB_REPOSITORY: REPO, GITHUB_OUTPUT: output, ...runEnv(artifact(GOOD), '12') }, gh);
+    await main({ GITHUB_REPOSITORY: REPO, GITHUB_OUTPUT: output, BOT_LOGIN: BOT, ...runEnv(artifact(GOOD), '12') }, gh);
     assert.equal(asked, `/repos/${REPO}/pulls/12`);
+  });
+
+  it('stops when the pr-intake run was started by the App bot', async () => {
+    assert.equal(await run({ ...runEnv(artifact(GOOD)), RUN_ACTOR: BOT }, live()), 'stop=true\n');
+  });
+
+  it('stops when the pr-intake run was started by the legacy Bot account', async () => {
+    assert.equal(await run({ ...runEnv(artifact(GOOD)), RUN_ACTOR: 'github-actions[bot]' }, live()), 'stop=true\n');
   });
 
   it('stops when the workflow run lists no PR (a fork)', async () => {
@@ -168,13 +187,28 @@ describe('intake.ts main', () => {
 });
 
 describe('intake.ts as a process', () => {
-  const exec = (env: Record<string, string>) => runScript('workflow/intake.ts', [], { env: { GITHUB_REPOSITORY: REPO, GITHUB_TOKEN: 't', ...env } });
+  const exec = (env: Record<string, string>) => runScript('workflow/intake.ts', [], { env: { GITHUB_REPOSITORY: REPO, GITHUB_TOKEN: 't', BOT_LOGIN: BOT, ...env } });
   const file = (content: string) => {
     const path = join(tempDir(), 'intake.json');
     writeFileSync(path, content);
     return path;
   };
-  const base = { EVENT_NAME: 'workflow_run', RUN_PR: '12', RUN_HEAD_SHA: SHA, RUN_HEAD_REPO: REPO };
+  const base = { EVENT_NAME: 'workflow_run', RUN_PR: '12', RUN_HEAD_SHA: SHA, RUN_HEAD_REPO: REPO, RUN_ACTOR: 'alice' };
+
+  it('fails closed when the App login variable is missing or malformed, before any file or API call', () => {
+    for (const BOT_LOGIN of ['', 'taskly-test-agent', 'a b[bot]']) {
+      const result = exec({ ...base, BOT_LOGIN, INTAKE_FILE: '/nonexistent/intake.json' });
+      assert.equal(result.code, 1, BOT_LOGIN);
+      assert.match(result.stderr, /TEST_AGENT_BOT_LOGIN/, BOT_LOGIN);
+    }
+    assert.match(exec({ ...base, BOT_LOGIN: '', INTAKE_FILE: '/x' }).stderr, /setup-github\.sh config/);
+  });
+
+  it('fails when a workflow_run has no actor', () => {
+    const result = exec({ ...base, RUN_ACTOR: '', INTAKE_FILE: file(JSON.stringify(GOOD)) });
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /RUN_ACTOR is not set/);
+  });
 
   it('fails with the reason on a malformed artifact, before any API call', () => {
     const result = exec({ ...base, INTAKE_FILE: file(JSON.stringify({ ...GOOD, pr: '12; id' })) });

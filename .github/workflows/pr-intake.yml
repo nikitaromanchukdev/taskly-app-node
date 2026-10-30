@@ -1,5 +1,5 @@
 # Workflow A. Runs from the PR, so a PR can edit this file: it holds no secrets, no token scopes, no PR code and no
-# budget variables. Its only output is the intake artifact, which workflow pr-test-engineer treats as untrusted data
+# budget variables. (It reads the one repo variable TEST_AGENT_BOT_LOGIN, a login, to skip the Bot's own pushes.) Its only output is the intake artifact, which workflow pr-test-engineer treats as untrusted data
 # and checks against the live PR (ADR 0004). Fork PRs: the job does not run.
 name: pr-intake
 
@@ -14,14 +14,15 @@ permissions: {}
 run-name: pr-${{ github.event.pull_request.number }}${{ (github.event.label && github.event.label.name != 'skip-test-agent') && ' ignored' || '' }}
 
 concurrency:
-  group: pr-intake-${{ github.event.pull_request.number }}${{ ((github.event.label && github.event.label.name != 'skip-test-agent') || github.actor == 'github-actions[bot]') && format('-ignored-{0}', github.run_id) || '' }}
+  group: pr-intake-${{ github.event.pull_request.number }}${{ ((github.event.label && github.event.label.name != 'skip-test-agent') || github.actor == 'github-actions[bot]' || github.actor == vars.TEST_AGENT_BOT_LOGIN) && format('-ignored-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 jobs:
   intake:
     name: "Intake: record the PR event"
-    # The Bot commit's push still creates a run that waits for approval; it does nothing.
-    if: github.actor != 'github-actions[bot]' && github.event.pull_request.head.repo.full_name == github.repository
+    # The Bot commit's push still creates a run; it does nothing. The Bot is the GitHub App (repo variable TEST_AGENT_BOT_LOGIN);
+    # pr-test-engineer fails if the variable is not set.
+    if: github.actor != 'github-actions[bot]' && github.actor != vars.TEST_AGENT_BOT_LOGIN && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions: {}
     steps:

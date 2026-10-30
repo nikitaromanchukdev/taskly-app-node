@@ -12,7 +12,7 @@ A few PRs cannot pass the gate at all, through no fault of their own. A PR run u
 
 ## Decision
 
-- The workflow posts one status, `test-agent/verify`. It is pending once `scope` has read the PR, and it is decided at the end, on the final commit of the run. Because `pr-intake` runs first ([ADR 0004](0004-isolate-pr-code-from-secrets.md)), the pending status appears about a minute after the push. Until then the ruleset shows the required status as expected, and the merge stays blocked.
+- The workflow posts one status, `test-agent/verify`, as the GitHub App of [ADR 0004](0004-isolate-pr-code-from-secrets.md) (decision 9). A status with that name from any other source, including `GITHUB_TOKEN`, does not satisfy the ruleset. It is pending once `scope` has read the PR, and it is decided at the end, on the final commit of the run. Because `pr-intake` runs first ([ADR 0004](0004-isolate-pr-code-from-secrets.md)), the pending status appears about a minute after the push. Until then the ruleset shows the required status as expected, and the merge stays blocked.
 - The status is red when any of these holds:
   - `scope` failed, for example because a budget variable is missing;
   - typecheck or a test suite fails;
@@ -23,7 +23,7 @@ A few PRs cannot pass the gate at all, through no fault of their own. A PR run u
   - a Defect is confirmed and its test is missing: the Author flagged it but the test is in no file of the patch, because the Author removed it instead of moving it to a file of its own. Nothing can prove the Defect, so the gate cannot rely on the proof. `agent-output.ts` finds this from the patch.
 - The status is green only if the `suites` job succeeded. That job fails when a typecheck or suite fails, and GitHub reports its result. `results.json` comes from a job that ran PR code, so it can add red reasons and never remove one.
 - Otherwise the status is green. That includes "no candidate files", rejected Defects, confirmed Defects that are not proven although their test is present (shown as unproven in the Report), `review-rejected` and `check-rejected` Units, and a skip by label. Suites must still pass on a skip by label.
-- The merge gate is a ruleset on the default branch. It requires a pull request, requires the status from GitHub Actions on a branch that is up to date with the default branch (a green status from an older base does not count), blocks force pushes and branch deletion, and requires no review approvals. Its only bypass actor is the repository admin role, in pull-request mode: an admin can merge a PR without the status, but cannot push to the default branch directly. The ruleset file is `.github/rulesets/main.json`.
+- The merge gate is a ruleset on the default branch. It requires a pull request, requires the status from the GitHub App (its id is pinned as the ruleset's `integration_id`) on a branch that is up to date with the default branch (a green status from an older base does not count), blocks force pushes and branch deletion, and requires no review approvals. Its only bypass actor is the repository admin role, in pull-request mode: an admin can merge a PR without the status, but cannot push to the default branch directly. The ruleset file is `.github/rulesets/main.json`; it holds a placeholder for the App's id, and `scripts/setup-github.sh ruleset` fills it from the Environment variable `TEST_AGENT_APP_ID` and checks the result. It refuses to run if the variable is missing.
 - The `skip-test-agent` label skips the Author and the Reviewer for a PR run. It exists for:
   - dependency or lockfile bumps;
   - reverts;
@@ -49,7 +49,9 @@ A few PRs cannot pass the gate at all, through no fault of their own. A PR run u
 - The skip is visible in the status and the report, so it shows in the PR history.
 - Only the status gates merges. Findings and mutation results are advisory and never change the status.
 - The repo owner is an admin, so the sole maintainer is not blocked by the label rule.
-- Setup of the label and the ruleset is described in [SOLUTION.md](../../SOLUTION.md).
+- The App is the only source of a status the gate accepts, so a PR that edits a workflow cannot post a green status. Its limit: the workflow files on `main`, the App's key and the admin bypass are the trusted parts.
+- The App must exist before the ruleset can name it. Order of setup: create and install the App, run `config`, then `ruleset`. Until `ruleset` runs, the old ruleset still accepts statuses from GitHub Actions, which the new workflow no longer posts, so merges wait.
+- Setup of the App, the label and the ruleset is described in [SOLUTION.md](../../SOLUTION.md).
 
 ## Status
 

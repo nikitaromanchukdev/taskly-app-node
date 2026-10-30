@@ -3,7 +3,8 @@
 # pr-intake runs from the PR and hands over an artifact that the `intake` job checks against the live PR.
 # Invariant: a job holding a write token or the model key never runs PR code on the host.
 #   agents: model key (Environment test-agent, main only), read-only token, PR code only inside sandbox.sh containers.
-#   bot_commit/publish: write tokens, no model, no PR code, scripts from the base commit.
+#   scope/bot_commit/publish: a token of the GitHub App (Environment test-agent, main only) for their writes, no model,
+#     no PR code, scripts from the base commit. The App is the only source of test-agent/verify and of the Bot commit.
 #   suites: runs PR code, read-only token, no secrets, no environment.
 # Every value from the event or the artifact reaches a shell only through `env:`.
 # The status these jobs end in keeps its name, test-agent/verify: the ruleset requires it.
@@ -34,12 +35,13 @@ jobs:
   intake:
     name: "Intake: check the PR event against the live PR"
     # workflow_run: only a successful pr-intake run for a pull_request, not started by the Bot (its push creates a run
-    # that waits for approval and does nothing), and not an ignored label event. Dispatch: only from main.
+    # that does nothing; intake.ts checks the actor again and fails if the App's login is not set), and not an ignored label event. Dispatch: only from main.
     if: >-
       ${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request' &&
       github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository &&
       github.event.workflow_run.actor.login != 'github-actions[bot]' &&
+      github.event.workflow_run.actor.login != vars.TEST_AGENT_BOT_LOGIN &&
       !contains(github.event.workflow_run.display_title, 'ignored')) }}
     runs-on: ubuntu-latest
     permissions: { contents: read, actions: read, pull-requests: read }
@@ -81,6 +83,8 @@ jobs:
           RUN_PR: ${{ github.event.workflow_run.pull_requests[0].number }}
           RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           RUN_HEAD_REPO: ${{ github.event.workflow_run.head_repository.full_name }}
+          RUN_ACTOR: ${{ github.event.workflow_run.actor.login }}
+          BOT_LOGIN: ${{ vars.TEST_AGENT_BOT_LOGIN }}
           DISPATCH_PR: ${{ inputs.pull-request }}
 
   scope:
@@ -89,7 +93,9 @@ jobs:
     # Label events matter only for skip-test-agent: prepare.ts stops the others. A stop by `intake` skips every job.
     if: needs.intake.outputs.stop == 'false'
     runs-on: ubuntu-latest
-    permissions: { contents: read, statuses: write, pull-requests: read, issues: read }
+    permissions: { contents: read, statuses: read, pull-requests: read, issues: read }
+    # The Environment holds the App's key; this job uses it only for the pending status.
+    environment: test-agent
     env:
       PR_NUMBER: ${{ needs.intake.outputs.pr }}
     outputs:
@@ -101,6 +107,20 @@ jobs:
       label_actor: ${{ steps.scope.outputs.label_actor }}
       run_agent: ${{ steps.scope.outputs.run_agent }}
     steps:
+      - name: Check the GitHub App is configured
+        env:
+          CLIENT_ID: ${{ vars.TEST_AGENT_APP_CLIENT_ID }}
+          KEY_SET: ${{ secrets.TEST_AGENT_APP_PRIVATE_KEY != '' }}
+          BOT_LOGIN: ${{ vars.TEST_AGENT_BOT_LOGIN }}
+        run: |
+          missing=()
+          [ -n "$CLIENT_ID" ] || missing+=(TEST_AGENT_APP_CLIENT_ID)
+          [ "$KEY_SET" = true ] || missing+=(TEST_AGENT_APP_PRIVATE_KEY)
+          [ -n "$BOT_LOGIN" ] || missing+=(TEST_AGENT_BOT_LOGIN)
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error title=GitHub App not set up::Missing: ${missing[*]}. The status and the Bot commit come from the App (ADR 0005). Run scripts/setup-github.sh config."
+            exit 1
+          fi
       # Base branch tip (scripts) with full history; the PR head is fetched as data for `git diff` only.
       - name: Check out the base branch (scripts and history)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -134,10 +154,26 @@ jobs:
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           EVENT_ACTION: ${{ needs.intake.outputs.action }}
           EVENT_LABEL: ${{ needs.intake.outputs.label }}
+      - name: Create the GitHub App token
+        id: app
+        if: steps.scope.outputs.same_repo == 'true' && steps.scope.outputs.stop != 'true'
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.TEST_AGENT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.TEST_AGENT_APP_PRIVATE_KEY }}
+          permission-statuses: write
+      # Without `repositories`, the token is limited to this repository.
+      - name: Check the token belongs to the registered login
+        if: steps.scope.outputs.same_repo == 'true' && steps.scope.outputs.stop != 'true'
+        env:
+          SLUG: ${{ steps.app.outputs.app-slug }}
+          BOT_LOGIN: ${{ vars.TEST_AGENT_BOT_LOGIN }}
+        run: |
+          [ "${SLUG}[bot]" = "$BOT_LOGIN" ] || { echo "::error title=GitHub App mismatch::TEST_AGENT_BOT_LOGIN is $BOT_LOGIN but the App behind the key is ${SLUG}[bot]. Run scripts/setup-github.sh config."; exit 1; }
       - name: Post pending status
         if: steps.scope.outputs.same_repo == 'true' && steps.scope.outputs.stop != 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app.outputs.token }}
           HEAD_SHA: ${{ steps.scope.outputs.head_sha }}
         run: |
           gh api "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" \
@@ -292,11 +328,50 @@ jobs:
     needs: [intake, scope, agents]
     if: needs.agents.result == 'success'
     runs-on: ubuntu-latest
-    permissions: { contents: write }
+    permissions: { contents: read }
+    environment: test-agent
     outputs:
       final_sha: ${{ steps.push.outputs.final_sha }}
       defects: ${{ steps.defects.outputs.present }}
     steps:
+      - name: Check the GitHub App is configured
+        env:
+          CLIENT_ID: ${{ vars.TEST_AGENT_APP_CLIENT_ID }}
+          KEY_SET: ${{ secrets.TEST_AGENT_APP_PRIVATE_KEY != '' }}
+          BOT_LOGIN: ${{ vars.TEST_AGENT_BOT_LOGIN }}
+        run: |
+          missing=()
+          [ -n "$CLIENT_ID" ] || missing+=(TEST_AGENT_APP_CLIENT_ID)
+          [ "$KEY_SET" = true ] || missing+=(TEST_AGENT_APP_PRIVATE_KEY)
+          [ -n "$BOT_LOGIN" ] || missing+=(TEST_AGENT_BOT_LOGIN)
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error title=GitHub App not set up::Missing: ${missing[*]}. The status and the Bot commit come from the App (ADR 0005). Run scripts/setup-github.sh config."
+            exit 1
+          fi
+      - name: Create the GitHub App token
+        id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.TEST_AGENT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.TEST_AGENT_APP_PRIVATE_KEY }}
+          permission-contents: write
+      # Without `repositories`, the token is limited to this repository.
+      - name: Check the token belongs to the registered login
+        env:
+          SLUG: ${{ steps.app.outputs.app-slug }}
+          BOT_LOGIN: ${{ vars.TEST_AGENT_BOT_LOGIN }}
+        run: |
+          [ "${SLUG}[bot]" = "$BOT_LOGIN" ] || { echo "::error title=GitHub App mismatch::TEST_AGENT_BOT_LOGIN is $BOT_LOGIN but the App behind the key is ${SLUG}[bot]. Run scripts/setup-github.sh config."; exit 1; }
+      # The Bot commit is the App's: its login and user id make the author and committer.
+      - name: Look up the Bot's commit identity
+        id: identity
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          SLUG: ${{ steps.app.outputs.app-slug }}
+        run: |
+          id=$(gh api "/users/$SLUG%5Bbot%5D" --jq .id) || { echo "::error::cannot read the user ${SLUG}[bot]"; exit 1; }
+          echo "name=${SLUG}[bot]" >> "$GITHUB_OUTPUT"
+          echo "email=${id}+${SLUG}[bot]@users.noreply.github.com" >> "$GITHUB_OUTPUT"
       - name: Check out base branch scripts
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -309,6 +384,7 @@ jobs:
         with:
           ref: ${{ needs.scope.outputs.head_sha }}
           path: head
+          token: ${{ steps.app.outputs.token }}
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with: { node-version: 24 }
@@ -356,6 +432,8 @@ jobs:
           HEAD_SHA: ${{ needs.scope.outputs.head_sha }}
           HEAD_REF: ${{ needs.intake.outputs.head_ref }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          BOT_NAME: ${{ steps.identity.outputs.name }}
+          BOT_EMAIL: ${{ steps.identity.outputs.email }}
         run: |
           mapfile -t drop < <(jq -r '.dropFiles[] | "--exclude=" + .' "../$OUT/checked.json")
           echo "Test files left out of the Bot commit: ${#drop[@]}"
@@ -363,7 +441,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "No Bot commit: nothing left to commit. The final commit is the PR head $HEAD_SHA"
           else
-            git -c user.name=github-actions[bot] -c user.email=41898282+github-actions[bot]@users.noreply.github.com \
+            git -c user.name="$BOT_NAME" -c user.email="$BOT_EMAIL" \
               commit -q -m "test(agent): add and update unit tests" -m "Run: $RUN_URL"
             git push origin "HEAD:refs/heads/$HEAD_REF"
             echo "Pushed Bot commit $(git rev-parse HEAD) on PR head $HEAD_SHA:$(git diff --shortstat HEAD~1)"
@@ -446,8 +524,23 @@ jobs:
     needs: [intake, scope, agents, bot_commit, suites]
     if: ${{ !cancelled() && needs.scope.result != 'skipped' && needs.scope.outputs.stop != 'true' }}
     runs-on: ubuntu-latest
-    permissions: { contents: read, statuses: write, pull-requests: write }
+    permissions: { contents: read, pull-requests: read }
+    environment: test-agent
     steps:
+      - name: Check the GitHub App is configured
+        env:
+          CLIENT_ID: ${{ vars.TEST_AGENT_APP_CLIENT_ID }}
+          KEY_SET: ${{ secrets.TEST_AGENT_APP_PRIVATE_KEY != '' }}
+          BOT_LOGIN: ${{ vars.TEST_AGENT_BOT_LOGIN }}
+        run: |
+          missing=()
+          [ -n "$CLIENT_ID" ] || missing+=(TEST_AGENT_APP_CLIENT_ID)
+          [ "$KEY_SET" = true ] || missing+=(TEST_AGENT_APP_PRIVATE_KEY)
+          [ -n "$BOT_LOGIN" ] || missing+=(TEST_AGENT_BOT_LOGIN)
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error title=GitHub App not set up::Missing: ${missing[*]}. The status and the Bot commit come from the App (ADR 0005). Run scripts/setup-github.sh config."
+            exit 1
+          fi
       - name: Check out base branch scripts
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -505,7 +598,23 @@ jobs:
         run: |
           node .github/scripts/workflow/context.ts --out "$OUT/context.json"
           jq -r '"Job results: " + (.jobs | to_entries | map("\(.key) \(.value)") | join(", "))' "$OUT/context.json"
+      - name: Create the GitHub App token
+        id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.TEST_AGENT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.TEST_AGENT_APP_PRIVATE_KEY }}
+          permission-statuses: write
+          permission-pull-requests: write
+      # Without `repositories`, the token is limited to this repository.
+      - name: Check the token belongs to the registered login
+        env:
+          SLUG: ${{ steps.app.outputs.app-slug }}
+          BOT_LOGIN: ${{ vars.TEST_AGENT_BOT_LOGIN }}
+        run: |
+          [ "${SLUG}[bot]" = "$BOT_LOGIN" ] || { echo "::error title=GitHub App mismatch::TEST_AGENT_BOT_LOGIN is $BOT_LOGIN but the App behind the key is ${SLUG}[bot]. Run scripts/setup-github.sh config."; exit 1; }
       - name: Post the status and comments
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ steps.app.outputs.token }}
+          BOT_LOGIN: ${{ vars.TEST_AGENT_BOT_LOGIN }}
         run: node .github/scripts/workflow/report.ts --dir "$OUT" --post

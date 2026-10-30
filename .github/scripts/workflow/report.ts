@@ -2,6 +2,7 @@
 // Usage: node report.ts --dir <artifacts> [--post]
 // Reads from <dir>: context.json (required), scope.json, author.json, reviewer.json, checked.json, results.json, proof.json.
 // Writes to <dir>: status.json, report.md, author.md, reviewer.md. --post also writes status + comments to GitHub.
+// --post needs GITHUB_TOKEN (the GitHub App's token) and BOT_LOGIN (the App's login: its comments are the ones it updates).
 import { appendFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -15,13 +16,13 @@ import { COMMENTS, marker, RENDERERS } from './render.ts';
 import type { CommentName } from './render.ts';
 import { STATUS_CONTEXT } from '../contracts/rules.ts';
 import { truncate } from './sanitize.ts';
+import { botLoginFrom } from './bot.ts';
 import { decide } from './status.ts';
 import type { Status } from './status.ts';
 
 type IssueComment = { id: number; user: { login: string } | null; body?: string };
 
 const SCRIPT = 'report';
-const BOT_LOGIN = 'github-actions[bot]';
 // GitHub rejects comment bodies over 65536 characters; keep room for the truncation note.
 const MAX_COMMENT = 60000;
 const MAX_COMMENT_PAGES = 20;
@@ -30,9 +31,9 @@ const MAX_COMMENT_PAGES = 20;
 const HISTORY_ROOM = 12000;
 
 // `build` gets the body of the comment being replaced, if there is one, and returns the new body.
-async function upsert(gh: GitHub, repo: string, pr: number, name: CommentName, build: (previous: string | undefined) => string) {
+async function upsert(gh: GitHub, repo: string, botLogin: string, pr: number, name: CommentName, build: (previous: string | undefined) => string) {
   const comments = await gh.paginate<IssueComment>(`/repos/${repo}/issues/${pr}/comments`, MAX_COMMENT_PAGES);
-  const mine = comments.find((comment) => comment.user?.login === BOT_LOGIN && comment.body?.startsWith(marker(name)));
+  const mine = comments.find((comment) => comment.user?.login === botLogin && comment.body?.startsWith(marker(name)));
   const text = build(mine?.body);
   return mine
     ? gh.request(`/repos/${repo}/issues/comments/${mine.id}`, { method: 'PATCH', body: { body: text } })
@@ -46,12 +47,12 @@ function commentBody(name: CommentName, body: string, previous: string | undefin
   return truncate(body, MAX_COMMENT - HISTORY_ROOM) + '\n' + renderHistory(entries, repo);
 }
 
-async function post(gh: GitHub, repo: string, context: Context, status: Status, bodies: Record<CommentName, string>) {
+async function post(gh: GitHub, repo: string, botLogin: string, context: Context, status: Status, bodies: Record<CommentName, string>) {
   await gh.request(`/repos/${repo}/statuses/${context.final_sha}`, {
     method: 'POST',
     body: { state: status.state, context: STATUS_CONTEXT, description: status.description, target_url: context.run_url },
   });
-  for (const name of COMMENTS) await upsert(gh, repo, context.pr, name, (previous) => commentBody(name, bodies[name], previous, context, status, repo));
+  for (const name of COMMENTS) await upsert(gh, repo, botLogin, context.pr, name, (previous) => commentBody(name, bodies[name], previous, context, status, repo));
 }
 
 function loadRun(dir: string): Run {
@@ -82,7 +83,7 @@ async function main(env: Record<string, string | undefined>) {
   console.log(`${SCRIPT}: ${status.state}: ${status.description}`);
 
   if (!values.post || !run.context.same_repo) return;
-  await post(githubFromEnv(env), repo, run.context, status, bodies);
+  await post(githubFromEnv(env), repo, botLoginFrom(env, SCRIPT), run.context, status, bodies);
 }
 
 if (import.meta.main) 

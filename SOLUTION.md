@@ -42,7 +42,7 @@ Results appear as one status (`test-agent/verify`) and three PR comments. The co
 The script `scripts/setup-github.sh` does the setup below. It needs `gh` and `jq`, and `gh` must be logged in as a repo admin.
 
 ```sh
-scripts/setup-github.sh config     # steps 1 to 3 and a reminder for step 5
+scripts/setup-github.sh config     # steps 1 to 3 and 6, and a reminder for step 5
 scripts/setup-github.sh ruleset    # step 4, then a read-back check
 ```
 
@@ -76,10 +76,13 @@ The same steps with raw `gh` commands:
    gh label create skip-test-agent --force --color ededed
    ```
 
+6. **GitHub App.** The App posts `test-agent/verify` and the comments, and pushes the Bot commit ([ADR 0004](docs/adr/0004-isolate-pr-code-from-secrets.md)). Create it before step 4: the ruleset pins its id. `config` prints a link that opens the App form with the name, no webhook and the permissions filled in (contents, statuses and pull requests write, metadata read). Create it, generate a private key, install it on this repository only, then give `config` the Client ID and the path of the .pem. It checks the key and the installation with a short-lived App token, and sets the Environment `test-agent` secret `TEST_AGENT_APP_PRIVATE_KEY`, its variables `TEST_AGENT_APP_ID` and `TEST_AGENT_APP_CLIENT_ID`, and the repo variable `TEST_AGENT_BOT_LOGIN` (`<slug>[bot]`). A run fails in its first job, with the missing names, if any is absent.
+
 4. **Merge gate.** The ruleset is in `.github/rulesets/main.json`. Its only bypass actor is the admin role, through a PR; when that may be used is in [ADR 0005](docs/adr/0005-gate-merges-on-test-agent-verify.md). Apply it after the workflow is merged to `main`. Before that, a PR whose branch lacks the workflow waits for a status that nothing posts.
 
    ```sh
    name=$(jq -r .name .github/rulesets/main.json)
+   # integration_id in the file is a placeholder: use TEST_AGENT_APP_ID of the Environment test-agent. setup-github.sh does this.
    id=$(gh api repos/OWNER/REPO/rulesets --jq ".[] | select(.name == \"$name\") | .id")
    if [ -n "$id" ]; then
      gh api -X PUT "repos/OWNER/REPO/rulesets/$id" --input .github/rulesets/main.json
@@ -187,7 +190,7 @@ These four decisions, and the gaps both Backfills found unreachable or not worth
 **Trust boundary**
 
 - Same-repo PR code is trusted more than fork code. `suites` runs the PR's own test setup (`npm ci`, configs, tests) on the host, without secrets. The sandbox mounts the checkout read-only, and the overlay is checked again before each agent; one writable path remains, `backend/src/generated`, which that check covers for instruction files. The controls are a person reading the diff and the limits in [ADR 0004](docs/adr/0004-isolate-pr-code-from-secrets.md). CODEOWNERS would add a required review, which a sole maintainer cannot give.
-- A same-repo author can forge a green `test-agent/verify`. Every status comes from the GitHub Actions app, and a PR can edit `pr-intake` to ask for `statuses: write` and post one. A same-repo author already has write access, so this is accepted for now. Closing it needs a GitHub App as the status source (see the production version).
+- The status comes from a GitHub App, and the ruleset accepts it only from that App, so a PR that edits a workflow cannot post a green `test-agent/verify` ([ADR 0005](docs/adr/0005-gate-merges-on-test-agent-verify.md)). The trusted parts are the workflow on `main`, the App's private key (Environment `test-agent`, `main` only) and the admin bypass.
 - `suites` runs PR code on the host, so that code can forge the raw reports (coverage, Stryker report, test counts) it uploads as the artifact `reports`. Green needs the `suites` job result, which fails when a typecheck or suite fails; `results.ts` runs in `publish`, keeps only numbers and known labels, and its output can only add red reasons. A forged coverage or mutation figure can still reach the report; the PR author can already write passing tests. `publish` downloads `scope`, `agents` and `checked` only when their job succeeded, so `suites` cannot replace them (artifact names are unique and immutable). B uses no cache.
 - The proof of a Defect comes from a report that PR code wrote, so the PR can forge it. Forging "proven" turns its own status red. Forging "unproven" makes a confirmed Defect a warning, which weakens the gate. A same-repo author can already edit the code under test and the suites, so this is accepted; the Defect stays visible in the Report as unproven, with its reason. If the Defect test run does not happen (no report, the patch does not apply, the step fails), the Defect is also unproven. The run has no network where the runner has `unshare` and passwordless `sudo`; otherwise the log says it ran with network.
 - Fork PRs get no agent run and no status. A maintainer pushes the branch into the repo to merge it.
@@ -204,7 +207,7 @@ These four decisions, and the gaps both Backfills found unreachable or not worth
 - Each push costs two agent runs. Local demo runs on a one-function change cost about $0.30 together; larger changes cost more. Each agent step is capped by `TEST_AGENT_MAX_TURNS` and `TEST_AGENT_TIMEOUT_MINUTES`. With `CLAUDE_CODE_OAUTH_TOKEN`, runs share the subscriber's usage limits.
 - A run tests at most `MAX_CANDIDATES` changed source files ([`rules.ts`](.github/scripts/contracts/rules.ts)); the rest are skipped as `over-cap` and shown in the report ([ADR 0002](docs/adr/0002-test-changed-units-and-write-only-tests.md)). The Author is still one session: if it hits `TEST_AGENT_MAX_TURNS` it returns no structured output, and the status is red with no tests. `claude -p` leaves no reliable partial result to use.
 - The final status waits for mutation testing, up to 8 minutes per package. The mutation score is reported, not enforced.
-- Each Bot commit leaves a `pr-intake` run waiting for approval, because GitHub holds runs started by a `GITHUB_TOKEN` push. The run does nothing, and `pr-test-engineer` does not start.
+- Each Bot commit is pushed by the App and starts a `pr-intake` run that does nothing; `pr-test-engineer` does not start. Whether GitHub asks to approve that run is not confirmed.
 - The agents start about a minute after a push, because `pr-intake` runs first and `pr-test-engineer` starts when it ends. The pending status appears after `scope`, so until then the merge is blocked as "expected".
 - A PR that changes the agent config runs with the base copy, so CI cannot test the change. `make demo` tests it locally against two committed cases, a planted Defect and a tautology the Reviewer must block ([ADR 0009](docs/adr/0009-test-agent-config-changes-against-committed-cases.md)); nothing requires that it ran.
 
@@ -234,7 +237,6 @@ Items a production version would add.
 **Security**
 
 - Container isolation for every job that runs PR code, `suites` included, with no host fallback. This also closes the forged results above.
-- The status posted by a GitHub App, whose integration id the ruleset pins, in place of the GitHub Actions app. This closes the forged green status.
 - CODEOWNERS on `.github/`, `.claude/` and the test run config (`**/package.json`, the vitest and vite configs, test setup files), with a ruleset that requires code-owner review. This needs a team, and a release-manager team as the only bypass actor.
 - Budgets and config read from the base branch only.
 - A fork PR flow, where a maintainer applies a label to start a run.
