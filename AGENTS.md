@@ -4,67 +4,80 @@ For contributors and coding agents who change the app, its tests, or the PR work
 
 The agents of the PR workflow and the Backfill follow their own agent files, which take precedence over this file. They never commit, push, post, or run npm on the host. The push, commit and command steps below are for people.
 
+## Map
+
+| Path | What |
+|---|---|
+| `backend/src/`, `frontend/src/` | The app. Test paths per package: `TEST_PATHS` in [`rules.ts`](.github/scripts/contracts/rules.ts) |
+| `.github/workflows/pr-intake.yml` | Workflow A: runs from the PR, no secrets; uploads the intake artifact |
+| `.github/workflows/pr-test-engineer.yml` | Workflow B: `workflow_run` after A, from `main`, with secrets. Jobs: `intake`, `scope`, `agents`, `bot_commit`, `suites`, `publish` |
+| `.github/workflows/ci.yml` | Tests and typecheck on `main` after a merge |
+| `.github/scripts/agent/` | `overlay.sh` (base-branch agent config), `sandbox.sh` (Docker), `guard.ts` (write guard hook and patch check) |
+| `.github/scripts/workflow/` | One script per step. `intake` → intake.ts · `scope` → prepare.ts · `agents` → agent-output.ts · `bot_commit` → defect-proof.ts · `suites` → verify.sh, results.ts, flaky.ts · `publish` → context, status, render, history, sanitize, report |
+| `.github/scripts/contracts/` | `rules.ts` and the JSON schemas: the only home of the rules |
+| `.github/scripts/lib/` | Shared helpers; `artifacts.ts` lists the files jobs pass to each other |
+| `.github/scripts/local/` | `make trial` and Backfill helpers |
+| `.github/scripts/tests/` | `<script>.test.ts` per script; `run.ts` runs a script as its own process |
+| `.claude/agents/`, `.claude/skills/`, `.claude/agent-settings.json` | The Author and the Reviewer, their skills and settings, and the contributor skills below |
+| `.github/agent-tests/` | The `make demo` cases |
+| `.github/rulesets/`, `scripts/setup-github.sh` | Branch ruleset and one-time repo setup |
+| `docs/adr/` | Decisions, see below. `docs/pr-run.md`: one run step by step. `docs/pr-results.md`: reading and acting on the PR comments |
+
+Do not read: `node_modules/`, `coverage/`, `dist/`, `.test-agent/`, `backend/src/generated/`, lockfiles. `docs/backfill-decisions.json` is data; change it with the make targets.
+
+## Where a change goes
+
+| Change | Files | Check |
+|---|---|---|
+| App behaviour | `backend/src/` or `frontend/src/` and its tests | `npm test`, `npm run typecheck` in the package |
+| PR comment text or layout | `workflow/render.ts`, `tests/render.test.ts` | `node --test .github/scripts/tests/render.test.ts` |
+| Status policy | `workflow/status.ts` | `make script-tests` |
+| Test paths, skip rules, agent commands | `contracts/rules.ts` | `make script-tests` |
+| Sandbox, overlay or write guard | `agent/` | `make script-tests`, `make hook-demo` |
+| Agent or skill prompt | `.claude/agents/`, `.claude/skills/` | `make demo` (uses model tokens) |
+
+Paths in this table are under `.github/scripts/` unless they start with a package or `.claude/`. Script tests need Node 24 and no install.
+
 ## Before you explore
 
-- **Terms.** Read [TERMINOLOGY.md](TERMINOLOGY.md) and use its terms as written, not the synonyms it lists. If a concept has no term there, say so instead of inventing one.
-- **Decisions.** Read the ADRs in [`docs/adr/`](docs/adr/) that touch the area you change. If your change contradicts one, say which and why in the PR description, and update the ADR in the same PR. Never override an ADR silently.
-- **Rules live in code.** Test paths and skip rules are in [`.github/scripts/contracts/rules.ts`](.github/scripts/contracts/rules.ts); Verdicts, reasons and kinds in [`author.schema.json`](.github/scripts/contracts/author.schema.json) and [`reviewer.schema.json`](.github/scripts/contracts/reviewer.schema.json); the status policy in [`status.ts`](.github/scripts/workflow/status.ts). Link them; never copy their lists into a doc.
-- **One home per fact.** Why: an ADR. How to run and what was built: [SOLUTION.md](SOLUTION.md). How to work: this file. Terms: TERMINOLOGY.md. Change a fact in its home and link to it from elsewhere.
+- **Decisions.** Read the ADRs for the area you change. If your change contradicts one, say which and why in the PR description, and update the ADR in the same PR. Never override an ADR silently.
+
+  | ADR | Area |
+  |---|---|
+  | [0001](docs/adr/0001-use-claude-code-action-as-agent-runtime.md) | Agent runtime |
+  | [0002](docs/adr/0002-test-changed-units-and-write-only-tests.md) | What the Author tests; it writes only tests |
+  | [0003](docs/adr/0003-derive-expectations-from-intent-and-review-defects.md) | Expectations, Intent sources, Defect review |
+  | [0004](docs/adr/0004-isolate-pr-code-from-secrets.md) | Secrets, the A/B workflow split, overlay, sandbox |
+  | [0005](docs/adr/0005-gate-merges-on-test-agent-verify.md) | Merge gate, `skip-test-agent` label, admin merge |
+  | [0006](docs/adr/0006-set-budgets-as-admin-only-repo-variables.md) | Budgets |
+  | [0007](docs/adr/0007-report-defects-next-to-the-code-with-a-suggested-fix.md) | Review comments on the code (proposed, not built) |
+  | [0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md) | Backfill |
+  | [0009](docs/adr/0009-test-agent-config-changes-against-committed-cases.md) | `make demo` for agent config changes |
+
+- **Terms.** Before you write docs, comments, prompts or any text people read, read [TERMINOLOGY.md](TERMINOLOGY.md) and use its terms as written, not the synonyms it lists. If a concept has no term there, say so instead of inventing one.
+- **Rules live in code.** Test paths and skip rules are in [`rules.ts`](.github/scripts/contracts/rules.ts); Verdicts, reasons and kinds in [`author.schema.json`](.github/scripts/contracts/author.schema.json) and [`reviewer.schema.json`](.github/scripts/contracts/reviewer.schema.json); the status policy in [`status.ts`](.github/scripts/workflow/status.ts). Link them; never copy their lists into a doc.
+- **One home per fact.** Why: an ADR. How to run and what was built: [SOLUTION.md](SOLUTION.md). How to work: this file. Acting on a PR run: [docs/pr-results.md](docs/pr-results.md). Terms: TERMINOLOGY.md. Change a fact in its home and link to it from elsewhere.
+
+## Gotchas
+
+- A PR's own run uses `main`'s agent config and scripts ([ADR 0004](docs/adr/0004-isolate-pr-code-from-secrets.md)). A change to `.claude/` or `.github/scripts/` has no effect on that PR's run; `make demo` and `make script-tests` are its only tests ([ADR 0009](docs/adr/0009-test-agent-config-changes-against-committed-cases.md)).
+- Script tests run each script as its own process with only `PATH` set; pass any other variable through `runScript`'s `env`.
 
 ## What happens when you push to a PR
 
-- Two workflows run on each push. `pr-intake` runs from your PR and records the event. When it ends, `pr-test-engineer` runs from `main`, so the agents start about a minute after the push. A PR cannot change `pr-test-engineer`, so a PR that edits it is not tested by its own run. Their jobs and triggers are in [SOLUTION.md](SOLUTION.md); one run step by step is in [docs/pr-run.md](docs/pr-run.md).
+- The PR workflow runs on each push. Its jobs and triggers are in [SOLUTION.md](SOLUTION.md); one run step by step is in [docs/pr-run.md](docs/pr-run.md).
 - On a draft PR the agents do not run; only the suites do. Open the PR as a draft while you iterate, and mark it ready for review when the change is done.
 - It may add one Bot commit with tests to your branch. Run `git pull --rebase` before your next push, or your push will be rejected.
-- GitHub then asks to approve a workflow run for the Bot commit. Approving it or not changes nothing: that run is `pr-intake`, and it does nothing.
-- It sets the status `test-agent/verify` and writes three PR comments. Review comments on the changed code, with a suggested fix for each Defect, are proposed in [ADR 0007](docs/adr/0007-report-defects-next-to-the-code-with-a-suggested-fix.md) and not built yet.
-
-## Reading the PR comments
-
-Each comment has the title `### <name> · <outcome>`, where a script counts the outcome, then the analyzed commit and the run. What needs you comes first, then the tables; collapsed sections come last. 🟢 means passes, 🔴 fails or turns the status red, ⚠️ needs you but does not change the status.
-
-- **Report** (`### 🟢 Report · <status>`): the status, each Defect the Author flagged with its test, expected and received values, Intent source, the Reviewer's decision and whether the Defect is proven, test results, coverage of changed files, then skipped files and mutation results (information only), collapsed. The comment is updated in place on each push, so its last section, collapsed, lists up to 10 earlier runs, newest first: analyzed commit, status, run and date. Read it to see an earlier red result that a later green one replaced.
-- **Test author**: what the Author tested. Each Unit has a Verdict, a kind (intent, characterization, or mixed with the number of tests of each), its tests and the number of attempts. Each Defect the Author flagged is one line, with expected and received values and its Intent source. The Author's own summary is last, collapsed, and is not checked: trust the table.
-- **Test reviewer**: the Reviewer's decision on each Defect, with its source quote, and its Findings. The Reviewer's own summary is last, collapsed.
-
-On a PR that changes only tests and config, such as a Backfill PR, the agents have nothing to test, and the Test author and Test reviewer comments say so. A Backfill PR lists the Author and Reviewer results in its description. It has no changed source lines, so its Defects go in a fourth comment, **Defects**, with the same entries. See [ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md).
-
-Read the quotes and the Intent sources they cite. The agents can be wrong.
-
-## When a Defect is reported
-
-A confirmed and proven Defect means the code contradicts an Intent source and its test failed in the suites run. A confirmed Defect marked unproven is a warning: read the reason shown, and check the code yourself. Fix the source code, then push. The workflow's agents never change source code; they report Defects. The next PR run writes the test again.
-
-A confirmed Defect with no test (the Report says the Author removed it) turns the status red too: the Reviewer confirmed the code contradicts an Intent source, but no test proves it. Check the code against the Reviewer's quote and fix it, or re-run the workflow with a dispatch (see [SOLUTION.md](SOLUTION.md#how-to-run-the-pr-workflow)) to get the test.
-
-If you think the Intent source is wrong, fix the source in the same PR and explain why in the PR description. Do not change a test to match the code.
-
-A rejected Defect is only a warning. Read the Reviewer's quote, then decide.
-
-A flaky test is a test the Bot commit added that failed in one of the `suites` job's shuffled reruns; it turns the status red. The Report names the file and the failing tests. Delete that test file or fix the test, then push.
-
-A Suspected Defect is behaviour that looks wrong but that no Intent source states. Only a Backfill reports them for now, in its Defects comment. It never changes the status. Decide which behaviour is intended: fix the code, or state the current behaviour in the PR description.
-
-## Re-running the workflow
-
-See [SOLUTION.md](SOLUTION.md#how-to-run-the-pr-workflow).
-
-## The `skip-test-agent` label
-
-Use it only as [ADR 0005](docs/adr/0005-gate-merges-on-test-agent-verify.md) describes. Who may apply it is also set there. The suites still run and still gate the merge.
-
-## Merging without the gate
-
-Admins only, and only for the cases in [ADR 0005](docs/adr/0005-gate-merges-on-test-agent-verify.md): a PR that changes the workflow's own scripts or paths, or an urgent fix while Actions or the model API is down. Split the change instead when you can. Comment on the PR with the reason and the checks you ran, then merge with `gh pr merge <n> --admin`.
+- GitHub then asks to approve a workflow run for the Bot commit. Approving it or not changes nothing: that run skips every job.
+- It sets the status `test-agent/verify` and writes three PR comments. How to read them, what to do about a Defect, re-runs, the `skip-test-agent` label and merging without the gate: [docs/pr-results.md](docs/pr-results.md).
 
 ## Conventions
 
-- **Tests.** Test paths per package are in `TEST_PATHS` in [`.github/scripts/contracts/rules.ts`](.github/scripts/contracts/rules.ts). Package playbooks for the Author are in `.claude/skills/author-tests/`.
 - **Commits.** Use Conventional Commits with a scope, for example `fix(backend): ...`.
 - **Branches.** `feat/issue-<n>-<slug>`.
 - **PR description.** Write the intended behaviour in it, and end with `Closes #<n>`. The test workflow reads the description as an Intent source.
-- **Agent config.** During a PR run, the agents use the base branch's agent config. See [ADR 0004](docs/adr/0004-isolate-pr-code-from-secrets.md).
 - **Script code.** Branch with `switch` or lookup tables, not `if` chains. Declare named union types first and use them; do not derive them with `(typeof X)[number]`, `T['field']` or `ReturnType`.
+- **Tests.** Package playbooks for the Author are in `.claude/skills/author-tests/`.
 
 ## Skills for contributors
 
@@ -88,13 +101,13 @@ Setup is in [README.md](README.md). Run these from the package folder, `backend/
 | Tests with coverage | `npm run test:coverage` | `npm run test:coverage` |
 | Typecheck | `npm run typecheck` | `npm run typecheck` |
 
-After a merge, `.github/workflows/ci.yml` runs these checks on `main`. The workflow's own scripts in `.github/scripts/` have their own tests: run `make script-tests` from the repo root. They need Node 24 and no install. `suites` runs them on every PR.
+The workflow's own scripts: `make script-tests` from the repo root runs all their tests, `node --test .github/scripts/tests/<name>.test.ts` runs one. `suites` runs them on every PR; `ci.yml` runs the package checks on `main`.
 
 ## Local runs of the PR workflow
 
 - `make trial` runs the PR workflow's steps locally against `main`. Set `BASE=<branch>` to compare with another branch. Commit your change first: the trial tests `git diff main...HEAD`.
 - The first run on a branch asks where the intended behaviour comes from: the open PR's description, the branch's commit messages, typed in, your editor, or none. Without intent, Defects can only come from `openapi.json`, existing tests or docs. The answer is saved and reused for that branch. Delete `.test-agent/<branch>/pr-body.md` to be asked again.
-- `make demo` checks the agent config on disk, committed or not, against the cases in [`.github/agent-tests/`](.github/agent-tests/): a planted Defect the agents must flag and confirm, and a tautological test the Reviewer must block. It prints `demo: PASS` or `demo: FAIL` per case; `make demo CASE=<name>` runs one. Run it before you open a PR that changes `.claude/` or `.github/scripts/`: that PR's own run uses `main`'s copy ([ADR 0004](docs/adr/0004-isolate-pr-code-from-secrets.md)), so nothing else tests the new config before the merge ([ADR 0009](docs/adr/0009-test-agent-config-changes-against-committed-cases.md)).
+- `make demo` checks the agent config on disk, committed or not, against the cases in [`.github/agent-tests/`](.github/agent-tests/): a planted Defect the agents must flag and confirm, and a tautological test the Reviewer must block. It prints `demo: PASS` or `demo: FAIL` per case; `make demo CASE=<name>` runs one. Run it before you open a PR that changes `.claude/` or `.github/scripts/`.
 - **Backfill**, one package at a time: `make backfill-gaps PACKAGE=<backend|frontend>` has the Author rank the coverage gaps and asks which to approve; `make backfill-approve PACKAGE=… APPROVE=1,3` picks or changes them without a new agent run, and `DECLINE=2 REASON="…"` declines others; `make backfill-tests PACKAGE=…` tests the approved items, reviews the tests, and measures coverage before and after; once the PR is open, `make backfill-record PACKAGE=… PR=<n>` adds the declined items and not-needed Units to `docs/backfill-decisions.json`, for that PR. Later gap lists leave out each recorded gap, by its lines, until its source file changes. `backfill-tests` needs a clean working tree, so commit your changes first. See [ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md).
 - `make hook-demo` asks an agent to edit `backend/src`, and checks that the write guard blocks it.
 - Output goes to `.test-agent/<branch>/`, which git ignores. Nothing is pushed or posted. `make clean` removes the current branch's output and keeps its PR description and its approved and declined gaps; if the branch has none, it lists the other folders to pick from.
