@@ -57,7 +57,7 @@ const run = (overrides: Partial<Run> = {}): Run => ({
   context: context(),
   author: author(added('todos')),
   reviewer: reviewer(),
-  checked: { ok: true, errors: [], dropFiles: [], reviewRejected: [], missingDefectTests: [], unknownNames: { author: [], reviewer: [] } },
+  checked: { ok: true, errors: [], dropFiles: [], reviewRejected: [], checkRejected: [], missingDefectTests: [], unknownNames: { author: [], reviewer: [] } },
   results: results(),
   ...overrides,
 });
@@ -110,8 +110,13 @@ describe('decide', () => {
   });
 
   it('does not count a Unit whose tests the Reviewer blocked', () => {
-    const checked = { ok: true, errors: [], dropFiles: ['backend/tests/todos.test.ts'], reviewRejected: ['backend/src/todos.ts#todos'], missingDefectTests: [], unknownNames: { author: [], reviewer: [] } };
+    const checked = { ok: true, errors: [], dropFiles: ['backend/tests/todos.test.ts'], reviewRejected: ['backend/src/todos.ts#todos'], checkRejected: [], missingDefectTests: [], unknownNames: { author: [], reviewer: [] } };
     assert.equal(decide(run({ checked })).description, '0 units tested, 0 proven defects');
+  });
+
+  it('does not count a check-rejected Unit, and stays green', () => {
+    const checked = { ok: true, errors: [], dropFiles: ['backend/tests/todos.test.ts'], reviewRejected: [], checkRejected: [{ unit: 'backend/src/todos.ts#todos', errors: ['x'] }], missingDefectTests: [], unknownNames: { author: [], reviewer: [] } };
+    assert.deepEqual(decide(run({ checked })), { state: 'success', description: '0 units tested, 0 proven defects' });
   });
 
   it('is green with no agent run when the suites pass', () => {
@@ -137,7 +142,7 @@ describe('decide', () => {
   });
 
   it('is red when the agent output was invalid or the patch was rejected', () => {
-    const checked = { ok: false, errors: ['patch rejected'], dropFiles: [], reviewRejected: [], missingDefectTests: [], unknownNames: { author: [], reviewer: [] } };
+    const checked = { ok: false, errors: ['patch rejected'], dropFiles: [], reviewRejected: [], checkRejected: [], missingDefectTests: [], unknownNames: { author: [], reviewer: [] } };
     assert.deepEqual(decide(run({ checked })), { state: 'failure', description: 'agent output invalid or patch rejected' });
   });
 

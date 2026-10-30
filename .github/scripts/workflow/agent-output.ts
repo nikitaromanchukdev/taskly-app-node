@@ -7,7 +7,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { basename, resolve, sep } from 'node:path';
 import { parseArgs } from 'node:util';
 import { CHARACTERIZATION_PREFIX, isFlaggedDefect, namedIn, testName, unitKey, unitTests, VERDICT_RULES, writesTests } from '../lib/artifacts.ts';
-import type { AuthorOutput, Checked, Kind, ReviewerOutput, Unit, UnknownNames } from '../lib/artifacts.ts';
+import type { AuthorOutput, CheckRejected, Checked, Kind, ReviewerOutput, Unit, UnknownNames } from '../lib/artifacts.ts';
 import { die, EXIT_CODES } from '../lib/cli.ts';
 import { readJson, writeJson } from '../lib/json.ts';
 import { readSchema, validate } from '../lib/schema.ts';
@@ -28,13 +28,15 @@ const SCRIPT = 'agent-output';
 
 const testFile = (test: string) => test.split(' > ')[0];
 
+// Run-level: the shape of the Unit and the attempt budget (ADR 0006). A Unit that breaks them can't be trusted, and
+// a flagged Defect with no `defect` would hide a confirmed one.
 function checkUnit(unit: Unit, maxAttempts: number): string[] {
   const name = `${unit.path} ${unit.unit}`;
   const rule = VERDICT_RULES[unit.verdict];
   const errors = rule.requires.filter((field) => unit[field] === undefined).map((field) => `${name}: ${unit.verdict} needs ${field}`);
   if (rule.writesTests && unitTests(unit).length === 0) errors.push(`${name}: ${unit.verdict} lists no tests`);
   if (unit.attempts < 0 || unit.attempts > maxAttempts) errors.push(`${name}: attempts ${unit.attempts} outside 0..${maxAttempts}`);
-  return [...errors, ...checkTestKinds(unit)];
+  return errors;
 }
 
 // The test name must say what its Expectation's kind says, so neither the file nor the report claims intent
@@ -149,11 +151,38 @@ const testFiles = (units: Unit[]) => [
   ...new Set(units.flatMap((unit) => [...unitTests(unit), ...(unit.defect ? [unit.defect.test] : [])]).map(testFile)),
 ];
 
+// The files of a Unit's own tests, not of its Defect test (defectTests handles that one).
+const unitFiles = (unit: Unit) => [...new Set(unitTests(unit).map(testFile))];
+
 // A test is `file > name` with the file's path from the repo root; a bare file name matches nothing in the patch.
-const checkTestFiles = (units: Unit[], checkout: Checkout) =>
-  testFiles(units)
+const checkTestFiles = (unit: Unit, checkout: Checkout) =>
+  [...new Set([...unitTests(unit), ...(unit.defect ? [unit.defect.test] : [])].map(testFile))]
     .filter((file) => !exists(checkout, file))
-    .map((file) => `test file "${file}" is in neither the checkout nor the patch; give its path from the repo root`);
+    .map((file) => `${unit.path} ${unit.unit}: test file "${file}" is in neither the checkout nor the patch; give its path from the repo root`);
+
+// Unit-level: what one Unit's own content gets wrong. The Unit is check-rejected and its test files are left out of the
+// Bot commit; the other Units and the run stay valid.
+const checkOwn = (unit: Unit, checkout: Checkout) => [...checkTestKinds(unit), ...checkUnitName(unit, checkout), ...checkTestFiles(unit, checkout)];
+
+// A check-rejected Unit takes its test files out of the Bot commit. Another Unit with tests in the same file goes with
+// them, as with a blocking Finding (ADR 0003), and is listed with the reason.
+function checkRejections(units: Unit[], checkout: Checkout): { rejected: CheckRejected[]; dropFiles: string[] } {
+  const own = units.map((unit) => ({ unit, errors: checkOwn(unit, checkout) })).filter(({ errors }) => errors.length);
+  const dropFiles = [...new Set(own.flatMap(({ unit }) => unitFiles(unit)))];
+  const ownKeys = new Set(own.map(({ unit }) => unitKey(unit)));
+  const affected = units
+    .filter((unit) => !ownKeys.has(unitKey(unit)))
+    .map((unit) => ({ unit, files: unitFiles(unit).filter((file) => dropFiles.includes(file)) }))
+    .filter(({ files }) => files.length);
+  const rejected = [
+    ...own.map(({ unit, errors }) => ({ unit: unitKey(unit), errors })),
+    ...affected.map(({ unit, files }) => ({
+      unit: unitKey(unit),
+      errors: files.map((file) => `test file "${file}" is left out of the Bot commit because another Unit's tests in it are check-rejected`),
+    })),
+  ];
+  return { rejected, dropFiles };
+}
 
 // Backticked text shaped like a path or a code name is checked. Anything else (`true`, `404`, `--flag`, `a < b`) is a literal.
 const NAME_SHAPES: readonly RegExp[] = [
@@ -215,7 +244,7 @@ function knownFiles(units: Unit[], checkout: Checkout): Known {
 
 const NO_UNKNOWN_NAMES: UnknownNames = { author: [], reviewer: [] };
 
-const invalid = (errors: string[]): Checked => ({ ok: false, errors, dropFiles: [], reviewRejected: [], missingDefectTests: [], unknownNames: NO_UNKNOWN_NAMES });
+const invalid = (errors: string[]): Checked => ({ ok: false, errors, dropFiles: [], reviewRejected: [], checkRejected: [], missingDefectTests: [], unknownNames: NO_UNKNOWN_NAMES });
 
 function check({ author, reviewer, patch, root, maxAttempts }: Inputs): Checked {
   const schemaErrors = [
@@ -230,15 +259,17 @@ function check({ author, reviewer, patch, root, maxAttempts }: Inputs): Checked 
 
   const checkout: Checkout = { root, patch: patchFiles(patch ?? '') };
   const defects = defectTests(units, checkout.patch);
+  const checks = checkRejections(units, checkout);
+  // Run-level errors make the whole output invalid. A Unit-level error is listed too when the run is invalid, so one
+  // run shows everything that is wrong.
   const errors = [
     ...checkDuplicates(units),
-    ...units.flatMap((unit) => [...checkUnit(unit, maxAttempts), ...checkUnitName(unit, checkout)]),
-    ...checkTestFiles(units, checkout),
+    ...units.flatMap((unit) => checkUnit(unit, maxAttempts)),
     ...(reviewRequired && !review ? ['reviewer.json is missing but the author produced tests or defects'] : []),
     ...(review ? [...checkFindings(units, review), ...checkDefectDecisions(units, review)] : []),
     ...defects.errors,
   ];
-  if (errors.length) return invalid(errors);
+  if (errors.length) return invalid([...errors, ...checks.rejected.flatMap(({ errors: own }) => own)]);
 
   const blocking = blockingFiles(review);
   const reviewRejected = units
@@ -251,7 +282,7 @@ function check({ author, reviewer, patch, root, maxAttempts }: Inputs): Checked 
     author: unknownNames(summary, known, checkout),
     reviewer: review ? unknownNames(review.summary, known, checkout) : [],
   };
-  return { ok: true, errors: [], dropFiles: [...new Set([...blocking, ...defects.dropFiles])], reviewRejected, missingDefectTests: defects.missing, unknownNames: unknown };
+  return { ok: true, errors: [], dropFiles: [...new Set([...blocking, ...checks.dropFiles, ...defects.dropFiles])], reviewRejected, checkRejected: checks.rejected, missingDefectTests: defects.missing, unknownNames: unknown };
 }
 
 // ---- CLI ----
@@ -296,8 +327,9 @@ function main() {
     names.map((name) => `${SCRIPT}: warning: ${agent} summary names \`${name}\`, which no Unit, test or file of this run contains`),
   );
   for (const warning of warnings) console.error(warning);
+  for (const { unit, errors } of result.checkRejected) console.error(`${SCRIPT}: check-rejected ${unit}: ${errors.join('; ')}`);
   const list = (items: string[]) => items.join(', ') || 'none';
-  console.log(`${SCRIPT}: ${result.ok ? 'ok' : 'INVALID'}; drop files: ${list(result.dropFiles)}; review-rejected: ${list(result.reviewRejected)}; missing Defect tests: ${list(result.missingDefectTests)}`);
+  console.log(`${SCRIPT}: ${result.ok ? 'ok' : 'INVALID'}; drop files: ${list(result.dropFiles)}; review-rejected: ${list(result.reviewRejected)}; check-rejected: ${list(result.checkRejected.map(({ unit }) => unit))}; missing Defect tests: ${list(result.missingDefectTests)}`);
   process.exit(result.ok ? 0 : EXIT_CODES.failed);
 }
 
