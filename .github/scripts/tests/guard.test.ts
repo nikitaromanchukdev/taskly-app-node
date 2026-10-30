@@ -5,7 +5,8 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { runScript, tempDir } from './run.ts';
 
-type ToolCall = { tool_name: string; tool_input: { file_path?: string; notebook_path?: string } };
+type ToolCall = { tool_name: string; tool_input: { file_path?: string; notebook_path?: string; command?: string } };
+type BlockedCommand = { command: string; hint: RegExp };
 
 // A project folder with the package layout, so symlinks and relative paths resolve as in the repo.
 function project(): string {
@@ -80,6 +81,74 @@ describe('guard.ts hook', () => {
     const result = hook(project(), 'not json');
     assert.equal(result.code, 2);
     assert.match(result.stderr, /not valid JSON/);
+  });
+});
+
+const bash = (command?: string): ToolCall => ({ tool_name: 'Bash', tool_input: { command } });
+const SANDBOX = '.github/scripts/agent/sandbox.sh';
+
+// Each refused command must name the tool or form that replaces it, so the agent can correct itself.
+const BLOCKED: readonly BlockedCommand[] = [
+  { command: 'cat backend/src/main.ts', hint: /use Read/ },
+  { command: '/bin/cat backend/src/main.ts', hint: /use Read/ },
+  { command: 'head -50 backend/src/main.ts', hint: /use Read/ },
+  { command: 'tail -n 20 backend/src/main.ts', hint: /use Read/ },
+  { command: 'sed -n 1,40p backend/src/main.ts', hint: /use Read .* Edit/ },
+  { command: 'grep -rn createTodo backend/src', hint: /use Grep/ },
+  { command: 'find backend/src -name *.ts', hint: /Glob/ },
+  { command: 'echo x > backend/tests/a.test.ts', hint: /redirects .* use Read, Write or Edit.*use Write or Edit/ },
+  { command: 'git diff > out.patch', hint: /redirects/ },
+  { command: 'git show HEAD:backend/src/main.ts < /dev/null', hint: /redirects/ },
+  { command: 'git status; cat backend/src/main.ts', hint: /one command per call/ },
+  { command: 'git diff && npm test', hint: /one command per call/ },
+  { command: 'git diff || true', hint: /one command per call/ },
+  { command: 'git log | head', hint: /one command per call/ },
+  { command: 'git status &', hint: /one command per call/ },
+  { command: 'git status\ncat backend/src/main.ts', hint: /one command per call/ },
+  { command: 'git show $(cat ref)', hint: /command substitution/ },
+  { command: 'git show `cat ref`', hint: /command substitution/ },
+  { command: '(git status)', hint: /subshells/ },
+  { command: 'git diff --output=x.patch', hint: /--output writes/ },
+  { command: 'git diff --no-index /etc/passwd backend/src/main.ts', hint: /--no-index reads/ },
+  { command: `cd backend && ${SANDBOX} test backend`, hint: /do not cd/ },
+  { command: 'npm test', hint: /sandbox\.sh test\|typecheck/ },
+  { command: `./${SANDBOX} test backend`, hint: /directly from the repo root/ },
+  { command: `bash ${SANDBOX} test backend`, hint: /directly from the repo root/ },
+  { command: `${SANDBOX} install backend`, hint: /sandbox\.sh test\|typecheck/ },
+  { command: 'git push origin HEAD', hint: /only diff, log, show and status/ },
+  { command: 'git difftool', hint: /only diff, log, show and status/ },
+  { command: 'python3 -c 1', hint: /not allowed\. Allowed, one per call: git diff/ },
+];
+
+describe('guard.ts hook on Bash', () => {
+  for (const command of [
+    'git diff main...HEAD -- backend/src/main.ts',
+    'git log --oneline -5',
+    'git log --format="%h %s" -3',
+    'git show HEAD:backend/src/main.ts',
+    'git status',
+    '  git status  ',
+    `${SANDBOX} test backend backend/tests/router.test.ts`,
+    `${SANDBOX} typecheck frontend`,
+  ]) {
+    it(`allows ${command}`, () => {
+      const result = hook(project(), bash(command));
+      assert.equal(result.code, 0, result.stderr);
+    });
+  }
+
+  for (const { command, hint } of BLOCKED) {
+    it(`blocks ${JSON.stringify(command)} with exit 2 and names what to use`, () => {
+      const result = hook(project(), bash(command));
+      assert.equal(result.code, 2);
+      assert.match(result.stderr, hint);
+    });
+  }
+
+  it('blocks a Bash call with no command', () => {
+    const result = hook(project(), bash());
+    assert.equal(result.code, 2);
+    assert.match(result.stderr, /no command/);
   });
 });
 
