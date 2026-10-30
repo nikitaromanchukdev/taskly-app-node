@@ -364,16 +364,13 @@ jobs:
       - name: Download every job's output
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: { path: "${{ env.OUT }}", merge-multiple: true }
-      # The base branch's context.ts may predate the job rename, so `needs` is also sent under the old job ids
-      # (prepare, engineer, commit, verify). Remove the copy once main's context.ts reads the new ids.
       - name: Write context.json
         env:
           GITHUB_TOKEN: ${{ github.token }}
           NEEDS: ${{ toJSON(needs) }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          NEEDS="$(jq -c '. + {prepare: .scope, engineer: .agents, commit: .bot_commit, verify: .suites}' <<< "$NEEDS")" \
-            node .github/scripts/workflow/context.ts --out "$OUT/context.json"
+          node .github/scripts/workflow/context.ts --out "$OUT/context.json"
           jq -r '"Job results: " + (.jobs | to_entries | map("\(.key) \(.value)") | join(", "))' "$OUT/context.json"
       - name: Post the status and comments
         env:

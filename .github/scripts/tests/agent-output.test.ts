@@ -216,15 +216,6 @@ describe('agent-output.ts', () => {
     assert.match(result.stderr, /\.\.\/outside\.ts is not in the checkout/);
   });
 
-  it('takes head/ as the checkout without --root, as the commit job of an older workflow runs it', () => {
-    const dir = tempDir();
-    writeTree(join(dir, 'head'), TREE);
-    writeFileSync(join(dir, 'author.json'), JSON.stringify(author(unit())));
-    writeFileSync(join(dir, 'reviewer.json'), JSON.stringify(reviewer()));
-    const result = runScript('workflow/agent-output.ts', ['author.json', '--reviewer', 'reviewer.json', '--max-attempts', '3'], { cwd: dir });
-    assert.equal(result.code, 0, result.stderr);
-  });
-
   it('accepts a method Unit named by its class, and a route Unit named by its method and path', () => {
     const route = unit({ path: 'backend/src/router.ts', unit: 'GET /todos' });
     const tree = { ...TREE, ...REPOSITORY_TREE, 'backend/src/router.ts': "router.get('/todos', list);\n" };

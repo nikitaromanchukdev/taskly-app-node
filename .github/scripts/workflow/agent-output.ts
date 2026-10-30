@@ -256,11 +256,6 @@ function check({ author, reviewer, patch, root, maxAttempts }: Inputs): Checked 
 
 type Files = { author: string; reviewer?: string; patch?: string };
 
-// The bot_commit job runs from a folder holding `trusted/` and `head/`. A PR branched before `--root` existed runs its own
-// workflow, which does not pass it, so `head/` is the default there; locally the current folder is the checkout.
-const HEAD_CHECKOUT = 'head';
-const defaultRoot = () => (existsSync(HEAD_CHECKOUT) ? HEAD_CHECKOUT : '.');
-
 function checkFiles(files: Files, root: string, maxAttempts: number): Checked {
   try {
     const patch = files.patch === undefined ? undefined : readFileSync(files.patch, 'utf8');
@@ -291,7 +286,7 @@ function main() {
   if (!Number.isInteger(maxAttempts) || maxAttempts < 1) die(SCRIPT, 'pass --max-attempts N or set TEST_AGENT_MAX_ATTEMPTS', 'usage');
 
   const files = { author: file, reviewer: values.reviewer, patch: values.patch };
-  const result = checkFiles(files, resolve(values.root ?? defaultRoot()), maxAttempts);
+  const result = checkFiles(files, resolve(values.root ?? '.'), maxAttempts);
 
   if (values.out) writeJson(values.out, result);
   for (const error of result.errors) console.error(`${SCRIPT}: ${error}`);

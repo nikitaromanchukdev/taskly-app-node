@@ -17,16 +17,15 @@ The agents of the PR workflow and the Backfill follow their own agent files, whi
 - On a draft PR the agents do not run; only the suites do. Open the PR as a draft while you iterate, and mark it ready for review when the change is done.
 - It may add one Bot commit with tests to your branch. Run `git pull --rebase` before your next push, or your push will be rejected.
 - GitHub then asks to approve a workflow run for the Bot commit. Approving it or not changes nothing: that run skips every job.
-- It sets the status `test-agent/verify` and writes three PR comments. Defects and Suspected Defects appear as review comments on the changed code.
+- It sets the status `test-agent/verify` and writes three PR comments. Review comments on the changed code, with a suggested fix for each Defect, are proposed in [ADR 0007](docs/adr/0007-report-defects-next-to-the-code-with-a-suggested-fix.md) and not built yet.
 
 ## Reading the PR comments
 
 Each comment has the title `### <name> · <outcome>`, where a script counts the outcome, then the analyzed commit and the run. What needs you comes first, then the tables; collapsed sections come last. 🟢 means passes, 🔴 fails or turns the status red, ⚠️ needs you but does not change the status.
 
-- **Report** (`### 🟢 Report · <status>`): the status, the counts of confirmed Defects and Suspected Defects with a link to their review comments, test results, coverage of changed files, then skipped files and mutation results (information only), collapsed.
-- **Test author**: what the Author tested. Each Unit has a Verdict, a kind (intent, characterization, or mixed with the number of tests of each), its tests and the number of attempts. Each Defect the Author flagged is one line, with a link to its review comment. The Author's own summary is last, collapsed, and is not checked: trust the table.
-- **Test reviewer**: the Reviewer's decision on each Defect, with a link to its review comment, and its Findings. The Reviewer's own summary is last, collapsed.
-- **Review comments on the code**: one per Defect or Suspected Defect, on the line where it was found, with expected and received values (or what looks wrong), the Intent source quote, the Reviewer's decision or note, and a suggested fix. This is the only place with a Defect's details. See [ADR 0007](docs/adr/0007-report-defects-next-to-the-code-with-a-suggested-fix.md).
+- **Report** (`### 🟢 Report · <status>`): the status, each Defect the Author flagged with its test, expected and received values, Intent source and the Reviewer's decision, test results, coverage of changed files, then skipped files and mutation results (information only), collapsed.
+- **Test author**: what the Author tested. Each Unit has a Verdict, a kind (intent, characterization, or mixed with the number of tests of each), its tests and the number of attempts. Each Defect the Author flagged is one line, with expected and received values and its Intent source. The Author's own summary is last, collapsed, and is not checked: trust the table.
+- **Test reviewer**: the Reviewer's decision on each Defect, with its source quote, and its Findings. The Reviewer's own summary is last, collapsed.
 
 On a PR that changes only tests and config, such as a Backfill PR, the agents have nothing to test, and the Test author and Test reviewer comments say so. A Backfill PR lists the Author and Reviewer results in its description. It has no changed source lines, so its Defects go in a fourth comment, **Defects**, with the same entries. See [ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md).
 
@@ -36,15 +35,11 @@ Read the quotes and the Intent sources they cite. The agents can be wrong.
 
 A confirmed Defect means the code contradicts an Intent source. Fix the source code, then push. The workflow's agents never change source code; they report Defects. The next PR run writes the test again.
 
-The review that holds a confirmed Defect requests changes. The next PR run that finds no confirmed Defect dismisses it. The merge gate is still the status.
-
-Each review comment suggests a fix. Nothing applies it. Commit the suggestion as it is, change it, or write your own fix.
-
 If you think the Intent source is wrong, fix the source in the same PR and explain why in the PR description. Do not change a test to match the code.
 
 A rejected Defect is only a warning. Read the Reviewer's quote, then decide.
 
-A Suspected Defect is behaviour that looks wrong but that no Intent source states. It never changes the status. Decide which behaviour is intended: fix the code, or state the current behaviour in the PR description.
+A Suspected Defect is behaviour that looks wrong but that no Intent source states. Only a Backfill reports them for now, in its Defects comment. It never changes the status. Decide which behaviour is intended: fix the code, or state the current behaviour in the PR description.
 
 ## Re-running the workflow
 

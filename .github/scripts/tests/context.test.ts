@@ -36,18 +36,6 @@ describe('context.ts', () => {
     assert.equal(context.run_agent, true);
   });
 
-  // A PR branched before the rename runs its own workflow file with the base branch's scripts (ADR 0004).
-  it('reads the job ids from before the rename', () => {
-    const context = contextFor({
-      prepare: { result: 'success', outputs: SCOPE_OUTPUTS },
-      engineer: { result: 'success' },
-      commit: { result: 'failure', outputs: BOT_COMMIT_OUTPUTS },
-      verify: { result: 'skipped' },
-    });
-    assert.deepEqual(context.jobs, EXPECTED_JOBS);
-    assert.equal(context.final_sha, '1234567abc');
-  });
-
   it('counts a job missing from needs as skipped', () => {
     const context = contextFor({ scope: { result: 'success', outputs: SCOPE_OUTPUTS } });
     assert.deepEqual(context.jobs, { scope: 'success', agents: 'skipped', bot_commit: 'skipped', suites: 'skipped' });
