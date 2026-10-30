@@ -21,7 +21,7 @@ This repo adds two ways to get tests written, both by the same agents and skills
 | The Backfill runs locally and reports in its PR description | It stops for the owner's approval, and its PR has no source lines to test | [0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md) |
 | A change to the agent config is tested with `make demo` against committed cases | The PR's own run uses the base config, so CI cannot test the change | [0009](docs/adr/0009-test-agent-config-changes-against-committed-cases.md) |
 | A slip in one Unit's output makes that Unit not verified, not the whole run invalid | The slips are labels, not invalid tests; one must not cost the other Units or hide a confirmed Defect | [0010](docs/adr/0010-reject-one-unit-not-the-run-for-its-own-slip.md) |
-| The owner ignores source paths, each with a reason, in one file that both the PR workflow and coverage read; the design system is the first entry | The rules and the coverage numbers must agree, and a skip needs a stated reason; the base copy is used, so a PR cannot ignore its own code | [0011](docs/adr/0011-let-the-owner-ignore-source-paths-with-a-reason.md) |
+| A configurable ignore list: the owner excludes source paths from agent testing and coverage, each with a reason, read from `main` only | Every repo has code it chooses not to unit-test; the choice and its reason belong in one reviewed place, and a PR must not ignore its own code | [0011](docs/adr/0011-let-the-owner-ignore-source-paths-with-a-reason.md) |
 
 ## How to run the PR workflow
 
@@ -53,6 +53,8 @@ scripts/setup-github.sh ruleset    # step 4 (after step 6 and the merge), then a
 4. **Merge gate.** The ruleset `.github/rulesets/main.json`; its only bypass actor is the admin role, through a PR. It requires `test-agent/verify` from the GitHub App of step 6: the file's `integration_id` is a placeholder that the script fills from `TEST_AGENT_APP_ID`. Apply it after the workflow is merged to `main`, or PRs wait for a status nothing posts.
 5. **Monthly spend limit,** in the model provider's console (`https://console.anthropic.com/settings/limits`). It is the hard cap on money.
 6. **GitHub App.** `config` prints a prefilled creation link (contents, commit statuses and pull requests: read and write). Generate a private key and install the App on this repo only. `config` then verifies the installation and sets the Environment secret `TEST_AGENT_APP_PRIVATE_KEY`, the Environment variables `TEST_AGENT_APP_ID` and `TEST_AGENT_APP_CLIENT_ID`, and the repo variable `TEST_AGENT_BOT_LOGIN`. `scope`, `bot_commit` and `publish` write with the App's short-lived token ([ADR 0004](docs/adr/0004-isolate-pr-code-from-secrets.md)).
+
+**Optional: ignored paths.** [`ignored-paths.json`](.github/scripts/contracts/ignored-paths.json) lists source the agents do not test and coverage leaves out: per package, path globs and a reason. The Report shows the reason next to each skipped file. Change it with a PR to `main`; PR runs read `main`'s copy, so a PR cannot ignore its own code. An entry without a reason stops the run. The repo ships one entry, the design system ([ADR 0011](docs/adr/0011-let-the-owner-ignore-source-paths-with-a-reason.md)).
 
 ## Agents, skills and the workflow
 
