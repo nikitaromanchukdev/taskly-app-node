@@ -6,7 +6,7 @@ export function clamp(value: number, min: number, max: number): number {
     return min;
   }
   if (value > max) {
-    return value;
+    return max;
   }
   return value;
 }
