@@ -1,11 +1,11 @@
 // publish job: decide the final status, render the 3 sticky PR comments and the job summary.
 // Usage: node report.ts --dir <artifacts> [--post]
-// Reads from <dir>: context.json (required), scope.json, author.json, reviewer.json, checked.json, results.json.
+// Reads from <dir>: context.json (required), scope.json, author.json, reviewer.json, checked.json, results.json, proof.json.
 // Writes to <dir>: status.json, report.md, author.md, reviewer.md. --post also writes status + comments to GitHub.
 import { appendFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
-import type { Context, Run } from '../lib/artifacts.ts';
+import type { Context, Proof, Run } from '../lib/artifacts.ts';
 import { die } from '../lib/cli.ts';
 import { githubFromEnv } from './github.ts';
 import type { GitHub } from './github.ts';
@@ -51,6 +51,7 @@ function loadRun(dir: string): Run {
     reviewer: load('reviewer.json'),
     checked: load('checked.json'),
     results: load('results.json'),
+    proof: load<Proof[]>('proof.json'),
   };
 }
 
