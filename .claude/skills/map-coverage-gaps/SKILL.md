@@ -31,7 +31,7 @@ For each package:
 
 ## Step 2: Read the Gaps
 
-Read `{package}/coverage/lcov.info`. Per file, collect:
+Read `{package}/coverage/report/lcov.info` (the sandbox writes coverage there). Per file, collect:
 
 | Gap | lcov line |
 |---|---|
