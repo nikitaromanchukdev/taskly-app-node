@@ -12,7 +12,7 @@
 //        node trial.ts record --out <dir> --package <p> --pr <n>
 //                                                   Backfill: add <dir>/declined.json and the not-needed Units of
 //                                                   <dir>/author.json to docs/backfill-decisions.json
-//        node trial.ts decide --package <p> --path <file> [--unit <name>] [--lines <a-b>]
+//        node trial.ts decide --package <p> --path <file> [--unit <name>] [--lines <18, 20-22>]
 //                             --decision <declined|unreachable|kept-as-is> --reason <text> --pr <n>
 //                                                   Backfill: add or replace one decision in the record
 // record and decide take --decisions <file> to use another record than docs/backfill-decisions.json.
@@ -41,6 +41,7 @@ import type {
   Verdict,
 } from '../lib/artifacts.ts';
 import { unitKey } from '../lib/artifacts.ts';
+import { plural } from '../workflow/status.ts';
 import { die } from '../lib/cli.ts';
 import { readJson, readJsonIfExists, writeJson } from '../lib/json.ts';
 import { readSchema, validate } from '../lib/schema.ts';
@@ -215,13 +216,18 @@ async function check(out: string, expectedFile: string): Promise<void> {
 
 // ---- Backfill decisions: gaps the owner decided in an earlier Backfill (docs/backfill-decisions.json) ----
 
-// A recorded decision that covers a gap. It is fresh while the file is the one the owner decided on.
-type Match = { record: DecidedGap; fresh: boolean };
-type Matcher = (gap: UnitRef) => Match | undefined;
-type Decided = { gap: UnitRef; match: Match };
+// A gap is decided when fresh records cover all its uncovered lines; a record is fresh while the file is the one
+// the owner decided on. An open gap carries notes on the records that cover it only in part, or covered an older file.
+type GapState = 'decided' | 'open';
+type Gap = UnitRef & { uncovered: string };
+type Match = { state: GapState; records: DecidedGap[]; notes: string[] };
+type Matcher = (gap: Gap) => Match;
+type Decided = { gap: Gap; records: DecidedGap[] };
 type DecisionInput = { pkg: Pkg; pr: number; path: string; unit?: string; lines?: string; decision: GapDecision; reason: string };
 
 const DECISIONS = 'docs/backfill-decisions.json';
+// Longest line range one part of a line list may span; a longer one is a typo, not a decision.
+const MAX_RANGE = 10_000;
 const DECISIONS_SCHEMA = '../contracts/backfill-decisions.schema.json';
 const GAP_DECISIONS: readonly GapDecision[] = ['declined', 'unreachable', 'kept-as-is'];
 // A not-needed Verdict in a Backfill is the owner's decision once the PR merges.
@@ -280,42 +286,80 @@ function decidedGap(input: DecisionInput): DecidedGap {
   };
 }
 
-// A record without a Unit covers the whole file. A fresh decision wins over a stale one for the same gap.
+// "18, 20-22" holds 18, 20, 21 and 22. Undefined when a part is neither a line nor a range, so the gap stays open.
+function lineNumbers(text: string): Set<number> | undefined {
+  const lines = new Set<number>();
+  for (const part of text.split(',').map((item) => item.trim())) {
+    const range = /^(\d+)(?:-(\d+))?$/.exec(part);
+    if (!range) return undefined;
+    const [from, to] = [Number(range[1]), Number(range[2] ?? range[1])];
+    if (to < from || to - from > MAX_RANGE) return undefined;
+    for (let line = from; line <= to; line++) lines.add(line);
+  }
+  return lines;
+}
+
+// The uncovered lines no record covers. A record without lines covers the whole Unit. Undefined when unknown.
+function undecidedLines(uncovered: string, records: DecidedGap[]): number[] | undefined {
+  if (records.some((record) => record.lines === undefined)) return [];
+  const gap = lineNumbers(uncovered);
+  const decided = records.map((record) => lineNumbers(record.lines ?? ''));
+  if (!gap || decided.some((lines) => !lines)) return undefined;
+  return [...gap].filter((line) => !decided.some((lines) => lines?.has(line)));
+}
+
+const decidedAs = (record: DecidedGap) =>
+  `${record.decision} in #${record.pr}${record.lines ? `, lines ${record.lines}` : ''}: ${record.reason}`;
+
+function openNotes(fresh: DecidedGap[], stale: DecidedGap[], left: number[] | undefined): string[] {
+  const rest = left ? `${left.length === 1 ? 'line' : 'lines'} ${left.join(', ')} ${left.length === 1 ? 'is' : 'are'} not` : 'the rest may not be';
+  return [
+    ...(fresh.length ? [`decided earlier only in part (${fresh.map(decidedAs).join('; ')}); ${rest}: decide again`] : []),
+    ...stale.map((record) => `decided earlier (${decidedAs(record)}), but the file changed since: decide again`),
+  ];
+}
+
+// A record without a Unit covers the whole file. Fresh records decide a gap; stale ones only add a note.
 function matcher(records: DecidedGap[], pkg: Pkg): Matcher {
   return (gap) => {
     const path = fromRoot(gap.path, pkg);
     const blob = blobId(path);
-    const found = records
-      .filter((entry) => entry.path === path && (entry.unit === undefined || entry.unit === bareUnit(gap.unit)))
-      .map((entry) => ({ record: entry, fresh: entry.blob === blob }));
-    return found.find((match) => match.fresh) ?? found[0];
+    const mine = records.filter((entry) => entry.path === path && (entry.unit === undefined || entry.unit === bareUnit(gap.unit)));
+    const fresh = mine.filter((entry) => entry.blob === blob);
+    const stale = mine.filter((entry) => entry.blob !== blob);
+    const left = undecidedLines(gap.uncovered, fresh);
+    return fresh.length && left?.length === 0
+      ? { state: 'decided', records: fresh, notes: [] }
+      : { state: 'open', records: fresh, notes: openNotes(fresh, stale, left) };
   };
 }
 
 // ---- Backfill approval ----
 
-const decidedAs = ({ record }: Match) => `${record.decision} in #${record.pr}: ${record.reason}`;
-const staleNotes = (match?: Match) =>
-  match && !match.fresh ? [`decided earlier (${decidedAs(match)}), but the file changed since: decide again`] : [];
-
 const recommendationLines = (match: Matcher) => (item: Recommendation, i: number) => [
-  `${i + 1}. \`${item.path}\` ${item.unit} — lines ${item.lines}%, branches ${item.branches}%`,
+  `${i + 1}. \`${item.path}\` ${item.unit} — lines ${item.lines}%, branches ${item.branches}%; uncovered: ${item.uncovered}`,
   ...item.expectations.map((e) => `   - ${e.text} (${e.kind}; ${e.source})`),
-  ...staleNotes(match(item)).map((note) => `   - ${note}`),
+  ...match(item).notes.map((note) => `   - ${note}`),
 ];
 
 const unreachableLine = (match: Matcher) => (item: UnreachableGap) =>
-  `- \`${item.path}\` ${item.unit} — ${item.reason}${staleNotes(match(item)).map((note) => ` (${note})`).join('')}`;
+  `- \`${item.path}\` ${item.unit} — ${item.reason} (uncovered: ${item.uncovered})${match(item).notes.map((note) => ` (${note})`).join('')}`;
 
 const decidedLines = (decided: Decided[]) => [
-  `Left out of the lists above: each file is unchanged since the decision. Remove an entry from \`${DECISIONS}\` to see its gap again.`,
+  `Left out of the lists above: each file is unchanged since the decision, and the decisions cover every uncovered line. Remove an entry from \`${DECISIONS}\` to see its gap again.`,
   '',
-  ...decided.map(({ gap, match }) => `- \`${gap.path}\` ${gap.unit} — ${decidedAs(match)}`),
+  ...decided.map(({ gap, records }) => `- \`${gap.path}\` ${gap.unit} — ${records.map(decidedAs).join('; ')}`),
 ];
+
+// Counted from the lists, so the top of gaps.md is right even when the Author's summary is not.
+const countsLine = (gaps: Gaps, decided: Decided[]) =>
+  `${plural(gaps.recommendations.length, 'Recommendation')}, ${gaps.unreachable.length} Unreachable, ${gaps.out_of_scope.length} out of scope, ${decided.length} decided earlier.`;
 
 function gapsMarkdown(gaps: Gaps, match: Matcher, decided: Decided[]): string {
   return [
     '# Coverage gaps',
+    '',
+    `**${countsLine(gaps, decided)}**`,
     '',
     gaps.summary,
     '',
@@ -372,7 +416,7 @@ async function declinedGaps(open: Recommendation[], chosen: number[], options: A
   for (const i of indexes) {
     const reason = options.reason ?? (asking ? await askLine(`Why is ${i + 1} (${open[i].unit}) not worth testing? One line > `) : '');
     if (!reason.trim()) die(SCRIPT, 'approve: a declined Recommendation needs a reason (--reason)', 'usage');
-    declined.push({ path: open[i].path, unit: open[i].unit, reason: reason.trim() });
+    declined.push({ path: open[i].path, unit: open[i].unit, lines: open[i].uncovered, reason: reason.trim() });
   }
   return declined;
 }
@@ -382,12 +426,12 @@ async function approve(options: ApproveOptions): Promise<void> {
   const gaps = readJson<Gaps>(join(out, 'gaps.json'));
   const errors = validate(gaps, readSchema('../contracts/gaps.schema.json'));
   if (errors.length) die(SCRIPT, `gaps.json is invalid:\n${bullets(errors)}`);
-  // Gaps decided earlier leave the lists before the owner sees them; a stale decision only adds a note.
+  // Gaps decided earlier leave the lists before the owner sees them; a stale or partial decision only adds a note.
   const match = matcher(readDecisions(options.decisions), pkg);
-  const isOpen = (gap: UnitRef) => match(gap)?.fresh !== true;
+  const isOpen = (gap: Gap) => match(gap).state === 'open';
   const decided: Decided[] = [...gaps.recommendations, ...gaps.unreachable].flatMap((gap) => {
     const found = match(gap);
-    return found?.fresh ? [{ gap, match: found }] : [];
+    return found.state === 'decided' ? [{ gap, records: found.records }] : [];
   });
   const open: Gaps = { ...gaps, recommendations: gaps.recommendations.filter(isOpen), unreachable: gaps.unreachable.filter(isOpen) };
   const markdown = gapsMarkdown(open, match, decided);
@@ -419,16 +463,17 @@ function record({ out, pkg, pr, decisions }: RecordOptions): void {
   const units = readJsonIfExists<AuthorOutput>(join(out, 'author.json'))?.units ?? [];
   const unreachable = readJsonIfExists<Gaps>(join(out, APPROVED))?.unreachable ?? [];
   const sameGap = (a: UnitRef, b: UnitRef) => fromRoot(a.path, pkg) === fromRoot(b.path, pkg) && bareUnit(a.unit) === bareUnit(b.unit);
-  // The gap list says why a gap is unreachable; a Verdict only names its reason.
-  const reasonText = (unit: UnitRef, reason: NotNeededReason) =>
-    unreachable.find((gap) => reason === 'unreachable' && sameGap(gap, unit))?.reason ?? `Verdict not-needed (${reason})`;
+  // The gap list says why a gap is unreachable and which lines; a Verdict only names its reason and covers the Unit.
+  const unreachableGap = (unit: UnitRef, reason: NotNeededReason) =>
+    reason === 'unreachable' ? unreachable.find((gap) => sameGap(gap, unit)) : undefined;
+  const notNeeded = (unit: UnitRef, reason: NotNeededReason) => {
+    const gap = unreachableGap(unit, reason);
+    const why = gap?.reason ?? `Verdict not-needed (${reason})`;
+    return decidedGap({ pkg, pr, path: unit.path, unit: unit.unit, lines: gap?.uncovered, decision: NOT_NEEDED_DECISIONS[reason], reason: why });
+  };
   const entries = [
-    ...declined.map((gap) => decidedGap({ pkg, pr, path: gap.path, unit: gap.unit, decision: 'declined', reason: gap.reason })),
-    ...units.flatMap(({ verdict, reason, ...unit }) =>
-      verdict === 'not-needed' && reason
-        ? [decidedGap({ pkg, pr, path: unit.path, unit: unit.unit, decision: NOT_NEEDED_DECISIONS[reason], reason: reasonText(unit, reason) })]
-        : [],
-    ),
+    ...declined.map((gap) => decidedGap({ pkg, pr, path: gap.path, unit: gap.unit, lines: gap.lines, decision: 'declined', reason: gap.reason })),
+    ...units.flatMap(({ verdict, reason, ...unit }) => (verdict === 'not-needed' && reason ? [notNeeded(unit, reason)] : [])),
   ];
   if (!entries.length) return console.log(`trial: nothing to record in ${out}`);
   saveDecisions(decisions, entries);

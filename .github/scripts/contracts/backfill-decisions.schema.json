@@ -14,7 +14,7 @@
           "package": { "type": "string", "enum": ["backend", "frontend"] },
           "path": { "type": "string", "description": "From the repo root, e.g. frontend/src/lib/http.ts.", "maxLength": 300 },
           "unit": { "type": "string", "description": "The Unit's bare name. Omitted: every Unit of the file.", "maxLength": 200 },
-          "lines": { "type": "string", "description": "The lines the decision is about, e.g. \"12-28\". For the reader; matching uses path and unit only.", "maxLength": 20 },
+          "lines": { "type": "string", "description": "The lines the decision covers, e.g. \"18, 20-22\". A gap is left out only when its records cover every line in its uncovered list. Omitted: every line of the Unit.", "maxLength": 200 },
           "decision": {
             "type": "string",
             "description": "declined: not worth testing. unreachable: no unit test can exercise it. kept-as-is: a Suspected Defect whose behaviour the owner keeps.",

@@ -37,6 +37,9 @@ Read `{package}/coverage/lcov.info`. Per file, collect:
 |---|---|
 | Uncovered line | `DA:{line},0` |
 | Uncovered branch | `BRDA` ending in `0` or `-` |
+| Uncovered function | `FNDA:0,{name}`, at the line of its `FN` |
+
+Keep the line number of every gap.
 
 ---
 
@@ -59,7 +62,7 @@ Group the gaps by Unit. Every logic file under 100% appears exactly once in the 
 ## Step 5: Write and Rank Recommendations
 
 1. **Expectations** - write each gap as an Expectation ("when X, then Y") with its Intent source.
-2. **Coverage now** - record the current lines and branches percent per Unit.
+2. **Coverage now** - record the current lines and branches percent per Unit, and the line numbers of its gaps (Step 2) as `uncovered`.
 3. **Rank** - in this order:
    1. failure paths a user sees
    2. branches that choose an outcome
@@ -75,7 +78,9 @@ End the run with the report as the structured output. Write no tests.
 
 `make backfill-gaps` renders the report as `gaps.md` and asks the owner. The approved list comes back as `approved.json` in the same shape, for the next run.
 
-Report every gap, including ones an earlier Backfill decided. `trial.ts approve` leaves out each gap recorded in `docs/backfill-decisions.json` whose file is unchanged, and lists it under **Decided earlier**. **Why:** a script matches the record the same way every time, and a changed file brings its gap back for a new decision (ADR 0008).
+Report every gap in the lists, including ones an earlier Backfill decided. `trial.ts approve` leaves out each gap whose uncovered lines are all recorded in `docs/backfill-decisions.json` for an unchanged file, and lists it under **Decided earlier**. **Why:** a script matches the record the same way every time, and a changed file brings its gap back for a new decision (ADR 0008).
+
+Read `docs/backfill-decisions.json` before you write the `summary`. Describe only the gaps whose lines it does not record, and say how many it does. **Why:** the owner reads the summary above lists that no longer hold the decided gaps; a summary naming them reads as open work.
 
 ---
 
@@ -85,7 +90,7 @@ The structured output required by `.github/scripts/contracts/gaps.schema.json`:
 
 | Field | Holds |
 |---|---|
-| `summary` | short markdown: what was measured and the biggest gaps |
-| `recommendations` | ranked as in Step 5; each with `path` from the repo root, `unit` as the bare name (no notes such as "(failure path)"), `lines` and `branches` as percent strings (e.g., `"61.25"`), and `expectations` (`text`, `source`, `kind`) |
-| `unreachable` | `path`, `unit`, and the `reason` no unit test can exercise it |
+| `summary` | short markdown: what was measured and the biggest gaps not yet decided (Step 6) |
+| `recommendations` | ranked as in Step 5; each with `path` from the repo root, `unit` as the bare name (no notes such as "(failure path)"), `lines` and `branches` as percent strings (e.g., `"61.25"`), `uncovered` as the gap's line numbers (e.g., `"18, 20-22"`), and `expectations` (`text`, `source`, `kind`) |
+| `unreachable` | `path`, `unit`, `uncovered` as for a Recommendation, and the `reason` no unit test can exercise it |
 | `out_of_scope` | `path`, and the skip rule's `reason` id from `rules.ts` |

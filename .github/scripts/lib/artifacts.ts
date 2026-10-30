@@ -54,19 +54,20 @@ export type ReviewerOutput = { summary: string; findings: Finding[]; defects: De
 // ---- gaps.json, approved.json (Backfill; enums mirror gaps.schema.json) ----
 
 export type GapExpectation = { text: string; source: string; kind: Kind };
-export type Recommendation = { path: string; unit: string; lines: string; branches: string; expectations: GapExpectation[] };
-export type UnreachableGap = { path: string; unit: string; reason: string };
+// uncovered: line numbers with an uncovered line, branch or function, e.g. "18, 20-22".
+export type Recommendation = { path: string; unit: string; lines: string; branches: string; uncovered: string; expectations: GapExpectation[] };
+export type UnreachableGap = { path: string; unit: string; uncovered: string; reason: string };
 export type OutOfScopeFile = { path: string; reason: SkipReason };
 // approved.json has the same shape, with only the Recommendations the owner approved.
 export type Gaps = { summary: string; recommendations: Recommendation[]; unreachable: UnreachableGap[]; out_of_scope: OutOfScopeFile[] };
 // declined.json: Recommendations the owner declined at approval. The PR number is not known yet, so they wait here.
-export type DeclinedGap = { path: string; unit: string; reason: string };
+export type DeclinedGap = { path: string; unit: string; lines: string; reason: string };
 
 // ---- docs/backfill-decisions.json (enum mirrors backfill-decisions.schema.json) ----
 
 export type GapDecision = 'declined' | 'unreachable' | 'kept-as-is';
-// One gap the owner decided. Without a unit it covers every Unit of the file. blob is the file's git blob id
-// when decided: once the file changes, the decision is stale and the gap is shown again.
+// One gap the owner decided. Without a unit it covers every Unit of the file; without lines, every line of the Unit.
+// blob is the file's git blob id when decided: once the file changes, the decision is stale and the gap is shown again.
 export type DecidedGap = {
   package: Pkg;
   path: string;
