@@ -96,9 +96,25 @@ function judgeFailure(messages: string[], expected: string, received: string): J
   const notAssertion = NOT_ASSERTIONS.find((rule) => lines.some((line) => rule.pattern.test(line)));
   if (notAssertion) return unproven(notAssertion.reason);
   if (!lines.some((line) => ASSERTION_START.test(line))) return unproven('the test failed with an error that is not an assertion');
-  const text = normalize(messages.join('\n').slice(0, MAX_FAILURE_TEXT));
-  const states = [expected, received].map((value) => text.includes(normalize(value)));
+  const text = compact(withoutStack(messages.join('\n').slice(0, MAX_FAILURE_TEXT)));
+  const states = [expected, received].map((value) => valueForms(value).some((form) => text.includes(form)));
   return states.every(Boolean) ? proven() : unproven("the assertion does not show the Author's expected and received values");
+}
+
+// The Author writes values in prose ("ids [2, 3, 1]: the null-dated todo comes last"); the runner prints only the value
+// ("expected [ 1, 2, 3 ] to deeply equal [ 2, 3, 1 ]"). So a value matches by its whole text or by a literal in it:
+// bracketed, braced or quoted first, else bare numbers and keywords. White space is ignored on both sides, and stack
+// lines are left out, so a line number cannot match a bare number.
+const STRUCTURED_LITERALS = /\[[^\]]*\]|\{[^}]*\}|'[^']*'/g;
+const BARE_LITERALS = /-?\d+(?:\.\d+)?|\b(?:true|false|null|undefined|nan)\b/g;
+const compact = (text: string) => normalize(text).replace(/\s+/g, '');
+const withoutStack = (text: string) => text.split('\n').filter((line) => !/^\s*at\s/.test(line)).join('\n');
+
+function valueForms(value: string): string[] {
+  const text = normalize(value);
+  const structured = text.match(STRUCTURED_LITERALS) ?? [];
+  const literals = structured.length ? structured : (text.match(BARE_LITERALS) ?? []);
+  return [text, ...literals].map((form) => form.replace(/\s+/g, '')).filter((form) => form.length > 0);
 }
 
 const MATCH_NAMES: readonly ((result: TestResult, name: string) => boolean)[] = [
