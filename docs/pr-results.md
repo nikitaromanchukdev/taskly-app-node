@@ -6,7 +6,7 @@ For the people who own a PR: how to read what the PR workflow posts, and what to
 
 Each comment has the title `### <name> · <outcome>`, where a script counts the outcome, then the analyzed commit and the run. What needs you comes first, then the tables; collapsed sections come last. 🟢 means passes, 🔴 fails or turns the status red, ⚠️ needs you but does not change the status.
 
-- **Report** (`### 🟢 Report · <status>`): the status, each Defect the Author flagged with its test, expected and received values, Intent source and the Reviewer's decision, test results, coverage of changed files, then skipped files and mutation results (information only), collapsed.
+- **Report** (`### 🟢 Report · <status>`): the status, each Defect the Author flagged with its test, expected and received values, Intent source, the Reviewer's decision and whether the Defect is proven, test results, coverage of changed files, then skipped files and mutation results (information only), collapsed. The comment is updated in place on each push, so its last section, collapsed, lists up to 10 earlier runs, newest first: analyzed commit, status, run and date. Read it to see an earlier red result that a later green one replaced.
 - **Test author**: what the Author tested. Each Unit has a Verdict, a kind (intent, characterization, or mixed with the number of tests of each), its tests and the number of attempts. Each Defect the Author flagged is one line, with expected and received values and its Intent source. The Author's own summary is last, collapsed, and is not checked: trust the table.
 - **Test reviewer**: the Reviewer's decision on each Defect, with its source quote, and its Findings. The Reviewer's own summary is last, collapsed.
 
@@ -16,11 +16,15 @@ Read the quotes and the Intent sources they cite. The agents can be wrong.
 
 ## When a Defect is reported
 
-A confirmed Defect means the code contradicts an Intent source. Fix the source code, then push. The workflow's agents never change source code; they report Defects. The next PR run writes the test again.
+A confirmed and proven Defect means the code contradicts an Intent source and its test failed in the suites run. A confirmed Defect marked unproven is a warning: read the reason shown, and check the code yourself. Fix the source code, then push. The workflow's agents never change source code; they report Defects. The next PR run writes the test again.
+
+A confirmed Defect with no test (the Report says the Author removed it) turns the status red too: the Reviewer confirmed the code contradicts an Intent source, but no test proves it. Check the code against the Reviewer's quote and fix it, or re-run the workflow with a dispatch (see [SOLUTION.md](../SOLUTION.md#how-to-run-the-pr-workflow)) to get the test.
 
 If you think the Intent source is wrong, fix the source in the same PR and explain why in the PR description. Do not change a test to match the code.
 
 A rejected Defect is only a warning. Read the Reviewer's quote, then decide.
+
+A flaky test is a test the Bot commit added that failed in one of the `suites` job's shuffled reruns; it turns the status red. The Report names the file and the failing tests. Delete that test file or fix the test, then push.
 
 A Suspected Defect is behaviour that looks wrong but that no Intent source states. Only a Backfill reports them for now, in its Defects comment. It never changes the status. Decide which behaviour is intended: fix the code, or state the current behaviour in the PR description.
 
