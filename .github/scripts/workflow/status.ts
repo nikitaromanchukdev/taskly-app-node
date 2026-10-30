@@ -70,7 +70,7 @@ function verifyFailure(run: Run): string | undefined {
 
 function headline(run: Run): string {
   if (!run.context.run_agent) return 'no agent run; suites pass';
-  const rejected = new Set(run.checked?.reviewRejected ?? []);
+  const rejected = new Set([...(run.checked?.reviewRejected ?? []), ...(run.checked?.checkRejected ?? []).map(({ unit }) => unit)]);
   const tested = (run.author?.units ?? []).filter((unit) => writesTests(unit.verdict) && !rejected.has(unitKey(unit))).length;
   const unproven = unprovenDefects(run).length;
   return `${plural(tested, 'unit')} tested, ${plural(provenDefects(run).length, 'proven defect')}${unproven ? `, ${plural(unproven, 'unproven defect')}` : ''}`;

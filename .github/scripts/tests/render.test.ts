@@ -135,7 +135,7 @@ const agentRun = (summaries: { author?: string; reviewer?: string } = {}): Run =
       { test: 'backend/tests/kept.test.ts > works', severity: 'advisory', reason: 'weak-assertion', note: 'loose' },
     ],
   },
-  checked: { ok: true, errors: [], dropFiles: [], reviewRejected: [unitKey(tested('dropped'))], missingDefectTests: [], unknownNames: { author: [], reviewer: [] } },
+  checked: { ok: true, errors: [], dropFiles: [], reviewRejected: [unitKey(tested('dropped'))], checkRejected: [], missingDefectTests: [], unknownNames: { author: [], reviewer: [] } },
   results,
   proof: [{ path: flagged.path, unit: flagged.unit, state: 'proven', reason: '' }],
 });
@@ -168,6 +168,18 @@ describe('one format for every comment', () => {
   it('the Test author title counts the Units in the structured output, not what the summary says', () => {
     assert.equal(titleOf('author', agentRun()), '### Test author · 1 Unit tested, 1 not needed, 1 review-rejected, 1 Defect flagged');
     assert.equal(titleOf('author', { ...agentRun(), author: { summary: '', units: [] } }), '### Test author · 0 Units tested');
+  });
+
+  it('the Test author comment marks check-rejected Units with their sanitized reasons', () => {
+    const run = agentRun();
+    const checkRejected = [{ unit: unitKey(tested('kept')), errors: ['bad name <script>alert(1)</script>', 'two', 'three', 'four'] }];
+    const withCheck: Run = { ...run, checked: { ...run.checked!, checkRejected } };
+    const body = render('author', withCheck);
+    assert.match(body, /\(check-rejected\)/);
+    assert.match(body, /1 check-rejected/);
+    assert.match(body, /Check-rejected:/);
+    assert.match(body, /… 1 more/);
+    assert.ok(!body.includes('<script>'));
   });
 
   it('the Test reviewer title counts Defect decisions and Findings', () => {
@@ -283,7 +295,7 @@ describe('agent comments when a summary names something the run does not contain
     scope: scope([candidate]),
     author: { summary: 'Tested `TodoStore.stats()`.', units: [] },
     reviewer: { summary: 'Reviewed `TodoStore.stats()`.', findings: [], defects: [] },
-    checked: { ok: true, errors: [], dropFiles: [], reviewRejected: [], missingDefectTests: [], unknownNames },
+    checked: { ok: true, errors: [], dropFiles: [], reviewRejected: [], checkRejected: [], missingDefectTests: [], unknownNames },
   });
   const comment = (name: CommentName, run: Run) => RENDERERS[name]({ run, status: { state: 'success', description: '' }, repo: REPO });
   const WARNING = /⚠️ The (Author|Reviewer)'s notes name `TodoStore\.stats\(\)`, which no Unit, test or file of this run contains/;

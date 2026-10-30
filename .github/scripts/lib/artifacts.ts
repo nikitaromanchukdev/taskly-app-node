@@ -86,11 +86,15 @@ export type SummaryAgent = 'author' | 'reviewer';
 // Per agent: backticked names in its summary that no Unit, test or file of the run contains (report-only).
 export type UnknownNames = Record<SummaryAgent, string[]>;
 
+// A Unit whose own content failed a check, or that shares a test file with one that did (report-only state).
+export type CheckRejected = { unit: string; errors: string[] }; // unit is its unitKey
+
 export type Checked = {
   ok: boolean;
   errors: string[];
-  dropFiles: string[]; // test files with a blocking finding, and new files holding a flagged Defect's failing test
+  dropFiles: string[]; // test files with a blocking finding or of a check-rejected Unit, and new files holding a flagged Defect's failing test
   reviewRejected: string[]; // unitKey of units whose tests live in a file with a blocking finding (report-only state)
+  checkRejected: CheckRejected[]; // Units left out of the Bot commit by a Unit-level check (name, test kind, test file); their test files are in dropFiles
   missingDefectTests: string[]; // unitKey of flagged Defects whose test is in no file of the patch (the Author removed it)
   unknownNames: UnknownNames;
 };

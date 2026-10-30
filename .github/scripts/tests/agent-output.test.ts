@@ -98,11 +98,22 @@ const rejects = (inputs: Inputs, error: RegExp) => {
   assert.match(outcome.stderr, error);
 };
 
+// A slip in one Unit's own content: the run stays valid, the Unit is check-rejected and its test files are dropped.
+const isolates = (inputs: Inputs, error: RegExp, dropped: string[] = ['backend/tests/todos.test.ts']) => {
+  const outcome = check(inputs);
+  assert.equal(outcome.code, 0);
+  assert.equal(outcome.checked.ok, true);
+  assert.deepEqual(outcome.checked.dropFiles, dropped);
+  assert.match(outcome.checked.checkRejected.flatMap(({ errors }) => errors).join('\n'), error);
+  assert.match(outcome.stderr, /check-rejected backend\/src\/.+#/);
+  return outcome;
+};
+
 describe('agent-output.ts', () => {
   it('accepts valid output and drops nothing', () => {
     const outcome = check({ author: author(unit()), reviewer: reviewer() });
     assert.equal(outcome.code, 0);
-    assert.deepEqual(outcome.checked, { ok: true, errors: [], dropFiles: [], reviewRejected: [], missingDefectTests: [], unknownNames: { author: [], reviewer: [] } });
+    assert.deepEqual(outcome.checked, { ok: true, errors: [], dropFiles: [], reviewRejected: [], checkRejected: [], missingDefectTests: [], unknownNames: { author: [], reviewer: [] } });
   });
 
   it('rejects output that breaks the schema', () => {
@@ -114,22 +125,66 @@ describe('agent-output.ts', () => {
     rejects({ author: author(unit({ attempts: 4 })), reviewer: reviewer() }, /attempts 4 outside 0\.\.3/);
   });
 
-  it('rejects an intent test whose name says characterization', () => {
+  it('check-rejects an intent test whose name says characterization', () => {
     const expectations = [{ text: 'sorts by id', source: 'PR body', kind: 'intent' as const, tests: [CHARACTERIZATION_TEST] }];
-    rejects({ author: author(unit({ expectations })), reviewer: reviewer() }, /kind intent, so its name must not start with/);
+    isolates({ author: author(unit({ expectations })), reviewer: reviewer() }, /kind intent, so its name must not start with/);
   });
 
-  it('rejects a characterization test whose name does not say so', () => {
+  it('check-rejects a characterization test whose name does not say so', () => {
     const expectations = [{ text: 'counts open todos', source: 'none', kind: 'characterization' as const, tests: [TEST] }];
-    rejects({ author: author(unit({ expectations })), reviewer: reviewer() }, /kind characterization, so its name must start with/);
+    isolates({ author: author(unit({ expectations })), reviewer: reviewer() }, /kind characterization, so its name must start with/);
   });
 
-  it('rejects a test listed under two Expectations', () => {
+  it('check-rejects a test listed under two Expectations', () => {
     const expectations = [
       { text: 'a', source: 'PR body', kind: 'intent' as const, tests: [TEST] },
       { text: 'b', source: 'PR body', kind: 'intent' as const, tests: [TEST] },
     ];
-    rejects({ author: author(unit({ expectations })), reviewer: reviewer() }, /listed under more than one Expectation/);
+    isolates({ author: author(unit({ expectations })), reviewer: reviewer() }, /listed under more than one Expectation/);
+  });
+
+  // Live run 41056516386: one Unit's name slip and one test-kind slip made the whole output invalid.
+  describe('isolates a Unit with its own slip', () => {
+    const other = unit({ path: 'backend/src/stats.ts', unit: 'stats', expectations: [{ text: 'counts overdue', source: 'PR body', kind: 'intent', tests: ['backend/tests/stats.test.ts > counts overdue todos'] }] });
+
+    it('keeps the other Units and their files', () => {
+      const outcome = isolates({ author: author(unit({ unit: 'countClosed' }), other), reviewer: reviewer() }, /countClosed does not appear/);
+      assert.deepEqual(outcome.checked.checkRejected.map(({ unit }) => unit), ['backend/src/todos.ts#countClosed']);
+    });
+
+    it('lists the slips of several Units, each with its errors', () => {
+      const bad = unit({ unit: 'countClosed', expectations: [{ text: 'a', source: 'PR body', kind: 'intent', tests: [CHARACTERIZATION_TEST] }] });
+      const outcome = check({ author: author(bad), reviewer: reviewer() });
+      assert.equal(outcome.checked.checkRejected[0].errors.length, 2);
+    });
+
+    it('marks another Unit that has tests in the dropped file', () => {
+      const sharing = unit({ path: 'backend/src/stats.ts', unit: 'stats', expectations: [{ text: 'counts overdue', source: 'PR body', kind: 'intent', tests: ['backend/tests/todos.test.ts > counts overdue'] }] });
+      const outcome = check({ author: author(unit({ unit: 'countClosed' }), sharing), reviewer: reviewer() });
+      assert.equal(outcome.code, 0);
+      assert.deepEqual(outcome.checked.checkRejected.map(({ unit }) => unit), ['backend/src/todos.ts#countClosed', 'backend/src/stats.ts#stats']);
+      assert.match(outcome.checked.checkRejected[1].errors[0], /test file "backend\/tests\/todos\.test\.ts" is left out of the Bot commit/);
+      assert.deepEqual(outcome.checked.dropFiles, ['backend/tests/todos.test.ts']);
+    });
+
+    it('stays invalid when a run-level error comes with it', () => {
+      const outcome = check({ author: author(unit({ unit: 'countClosed', attempts: 4 })), reviewer: reviewer() });
+      assert.equal(outcome.code, 1);
+      assert.equal(outcome.checked.ok, false);
+      assert.match(outcome.stderr, /attempts 4 outside 0\.\.3/);
+      assert.match(outcome.stderr, /countClosed does not appear/);
+    });
+
+    it('still proves a Defect of a Unit with a slip: its new test file is dropped and the Defect test is not missing', () => {
+      const test = 'backend/tests/stats-defect.test.ts > due today is not overdue';
+      const bad = { ...flagged(test), unit: 'stats', expectations: [{ text: 'a', source: 'PR body', kind: 'intent' as const, tests: [CHARACTERIZATION_TEST] }] };
+      const patch = addedFile('backend/tests/stats-defect.test.ts', ["it('due today is not overdue', () => {})"]);
+      const outcome = check({ author: author(bad), reviewer: reviewer([], [confirmed]), patch });
+      assert.equal(outcome.code, 0);
+      assert.deepEqual(outcome.checked.dropFiles.sort(), ['backend/tests/stats-defect.test.ts', 'backend/tests/todos.test.ts']);
+      assert.deepEqual(outcome.checked.missingDefectTests, []);
+      assert.equal(outcome.checked.checkRejected.length, 1);
+    });
   });
 
   it('rejects a tested Unit with no tests', () => {
@@ -214,22 +269,22 @@ describe('agent-output.ts', () => {
     assert.deepEqual(outcome.checked.missingDefectTests, []);
   });
 
-  it('rejects a Unit whose name is not in its file', () => {
-    rejects({ author: author(unit({ unit: 'countClosed' })), reviewer: reviewer() }, /countClosed does not appear in backend\/src\/todos\.ts/);
+  it('check-rejects a Unit whose name is not in its file', () => {
+    isolates({ author: author(unit({ unit: 'countClosed' })), reviewer: reviewer() }, /countClosed does not appear in backend\/src\/todos\.ts/);
   });
 
-  it('rejects a Unit whose file is not in the checkout', () => {
-    rejects({ author: author(unit({ path: 'backend/src/missing.ts' })), reviewer: reviewer() }, /backend\/src\/missing\.ts is not in the checkout/);
+  it('check-rejects a Unit whose file is not in the checkout', () => {
+    isolates({ author: author(unit({ path: 'backend/src/missing.ts' })), reviewer: reviewer() }, /backend\/src\/missing\.ts is not in the checkout/);
   });
 
-  it('rejects a Unit whose path leaves the checkout, even when a file is there', () => {
+  it('check-rejects a Unit whose path leaves the checkout, even when a file is there', () => {
     const dir = tempDir();
     writeTree(dir, { 'outside.ts': 'export function countOpen() {}' });
     writeTree(join(dir, 'head'), TREE);
     writeFileSync(join(dir, 'author.json'), JSON.stringify(author(unit({ path: '../outside.ts' }))));
     writeFileSync(join(dir, 'reviewer.json'), JSON.stringify(reviewer()));
     const result = runScript('workflow/agent-output.ts', [join(dir, 'author.json'), '--reviewer', join(dir, 'reviewer.json'), '--root', join(dir, 'head'), '--max-attempts', '3']);
-    assert.equal(result.code, 1);
+    assert.equal(result.code, 0);
     assert.match(result.stderr, /\.\.\/outside\.ts is not in the checkout/);
   });
 
@@ -249,9 +304,9 @@ describe('agent-output.ts', () => {
     rejects({ author: author(flagged('sortForTriage null due date > puts todos without a due date last')), reviewer: reviewer([], [confirmed]) }, /defect\.test: "sortForTriage null due date > .*" does not match/);
   });
 
-  it('rejects a test with a full path to a file that is in neither the checkout nor the patch', () => {
+  it('check-rejects a test with a full path to a file that is in neither the checkout nor the patch', () => {
     const expectations = [{ text: 'counts open todos', source: 'PR body', kind: 'intent' as const, tests: ['backend/tests/missing.test.ts > counts open todos'] }];
-    rejects({ author: author(unit({ expectations })), reviewer: reviewer() }, /test file "backend\/tests\/missing\.test\.ts" is in neither the checkout nor the patch/);
+    isolates({ author: author(unit({ expectations })), reviewer: reviewer() }, /test file "backend\/tests\/missing\.test\.ts" is in neither the checkout nor the patch/, ['backend/tests/missing.test.ts']);
   });
 
   it('accepts a test file that only the patch creates', () => {
