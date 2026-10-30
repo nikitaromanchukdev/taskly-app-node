@@ -66,6 +66,7 @@ checks() {
   group "$pkg" "tests with coverage" npx vitest run --coverage --coverage.reportOnFailure --reporter=default --reporter=json \
     --outputFile.json="$out/$pkg.vitest.json" || failed=1
   cp coverage/coverage-summary.json "$out/$pkg.coverage.json"
+  cp coverage/lcov.info "$out/$pkg.lcov.info" # line hits, for the changed-lines figure
   summary+=("$pkg: typecheck $typecheck, $(suite_summary "$out/$pkg.vitest.json")")
   flaky_check "$pkg"
 }

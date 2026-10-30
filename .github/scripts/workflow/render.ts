@@ -29,6 +29,8 @@ const DEFECT_LABELS: Record<DefectLabel, string> = {
 const DECISION_LABELS: Record<DefectDecision, string> = { confirmed: '🔴 confirmed', rejected: '⚠️ rejected' };
 const SEVERITY_LABELS: Record<Severity, string> = { blocking: '⚠️ blocking', advisory: 'advisory' };
 const MAX_SURVIVORS = 20;
+// Ranges of uncovered changed lines listed per file in the Report.
+const MAX_UNCOVERED_RANGES = 10;
 const TEST_MISSING = 'no test: the Author removed the Defect test instead of moving it to a file of its own. The Reviewer still confirmed it: check the code against its quote, or re-run the workflow to get the test';
 
 // ---- Shared parts ----
@@ -171,6 +173,19 @@ function resultLines(results: Results | undefined, repo: string): string[] {
   return ['#### Test results', ...table(['Check', 'Result'], rows, 'No checks.'), ''];
 }
 
+// Sorted line numbers as "3-5, 9, 12-13", at most `max` ranges, then "… N more".
+export function lineRanges(lines: number[], max: number): string {
+  const ranges: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    let end = i;
+    while (lines[end + 1] === lines[end] + 1) end++;
+    ranges.push(end > i ? `${lines[i]}-${lines[end]}` : `${lines[i]}`);
+    i = end;
+  }
+  const more = ranges.length - max;
+  return more > 0 ? `${ranges.slice(0, max).join(', ')}, … ${more} more` : ranges.join(', ');
+}
+
 function coverageLines(run: Run, repo: string): string[] {
   const change = (before?: number, after?: number) =>
     before === undefined && after === undefined ? 'n/a' : `${before ?? 'n/a'} → ${after ?? 'n/a'}`;
@@ -178,9 +193,17 @@ function coverageLines(run: Run, repo: string): string[] {
     const key = packageRelative(candidate);
     const before = run.results?.coverage.baseline[candidate.package]?.[key];
     const after = run.results?.coverage.final[candidate.package]?.[key];
-    return [code(candidate.path, repo), change(before?.lines, after?.lines), change(before?.branches, after?.branches)];
+    const changed = run.results?.changedLines?.[candidate.path];
+    return [
+      code(candidate.path, repo),
+      changed ? `${changed.covered}/${changed.total}` : 'n/a',
+      changed?.uncovered.length ? lineRanges(changed.uncovered, MAX_UNCOVERED_RANGES) : '',
+      change(before?.lines, after?.lines),
+      change(before?.branches, after?.branches),
+    ];
   });
-  return ['#### Coverage of changed files', ...table(['File', 'Lines %', 'Branches %'], rows, 'No changed source files.'), ''];
+  const headers = ['File', 'Changed lines covered', 'Uncovered changed lines', 'File lines %', 'File branches %'];
+  return ['#### Coverage of changed files', ...table(headers, rows, 'No changed source files.'), ''];
 }
 
 function mutationLines(results: Results | undefined, repo: string): string[] {

@@ -207,6 +207,27 @@ describe('one format for every comment', () => {
     assert.deepEqual(positions, [...positions].sort((a, b) => a - b));
   });
 
+  describe('changed lines in the coverage table', () => {
+    const withChanged = (changedLines?: Results['changedLines']): Run => ({ ...agentRun(), results: { ...results, changedLines } });
+    const row = (body: string) => body.split('\n').find((line) => line.startsWith('|') && line.includes('backend/src/todos.ts')) ?? '';
+
+    it('shows covered/total and the uncovered lines as ranges', () => {
+      const body = render('report', withChanged({ 'backend/src/todos.ts': { covered: 4, total: 9, uncovered: [3, 4, 5, 9, 12, 13] } }));
+      assert.ok(row(body).includes('| 4/9 | 3-5, 9, 12-13 |'), body);
+    });
+
+    it('caps the ranges at 10 and counts the rest', () => {
+      const uncovered = Array.from({ length: 13 }, (_, i) => 2 * i + 1);
+      const body = render('report', withChanged({ 'backend/src/todos.ts': { covered: 0, total: 13, uncovered } }));
+      assert.ok(row(body).includes('19, … 3 more |'), row(body));
+      assert.ok(!row(body).includes('21'), row(body));
+    });
+
+    it('says n/a when there is no figure for the file', () => {
+      assert.ok(row(render('report', withChanged())).includes('| n/a |'), 'no figure');
+    });
+  });
+
   it('the Report says per Defect whether it is proven, and warns for a confirmed Defect that is not', () => {
     const proofOf = (state: 'proven' | 'unproven', reason: string): Run => ({ ...agentRun(), proof: [{ path: flagged.path, unit: flagged.unit, state, reason }] });
     const proven = render('report', proofOf('proven', ''));

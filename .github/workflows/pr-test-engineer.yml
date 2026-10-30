@@ -489,7 +489,7 @@ jobs:
           [ -d "$OUT/reports" ] || { echo "no reports artifact"; exit 0; }
           base=()
           [ -d "$OUT/reports/baseline" ] && base=(--baseline-tree "$GITHUB_WORKSPACE/head")
-          node .github/scripts/workflow/results.ts "$OUT/reports" --final-tree "$GITHUB_WORKSPACE/final" "${base[@]}" --out "$OUT/results.json"
+          node .github/scripts/workflow/results.ts "$OUT/reports" --final-tree "$GITHUB_WORKSPACE/final" "${base[@]}" --scope "$OUT/scope.json" --out "$OUT/results.json"
       # A Defect is proven when its test failed with an assertion that shows the Author's values. Without a report, or
       # when this step fails, every Defect stays unproven and does not turn the status red.
       - name: Decide which Defects are proven
