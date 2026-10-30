@@ -18,7 +18,7 @@ export const COMMENTS: readonly CommentName[] = ['report', 'author', 'reviewer']
 export const marker = (name: CommentName) => `<!-- pr-test-engineer:${name} -->`;
 
 // The only emoji in the comments: 🟢 passes, 🔴 fails or turns the status red, ⚠️ needs a person but leaves the status as it is.
-const STATUS_EMOJI: Record<StatusState, string> = { success: '🟢', failure: '🔴' };
+export const STATUS_EMOJI: Record<StatusState, string> = { success: '🟢', failure: '🔴' };
 const CHECK_LABELS: Record<Check, string> = { pass: '🟢 pass', fail: '🔴 fail', skipped: 'skipped' };
 const DEFECT_LABELS: Record<DefectLabel, string> = {
   confirmed: '🔴 confirmed',

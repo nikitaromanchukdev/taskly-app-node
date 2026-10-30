@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import type { Context, Proof, Run } from '../lib/artifacts.ts';
 import { die } from '../lib/cli.ts';
+import { entryOf, mergeHistory, parseHistory, renderHistory } from './history.ts';
 import { githubFromEnv } from './github.ts';
 import type { GitHub } from './github.ts';
 import { readJsonIfExists, writeJson } from '../lib/json.ts';
@@ -25,13 +26,24 @@ const BOT_LOGIN = 'github-actions[bot]';
 const MAX_COMMENT = 60000;
 const MAX_COMMENT_PAGES = 20;
 
-async function upsert(gh: GitHub, repo: string, pr: number, name: CommentName, body: string) {
-  const text = truncate(body, MAX_COMMENT);
+// Room kept in the Report comment for its run history, which is added after the body is cut to size.
+const HISTORY_ROOM = 12000;
+
+// `build` gets the body of the comment being replaced, if there is one, and returns the new body.
+async function upsert(gh: GitHub, repo: string, pr: number, name: CommentName, build: (previous: string | undefined) => string) {
   const comments = await gh.paginate<IssueComment>(`/repos/${repo}/issues/${pr}/comments`, MAX_COMMENT_PAGES);
   const mine = comments.find((comment) => comment.user?.login === BOT_LOGIN && comment.body?.startsWith(marker(name)));
+  const text = build(mine?.body);
   return mine
     ? gh.request(`/repos/${repo}/issues/comments/${mine.id}`, { method: 'PATCH', body: { body: text } })
     : gh.request(`/repos/${repo}/issues/${pr}/comments`, { method: 'POST', body: { body: text } });
+}
+
+// The Report gets its run history after the body, so a cut body never loses it. The other comments have none.
+function commentBody(name: CommentName, body: string, previous: string | undefined, context: Context, status: Status, repo: string): string {
+  if (name !== 'report') return truncate(body, MAX_COMMENT);
+  const entries = mergeHistory(parseHistory(previous, repo), entryOf(context, status, new Date(), repo));
+  return truncate(body, MAX_COMMENT - HISTORY_ROOM) + '\n' + renderHistory(entries, repo);
 }
 
 async function post(gh: GitHub, repo: string, context: Context, status: Status, bodies: Record<CommentName, string>) {
@@ -39,7 +51,7 @@ async function post(gh: GitHub, repo: string, context: Context, status: Status, 
     method: 'POST',
     body: { state: status.state, context: STATUS_CONTEXT, description: status.description, target_url: context.run_url },
   });
-  for (const name of COMMENTS) await upsert(gh, repo, context.pr, name, bodies[name]);
+  for (const name of COMMENTS) await upsert(gh, repo, context.pr, name, (previous) => commentBody(name, bodies[name], previous, context, status, repo));
 }
 
 function loadRun(dir: string): Run {
