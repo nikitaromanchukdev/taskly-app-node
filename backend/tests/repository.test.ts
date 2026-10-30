@@ -30,6 +30,20 @@ it('computes stats from all listed tasks as of today (UTC)', async () => {
     vi.useRealTimers();
   }
 });
+it('lists open tasks due soon as of today (UTC), sorted by due date', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-10-16T08:00:00.000Z'));
+  try {
+    const { database, repository } = setup();
+    const due = (id: number, day: string) => ({ ...record, id, due_date: new Date(`${day}T00:00:00.000Z`) });
+    vi.spyOn(database.todo, 'findMany').mockResolvedValue([
+      due(1, '2026-10-18'), due(2, '2026-10-17'), due(3, '2026-10-01'), due(4, '2026-12-01'), { ...due(5, '2026-10-17'), completed: true },
+    ]);
+    expect((await repository.dueSoon(3)).map((t) => t.id)).toEqual([2, 1]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
 it('gets a task by ID and handles missing tasks', async () => {
   const { database, repository } = setup();
   const findUnique = vi.spyOn(database.todo, 'findUnique').mockResolvedValueOnce(record).mockResolvedValueOnce(null);
