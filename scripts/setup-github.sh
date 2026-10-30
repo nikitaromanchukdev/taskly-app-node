@@ -55,10 +55,11 @@ app_config() {
   echo "Then, on the App page: \"Generate a private key\" (a .pem file downloads), and \"Install App\" on this repository only."
   echo "The Client ID is on the App page (starts with Iv)."
   client_id="$(gh variable get "$app_client_variable" --env "$environment" 2> /dev/null || true)"
-  read -rp "App Client ID [$client_id]: " value || die "no input"
+  read -erp "App Client ID [$client_id]: " value || die "no input"
   client_id="${value:-$client_id}"
   [[ -n "$client_id" ]] || die "the App Client ID is required"
-  read -rp "Path of the private key .pem (Enter keeps the existing key, and skips the installation check): " key_file || die "no input"
+  read -erp "Path of the private key .pem (Enter keeps the existing key, and skips the installation check): " key_file || die "no input"
+  key_file="${key_file/#\~/$HOME}" # a typed ~ is not expanded by read
   if [[ -z "$key_file" ]]; then
     gh secret list --env "$environment" --json name -q '.[].name' | grep -qx "$app_key_secret" || die "$app_key_secret is not set in Environment $environment yet"
     echo "secret $app_key_secret kept; the App and its installation are not checked"
@@ -91,13 +92,13 @@ app_config() {
 
 config() {
   local secret value current name id policies
-  read -rp "Model secret name [ANTHROPIC_API_KEY | CLAUDE_CODE_OAUTH_TOKEN] (Enter = ANTHROPIC_API_KEY): " secret
+  read -erp "Model secret name [ANTHROPIC_API_KEY | CLAUDE_CODE_OAUTH_TOKEN] (Enter = ANTHROPIC_API_KEY): " secret
   secret="${secret:-ANTHROPIC_API_KEY}"
   read -rsp "$secret value (hidden, Enter keeps the existing one): " value || true
   echo
   # The model secret lives in the Environment, which only the main branch may deploy to (ADR 0004).
-  gh api -X PUT "repos/$repo/environments/$environment" -F deployment_branch_policy[protected_branches]=false \
-    -F deployment_branch_policy[custom_branch_policies]=true > /dev/null
+  gh api -X PUT "repos/$repo/environments/$environment" -F "deployment_branch_policy[protected_branches]=false" \
+    -F "deployment_branch_policy[custom_branch_policies]=true" > /dev/null
   policies="$(gh api "repos/$repo/environments/$environment/deployment-branch-policies" -q .branch_policies)"
   for id in $(jq -r '.[] | select(.name != "main") | .id' <<< "$policies"); do
     gh api -X DELETE "repos/$repo/environments/$environment/deployment-branch-policies/$id"
@@ -119,7 +120,7 @@ config() {
 
   for name in "${budget_vars[@]}"; do
     current="$(gh variable get "$name" 2> /dev/null || true)"
-    read -rp "$name [$current]: " value || die "no input"
+    read -erp "$name [$current]: " value || die "no input"
     value="${value:-$current}"
     [[ -n "$value" ]] || die "$name is required"
     gh variable set "$name" --body "$value"
