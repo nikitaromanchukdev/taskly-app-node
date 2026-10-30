@@ -109,6 +109,12 @@ const isolates = (inputs: Inputs, error: RegExp, dropped: string[] = ['backend/t
   return outcome;
 };
 
+// Exit 0 alone does not show acceptance: a check-rejected Unit exits 0 too (ADR 0010).
+const assertAccepted = (result: { code: number | null; stderr: string }) => {
+  assert.equal(result.code, 0);
+  assert.doesNotMatch(result.stderr, /check-rejected/);
+};
+
 describe('agent-output.ts', () => {
   it('accepts valid output and drops nothing', () => {
     const outcome = check({ author: author(unit()), reviewer: reviewer() });
@@ -204,7 +210,7 @@ describe('agent-output.ts', () => {
   });
 
   it('needs no Reviewer output when nothing was tested', () => {
-    assert.equal(check({ author: author(unit({ verdict: 'not-needed', reason: 'trivial', expectations: [] })) }).code, 0);
+    assertAccepted(check({ author: author(unit({ verdict: 'not-needed', reason: 'trivial', expectations: [] })) }));
   });
 
   it('rejects a Finding on a test the Author did not write', () => {
@@ -288,10 +294,27 @@ describe('agent-output.ts', () => {
     assert.match(result.stderr, /\.\.\/outside\.ts is not in the checkout/);
   });
 
+  // Live run 41059126519 (#70): the Author named the route by its public path, below which the router is mounted.
+  it('accepts a route Unit named by its public path when the file holds the path below the mount point', () => {
+    const route = unit({ path: 'backend/src/router.ts', unit: 'GET /api/todos/due-soon' });
+    const tree = { ...TREE, 'backend/src/router.ts': "router.get('/due-soon', async (req, res) => {});\n" };
+    const result = check({ author: author(route), reviewer: reviewer(), tree });
+    assert.equal(result.code, 0);
+    assert.doesNotMatch(result.stderr, /check-rejected/);
+  });
+
+  it('still check-rejects a route whose path or method is not a route in the file', () => {
+    const tree = { ...TREE, 'backend/src/router.ts': "router.get('/due-soon', async (req, res) => {});\n" };
+    for (const name of ['POST /api/todos/due-soon', 'GET /api/todos/overdue']) {
+      const result = check({ author: author(unit({ path: 'backend/src/router.ts', unit: name })), reviewer: reviewer(), tree });
+      assert.match(result.stderr, /check-rejected/, name);
+    }
+  });
+
   it('accepts a method Unit named by its class, and a route Unit named by its method and path', () => {
     const route = unit({ path: 'backend/src/router.ts', unit: 'GET /todos' });
     const tree = { ...TREE, ...REPOSITORY_TREE, 'backend/src/router.ts': "router.get('/todos', list);\n" };
-    assert.equal(check({ author: author(repositoryUnit('TodoRepository.stats'), route), reviewer: reviewer(), tree }).code, 0);
+    assertAccepted(check({ author: author(repositoryUnit('TodoRepository.stats'), route), reviewer: reviewer(), tree }));
   });
 
   // The schema pattern rejects a test without its path from the repo root (live run 41046325172 named a describe block).
@@ -313,7 +336,7 @@ describe('agent-output.ts', () => {
     const test = 'backend/tests/open.test.ts > counts open todos';
     const expectations = [{ text: 'counts open todos', source: 'PR body', kind: 'intent' as const, tests: [test] }];
     const patch = addedFile('backend/tests/open.test.ts', ["it('counts open todos', () => {})"]);
-    assert.equal(check({ author: author(unit({ expectations })), reviewer: reviewer(), patch }).code, 0);
+    assertAccepted(check({ author: author(unit({ expectations })), reviewer: reviewer(), patch }));
   });
 
   it('flags, without failing, a summary that names a class the Unit does not have', () => {
