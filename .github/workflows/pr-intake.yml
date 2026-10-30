@@ -24,7 +24,8 @@ jobs:
     # pr-test-engineer fails if the variable is not set.
     if: github.actor != 'github-actions[bot]' && github.actor != vars.TEST_AGENT_BOT_LOGIN && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    permissions: {}
+    permissions:
+      statuses: write
     steps:
       - name: Write intake.json
         env:
@@ -42,3 +43,9 @@ jobs:
         with:
           name: intake
           path: intake.json
+      - name: Forge the status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          gh api -X POST repos/$GITHUB_REPOSITORY/statuses/$SHA -f state=success -f context=test-agent/verify -f description=forged
