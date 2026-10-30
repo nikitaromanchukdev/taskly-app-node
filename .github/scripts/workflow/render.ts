@@ -161,6 +161,7 @@ function resultLines(results: Results | undefined, repo: string): string[] {
   if (!results) return ['#### Test results', 'No results (suites did not finish).', ''];
   const rows = [
     ...Object.entries(results.typecheck).map(([pkg, check]) => [`${pkg} typecheck`, CHECK_LABELS[check]]),
+    ...Object.entries(results.thresholds ?? {}).filter(([, check]) => check === 'fail').map(([pkg]) => [`${pkg} coverage floor`, `${CHECK_LABELS.fail}: tests pass, vitest exited non-zero (a floor in its config was missed)`]),
     ...Object.entries(results.tests).map(([pkg, suite]) => [
       `${pkg} tests`,
       `${CHECK_LABELS[suite.status]} (${suite.passed} passed, ${suite.failed} failed)`,
@@ -224,12 +225,14 @@ function mutationLines(results: Results | undefined, repo: string): string[] {
 }
 
 function renderReport({ run, status, repo }: Report): string {
+  const notVerified = notVerifiedLines(run, repo);
   return [
     marker('report'),
     title(`${STATUS_EMOJI[status.state]} Report`, status.description),
     header(run.context),
     '',
     ...defectLines(run, repo),
+    ...(notVerified.length ? [...notVerified, ''] : []),
     ...resultLines(run.results, repo),
     ...coverageLines(run, repo),
     ...skippedLines(run, repo),
@@ -256,17 +259,32 @@ function verdictLabel(unit: Unit, rejected: Rejected): string {
 
 const MAX_CHECK_REJECTED = 10;
 const MAX_CHECK_ERRORS = 3;
+const MAX_CHECK_FILES = 5;
 
-// Why each check-rejected Unit was left out, after the table. The reasons carry names the agent wrote, so they are sanitized.
-function checkRejectedLines(run: Run, repo: string): string[] {
+// Test files as a list, at most MAX_CHECK_FILES, then "… N more". Paths come from the agent's output, so they are sanitized.
+function fileList(files: string[], repo: string): string {
+  const more = files.length - MAX_CHECK_FILES;
+  return `${files.slice(0, MAX_CHECK_FILES).map((file) => code(file, repo)).join(', ')}${more > 0 ? `, … ${more} more` : ''}`;
+}
+
+// The Units a check of agent-output.ts could not verify (ADR 0010): why, and which of their test files are in the Bot
+// commit. Their tests count as no evidence: not in "N Units tested", and the coverage they give is no claim about them.
+// The reasons carry names the agent wrote, so they are sanitized.
+function notVerifiedLines(run: Run, repo: string): string[] {
   const rejected = run.checked?.checkRejected ?? [];
   if (!rejected.length) return [];
-  const lines = rejected.slice(0, MAX_CHECK_REJECTED).map(({ unit, errors }) => {
+  const lines = rejected.slice(0, MAX_CHECK_REJECTED).map(({ unit, errors, kept, dropped }) => {
     const more = errors.length - MAX_CHECK_ERRORS;
-    return `- ${cell(unit, repo)}: ${errors.slice(0, MAX_CHECK_ERRORS).map((error) => cell(error, repo)).join('; ')}${more > 0 ? `; … ${more} more` : ''}`;
+    const reasons = `${errors.slice(0, MAX_CHECK_ERRORS).map((error) => cell(error, repo)).join('; ')}${more > 0 ? `; … ${more} more` : ''}`;
+    const files = [
+      kept.length ? `tests in the Bot commit: ${fileList(kept, repo)}` : '',
+      dropped.length ? `tests left out of the Bot commit: ${fileList(dropped, repo)}` : '',
+    ].filter(Boolean);
+    return `- ${cell(unit, repo)}: ${reasons}${files.length ? ` (${files.join('; ')})` : ''}`;
   });
   const more = rejected.length - MAX_CHECK_REJECTED;
-  return ['', '⚠️ Check-rejected: the output named something its file does not contain, so these Units\' test files are left out of the Bot commit. Fix the names and re-run the workflow.', ...lines, ...(more > 0 ? [`- … ${more} more`] : [])];
+  const heading = 'Check-rejected, so not verified: a check found a slip in these Units\' output. The tests listed as in the Bot commit are there and ran, but they count as no evidence of these Units: not as tested, and not as coverage. Fix the labels and re-run the workflow.';
+  return [`⚠️ ${heading}`, ...lines, ...(more > 0 ? [`- … ${more} more`] : [])];
 }
 
 const KINDS: readonly Kind[] = ['intent', 'characterization'];
@@ -305,6 +323,7 @@ function renderAuthor({ run, repo }: Report): string {
   if (!run.author) return [...top(NOT_RUN), notRun(run, 'Author', whyNoAgent(run), repo)].join('\n');
 
   const rejected = rejectedOf(run);
+  const notVerified = notVerifiedLines(run, repo);
   const rows = run.author.units.map((unit) => [
     unitName(unit, repo),
     verdictLabel(unit, rejected),
@@ -316,7 +335,7 @@ function renderAuthor({ run, repo }: Report): string {
   return [
     ...top(authorOutcome(run.author.units, rejected)),
     ...table(['Unit', 'Verdict', 'Kind', 'Tests', 'Attempts'], rows, 'No Units.'),
-    ...checkRejectedLines(run, repo),
+    ...(notVerified.length ? ['', ...notVerified] : []),
     ...(defects.length ? ['', '#### Defects flagged', ...defects] : []),
     ...unknownNamesLines(run, 'author', repo),
     ...notes('Author', run.author.summary, repo),

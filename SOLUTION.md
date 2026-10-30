@@ -4,222 +4,140 @@ For reviewers: what this repo adds, how to run it, what to set up, and what is s
 
 This repo adds two ways to get tests written, both by the same agents and skills:
 
-- **PR workflow:** adds or updates tests for the Units a PR changes. GitHub Actions runs it on every PR.
-- **Backfill:** adds tests for existing, untested code, in one pass. The owner runs it locally with `make backfill-gaps` and `make backfill-tests`: the Author, then the Reviewer, as in a PR workflow. The results go in the PR description, because the PR workflow has nothing to test on a PR that only adds tests. See [ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md).
+- **PR workflow:** adds or updates tests for the Units a PR changes. GitHub Actions runs it on each PR that is ready for review.
+- **Backfill:** adds tests for existing, untested code, in one pass. The owner runs it locally (`make backfill-gaps`, then `make backfill-tests`) and reports it in the PR description ([ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md)).
 
 ## Key decisions
 
-| Decision | ADR |
-|---|---|
-| Agents run in Claude Code through `claude-code-action` | [0001](docs/adr/0001-use-claude-code-action-as-agent-runtime.md) |
-| Test changed Units only; write test files only | [0002](docs/adr/0002-test-changed-units-and-write-only-tests.md) |
-| Expectations come from Intent sources; failing tests become Defects; a second agent reviews them | [0003](docs/adr/0003-derive-expectations-from-intent-and-review-defects.md) |
-| PR code never runs next to the model key; agent config comes from the base branch | [0004](docs/adr/0004-isolate-pr-code-from-secrets.md) |
-| Merge gate on `test-agent/verify`, with a `skip-test-agent` label, and an admin bypass for PRs that cannot pass their own run | [0005](docs/adr/0005-gate-merges-on-test-agent-verify.md) |
-| Budgets are admin-only repo variables, with no defaults; agents skip draft PRs | [0006](docs/adr/0006-set-budgets-as-admin-only-repo-variables.md) |
-| Found bugs appear as review comments on the changed code (in the Backfill, one PR comment), each with a suggested fix that a person applies (proposed) | [0007](docs/adr/0007-report-defects-next-to-the-code-with-a-suggested-fix.md) |
-| The Backfill runs locally and reports in its PR description; on a PR that changes only tests, the agent comments say why the agents did not run | [0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md) |
-| A change to the agent config is tested before the merge with `make demo`, against committed cases (a planted Defect, a tautology) and their expected results | [0009](docs/adr/0009-test-agent-config-changes-against-committed-cases.md) |
-| A slip in one Unit's output rejects that Unit and its test files, not the whole run; output that cannot be trusted as a whole still fails | [0010](docs/adr/0010-reject-one-unit-not-the-run-for-its-own-slip.md) |
+| Decision | Why | ADR |
+|---|---|---|
+| Agents run in Claude Code through `claude-code-action` | Permissions, hooks and structured output come ready-made, and a local trial matches CI | [0001](docs/adr/0001-use-claude-code-action-as-agent-runtime.md) |
+| Test changed Units only; write test files only | A run stays small, and an agent cannot make a test pass by editing the code | [0002](docs/adr/0002-test-changed-units-and-write-only-tests.md) |
+| Expectations come from Intent sources; failing tests become Defects; a second agent reviews them | Tests built from the code's output agree with it, and one agent should not check its own reading | [0003](docs/adr/0003-derive-expectations-from-intent-and-review-defects.md) |
+| PR code never runs next to the model key; agent config comes from the base branch | PR code is untrusted, and a PR could otherwise edit the workflow or the agents that judge it | [0004](docs/adr/0004-isolate-pr-code-from-secrets.md) |
+| Merge gate on `test-agent/verify`, a `skip-test-agent` label, and an admin bypass | GitHub enforces it; the label skips the agents, never the suites; some PRs cannot pass their own run | [0005](docs/adr/0005-gate-merges-on-test-agent-verify.md) |
+| Budgets are admin-only repo variables with no defaults; agents skip draft PRs | A PR must not raise its own budget, and a silent default is an unreviewed choice | [0006](docs/adr/0006-set-budgets-as-admin-only-repo-variables.md) |
+| Defects appear as review comments on the changed code, with a suggested fix (proposed, not built) | A person makes every fix, and the code is where they already review | [0007](docs/adr/0007-report-defects-next-to-the-code-with-a-suggested-fix.md) |
+| The Backfill runs locally and reports in its PR description | It stops for the owner's approval, and its PR has no source lines to test | [0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md) |
+| A change to the agent config is tested with `make demo` against committed cases | The PR's own run uses the base config, so CI cannot test the change | [0009](docs/adr/0009-test-agent-config-changes-against-committed-cases.md) |
+| A slip in one Unit's output makes that Unit not verified, not the whole run invalid | The slips are labels, not invalid tests; one must not cost the other Units or hide a confirmed Defect | [0010](docs/adr/0010-reject-one-unit-not-the-run-for-its-own-slip.md) |
 
 ## How to run the PR workflow
 
-- **Automatic.** The workflow `pr-intake` runs from the PR when it is opened, reopened, marked ready for review, or pushed to, and when the `skip-test-agent` label is added or removed. When it ends, `pr-test-engineer` runs from the default branch. Fork PRs start neither. Draft PRs get verification but no agent run, so model tokens are spent only once the author marks the PR ready. See [ADR 0006](docs/adr/0006-set-budgets-as-admin-only-repo-variables.md).
-- **Re-run on the current head.** The run reads the live PR, so it analyses the head as it is now:
+- **Automatic.** `pr-intake` runs from the PR when it is opened, reopened, marked ready for review, pushed to, or when the `skip-test-agent` label changes. When it succeeds, `pr-test-engineer` runs from the default branch. Fork PRs start neither. A draft PR gets the suites but no agent run ([ADR 0006](docs/adr/0006-set-budgets-as-admin-only-repo-variables.md)).
+- **Re-run on the current head.** Use it after a failed or cancelled run, or after a budget variable changes. It is accepted only from `main`, and it stops on a fork PR.
 
   ```sh
   gh workflow run pr-test-engineer.yml -f pull-request=<n>
   ```
 
-  Use this after a failed run, after a budget variable changes, or after a cancelled run. It is accepted only from `main`, and it stops on a fork PR.
-- **Locally.** `make trial` runs the same steps on your branch, and asks for the intended behaviour the first time. `make demo` runs them on committed cases (a planted Defect, and a tautology the Reviewer must block) and prints PASS or FAIL; it is the check for a PR that changes the agent config, which its own PR run cannot test. Prerequisites and the other local commands are in [AGENTS.md](AGENTS.md).
-- **Concurrency.** A newer push cancels the older run for the same PR. Label events other than `skip-test-agent`, and `pr-intake` runs that did not succeed, run in their own group, so they cannot cancel a real run. A dispatch is grouped by PR number and a push by branch name, so a dispatch does not cancel a run that a push started.
+- **Locally.** `make trial` runs the steps on your branch; `make demo` runs them on committed cases (run it before a PR that changes the agent config). More in [AGENTS.md](AGENTS.md).
+- **Concurrency.** A newer push cancels the older run for the same PR. Events that start no real run use their own group, so they cannot cancel one.
+- **Where to look.** The PR checks list shows only `pr-intake` and the status `test-agent/verify`. The jobs of `pr-test-engineer` run from the default branch through `workflow_run`, so GitHub attaches them to `main`, not to the PR. The Details link of the status opens the run; `gh run list --workflow pr-test-engineer.yml` lists runs. The status name is fixed because the ruleset requires it.
 
-Results appear as one status (`test-agent/verify`) and three PR comments. The comments are updated in place; the Report keeps a line per earlier run in its "Previous runs" section, from a marker that `report.ts` reads back from the old comment and checks (`history.ts`). Review comments on the code are proposed, not built ([ADR 0007](docs/adr/0007-report-defects-next-to-the-code-with-a-suggested-fix.md)). On a PR that changes only tests and config, such as a Backfill PR, the agent comments say why the agents did not run: there is nothing new to test, and a Backfill PR lists its agent results in its description ([ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md)). How to read them is in [docs/pr-results.md](docs/pr-results.md).
+The run ends in the status and three PR comments, updated in place; the Report keeps a "Previous runs" section (`history.ts`). How to read them and act on a Defect: [docs/pr-results.md](docs/pr-results.md).
 
 ## Prerequisites
 
-The script `scripts/setup-github.sh` does the setup below. It needs `gh` and `jq`, and `gh` must be logged in as a repo admin.
+`scripts/setup-github.sh` does the setup. It needs `gh` and `jq`, logged in as a repo admin.
 
 ```sh
 scripts/setup-github.sh config     # steps 1 to 3 and 6, and a reminder for step 5
-scripts/setup-github.sh ruleset    # step 4, then a read-back check
+scripts/setup-github.sh ruleset    # step 4 (after step 6 and the merge), then a read-back check
 ```
 
-The same steps with raw `gh` commands:
-
-1. **Environment and model secret.** Create the Environment `test-agent`, limit its deployment branches to `main`, and set the model secret in it: either `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`. Keep no repo-level model secret: `pr-intake` runs from PRs ([ADR 0004](docs/adr/0004-isolate-pr-code-from-secrets.md)).
-
-   ```sh
-   gh api -X PUT repos/OWNER/REPO/environments/test-agent \
-     -F deployment_branch_policy[protected_branches]=false -F deployment_branch_policy[custom_branch_policies]=true
-   gh api -X POST repos/OWNER/REPO/environments/test-agent/deployment-branch-policies -f name=main -f type=branch
-   gh secret set ANTHROPIC_API_KEY --env test-agent
-   gh secret delete ANTHROPIC_API_KEY    # the repo-level copy, once the workflow works
-   ```
-
-2. **Five repo variables.** Budgets, with no defaults. A run fails in `scope` if one is missing or invalid. See [ADR 0006](docs/adr/0006-set-budgets-as-admin-only-repo-variables.md).
-
-   ```sh
-   gh variable set TEST_AGENT_MODEL --body '<model id>'
-   gh variable set TEST_AGENT_REVIEWER_MODEL --body '<model id>'
-   gh variable set TEST_AGENT_MAX_TURNS --body '<positive integer>'
-   gh variable set TEST_AGENT_TIMEOUT_MINUTES --body '<positive integer>'
-   gh variable set TEST_AGENT_MAX_ATTEMPTS --body '<positive integer>'
-   ```
-
-   An optional sixth variable, `TEST_AGENT_SKIP_ACTORS`, is a fallback for the skip label. See [ADR 0005](docs/adr/0005-gate-merges-on-test-agent-verify.md).
-
-3. **Skip label.**
-
-   ```sh
-   gh label create skip-test-agent --force --color ededed
-   ```
-
-6. **GitHub App.** The App posts `test-agent/verify` and the comments, and pushes the Bot commit ([ADR 0004](docs/adr/0004-isolate-pr-code-from-secrets.md)). Create it before step 4: the ruleset pins its id. `config` prints a link that opens the App form with the name, no webhook and the permissions filled in (contents, statuses and pull requests write, metadata read). Create it, generate a private key, install it on this repository only, then give `config` the Client ID and the path of the .pem. It checks the key and the installation with a short-lived App token, and sets the Environment `test-agent` secret `TEST_AGENT_APP_PRIVATE_KEY`, its variables `TEST_AGENT_APP_ID` and `TEST_AGENT_APP_CLIENT_ID`, and the repo variable `TEST_AGENT_BOT_LOGIN` (`<slug>[bot]`). A run fails in its first job, with the missing names, if any is absent.
-
-4. **Merge gate.** The ruleset is in `.github/rulesets/main.json`. Its only bypass actor is the admin role, through a PR; when that may be used is in [ADR 0005](docs/adr/0005-gate-merges-on-test-agent-verify.md). Apply it after the workflow is merged to `main`. Before that, a PR whose branch lacks the workflow waits for a status that nothing posts.
-
-   ```sh
-   name=$(jq -r .name .github/rulesets/main.json)
-   # integration_id in the file is a placeholder: use TEST_AGENT_APP_ID of the Environment test-agent. setup-github.sh does this.
-   id=$(gh api repos/OWNER/REPO/rulesets --jq ".[] | select(.name == \"$name\") | .id")
-   if [ -n "$id" ]; then
-     gh api -X PUT "repos/OWNER/REPO/rulesets/$id" --input .github/rulesets/main.json
-   else
-     gh api -X POST repos/OWNER/REPO/rulesets --input .github/rulesets/main.json
-   fi
-   gh api repos/OWNER/REPO/rules/branches/main    # read-back: check the pull request, status and force-push rules
-   ```
-
-5. **Monthly spend limit.** Set it in the model provider's console, at `https://console.anthropic.com/settings/limits`. This is the hard cap on money.
+1. **Environment and model secret.** The Environment `test-agent`, with deployment branches limited to `main`, holds the model secret: `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`. Keep no repo-level model secret ([ADR 0004](docs/adr/0004-isolate-pr-code-from-secrets.md)).
+2. **Five repo variables, with no defaults:** `TEST_AGENT_MODEL`, `TEST_AGENT_REVIEWER_MODEL`, `TEST_AGENT_MAX_TURNS`, `TEST_AGENT_TIMEOUT_MINUTES`, `TEST_AGENT_MAX_ATTEMPTS`. A run fails in `scope` if one is missing or invalid ([ADR 0006](docs/adr/0006-set-budgets-as-admin-only-repo-variables.md)). An optional `TEST_AGENT_SKIP_ACTORS` is a fallback for the skip label ([ADR 0005](docs/adr/0005-gate-merges-on-test-agent-verify.md)).
+3. **Skip label.** `skip-test-agent`.
+4. **Merge gate.** The ruleset `.github/rulesets/main.json`; its only bypass actor is the admin role, through a PR. It requires `test-agent/verify` from the GitHub App of step 6: the file's `integration_id` is a placeholder that the script fills from `TEST_AGENT_APP_ID`. Apply it after the workflow is merged to `main`, or PRs wait for a status nothing posts.
+5. **Monthly spend limit,** in the model provider's console (`https://console.anthropic.com/settings/limits`). It is the hard cap on money.
+6. **GitHub App.** `config` prints a prefilled creation link (contents, commit statuses and pull requests: read and write). Generate a private key and install the App on this repo only. `config` then verifies the installation and sets the Environment secret `TEST_AGENT_APP_PRIVATE_KEY`, the Environment variables `TEST_AGENT_APP_ID` and `TEST_AGENT_APP_CLIENT_ID`, and the repo variable `TEST_AGENT_BOT_LOGIN`. `scope`, `bot_commit` and `publish` write with the App's short-lived token ([ADR 0004](docs/adr/0004-isolate-pr-code-from-secrets.md)).
 
 ## Agents, skills and the workflow
 
 - **Agents.** `.claude/agents/pr-test-engineer.md` (the Author) and `.claude/agents/pr-test-reviewer.md` (the Reviewer).
-- **Agent skills.** `.claude/skills/`, one folder per skill, preloaded through each agent's `skills:` list: `scope-change`, `extract-intent`, `author-tests`, `prove-tests` and `review-tests`. `map-coverage-gaps` is Backfill only: the Backfill prompt tells the Author to read it. The package playbooks are `author-tests/backend.md` and `author-tests/frontend.md`.
-- **Contributor skills.** Also in `.claude/skills/`, for a person's or a coding agent's own Claude Code session: `ship-change` (branch, checks, review, commit, cleanup), `github-ops` (issues, PRs, comments, statuses and re-runs through `gh`), `prove-script-test` (break each defence a script test covers and see it fail), `run-local-workflow` (runs the local make commands, asking for the intent first) and `report-backfill` (the Backfill PR description and Defects comment). The Author and Reviewer cannot load them: neither has the `Skill` tool, so each sees only the skills its agent file lists.
-- **Settings.** `.claude/agent-settings.json` holds the tool allow and deny lists and the guard hook, which blocks writes outside the test paths and shell commands outside `AGENT_COMMANDS` in `rules.ts`. Every agent run receives it; see [ADR 0001](docs/adr/0001-use-claude-code-action-as-agent-runtime.md).
-- **Rules, schemas and scripts.** `.github/scripts/`. These run without a model and are the source for the rules, the output schemas and the status decision.
-
-  | Folder | Holds | Files |
-  |---|---|---|
-  | `contracts/` | Rules and output formats, no logic | `rules.ts`, `author.schema.json`, `reviewer.schema.json`, `gaps.schema.json`, `backfill-decisions.schema.json` |
-  | `agent/` | Security controls that run inside or around an agent session | `sandbox.sh`, `guard.ts` |
-  | `workflow/` | The CI jobs' steps | `intake.ts`, `prepare.ts`, `agent-output.ts`, `verify.sh`, `results.ts`, `changed-lines.ts`, `context.ts`, `report.ts`, `render.ts`, `status.ts`, `sanitize.ts`, `github.ts` |
-  | `local/` | Local runs only, from the Makefile and contributor skills | `trial.ts`, `gap-lines.ts` |
-  | `lib/` | Shared helpers, no CLI | `artifacts.ts`, `cli.ts`, `json.ts`, `schema.ts`, `scan.ts` |
-  | `tests/` | Tests of the scripts above | `run.ts`, `*.test.ts` |
-
-- **CI on `main`.** `.github/workflows/ci.yml` runs on each push to `main` and by hand: the script tests, and typecheck and tests with coverage per package. It has no secrets and no `pull_request` trigger, so it never runs for a PR or a fork.
-- **Workflows.** `.github/workflows/pr-intake.yml` (one job, no secrets) and `.github/workflows/pr-test-engineer.yml`. The second wires the jobs below. [docs/pr-run.md](docs/pr-run.md) follows one PR run step by step: which job writes the tests, which pushes them, and what keeps a bad patch out.
-
-| Job | Runs a model | Write access | Runs PR code | What it does |
-|---|---|---|---|---|
-| `intake` | no | none (read-only token) | no | Downloads the `intake` artifact of the `pr-intake` run and checks it against the live PR (`intake.ts`). Stops with no status and no comment for a closed PR, a fork, or a head that moved. |
-| `scope` | no | commit status | no | Reads the live PR. Checks the budget variables. Writes `scope.json`. Sets the status to pending. |
-| `agents` | yes: Author, then Reviewer (secret from the Environment `test-agent`) | none (read-only token) | only in containers | Restores base-branch config, and checks it again before each agent. Installs dependencies in the sandbox. Runs the agents. Saves `author.json`, `reviewer.json` and `tests.patch`. |
-| `bot_commit` | no | repo contents | no | Checks the patch and the agent output. Drops test files with blocking Findings, test files of check-rejected Units, and new files that hold a flagged Defect's test; those Defect test files go to the artifact `defects`. Pushes the Bot commit. |
-| `suites` | no | none (read-only token) | yes, on the host, with no secrets | Typecheck and suites with coverage on the final commit, the tests of the workflow's own scripts, and three shuffled reruns of the test files the Bot commit added or changed (flaky check, see [`flaky.ts`](.github/scripts/workflow/flaky.ts)). The job fails when a typecheck or suite fails. Runs the `defects` test files once, on a copy of the final tree with no network where the runner allows it; the job result does not depend on them. Mutation testing for information only. Uploads the raw reports; no trusted step runs after PR code. |
-| `publish` | no | commit status, PR comments | no | Downloads each artifact only if its job succeeded. Turns the raw reports into `results.json`, with the changed lines the suite ran (scope hunks and lcov line hits, as numbers only), and the Defect test run into `proof.json` (`defect-proof.ts`). Decides the status. Renders the three comments and the job summary. |
-
-Agents never post. Only `scope` (the pending status) and `publish` (the final status and the comments) post to the PR. `bot_commit` pushes the Bot commit.
-
-The PR checks list shows each job by its `name:`, such as "Suites: typecheck, coverage, mutation". The status the run ends in is still `test-agent/verify`: the ruleset requires that name.
-
-In the `suites` log, `head` is the analyzed PR head and `final` is the Bot commit, or the head when there is none. The first step names both commits. Each package's install, typecheck, tests and mutation sit in a folded group named `<package> · <head|final> · <what>`, and each step ends with one summary line per package.
+- **Agent skills.** `.claude/skills/`, preloaded through each agent's `skills:` list: `scope-change`, `extract-intent`, `author-tests` (with the playbooks `backend.md` and `frontend.md`), `prove-tests` and `review-tests`. `map-coverage-gaps` is Backfill only: the Backfill prompt tells the Author to read it.
+- **Contributor skills.** Also in `.claude/skills/`, for a person's own session: `ship-change`, `github-ops`, `prove-script-test`, `run-local-workflow`, `report-backfill`. The agents cannot load them: neither has the `Skill` tool.
+- **Settings.** `.claude/agent-settings.json` holds the tool allow and deny lists and the guard hook, which blocks writes outside the test paths and shell commands outside `AGENT_COMMANDS` in `rules.ts` ([ADR 0001](docs/adr/0001-use-claude-code-action-as-agent-runtime.md)).
+- **Scripts.** `.github/scripts/` runs without a model: `contracts/` (rules and schemas), `agent/` (sandbox, overlay, guard), `workflow/` (the CI steps, among them `defect-proof.ts` and `flaky.ts`), `local/`, `lib/` and `tests/`.
+- **Workflows.** `pr-intake.yml` (one job, no secrets) and `pr-test-engineer.yml`, whose jobs run in this order; [docs/pr-run.md](docs/pr-run.md) has the job table and follows one run step by step.
+  - `intake` checks the `pr-intake` artifact against the live PR and stops quietly on a closed PR, a fork or a moved head.
+  - `scope` checks the budget variables, writes `scope.json`, sets the status to pending.
+  - `agents` restores the base-branch config and runs the Author, then the Reviewer. It alone holds the model secret, and PR code runs in it only in containers.
+  - `bot_commit` checks the patch and the output, drops test files with blocking Findings or a test that overclaims intent, and the files that hold a flagged Defect's test (kept in the artifact `defects`), and pushes the Bot commit. A Unit whose own output breaks a naming rule keeps its tests but counts as not verified ([ADR 0010](docs/adr/0010-reject-one-unit-not-the-run-for-its-own-slip.md)).
+  - `suites` runs PR code on the host with no secrets: typecheck, suites with coverage, the scripts' own tests, three shuffled reruns of the Bot commit's test files (flaky check), mutation testing (information only), and the `defects` test files once.
+  - `publish` turns the reports into `results.json` (with the changed lines the suite ran, from scope hunks and lcov, as numbers only) and `proof.json`, decides the status, renders the comments.
+- **Who posts.** Agents never do. Only `scope` (pending) and `publish` (final status, comments) post, and only `bot_commit` pushes.
+- **Defects and the status.** A confirmed Defect turns the status red when it is proven (its test failed in `suites`) or its test is missing. One that is unproven although its test is present is a warning, shown with its reason ([ADR 0005](docs/adr/0005-gate-merges-on-test-agent-verify.md)).
+- **CI on `main`.** `.github/workflows/ci.yml` runs the script tests and each package's typecheck and tests with coverage after a merge. It has no secrets and no `pull_request` trigger.
 
 ## Example run
 
-Demo PR [#19](https://github.com/nikitaromanchukdev/taskly-app-node/pull/19) adds todo stats: `GET /api/todos/stats` with open, completed, per-priority and overdue counts, and header counters in the frontend. Its description states the intended behaviour, including "A todo due today is not overdue." The first push plants a defect: the overdue check uses `<=` instead of `<`.
+Demo PR [#70](https://github.com/nikitaromanchukdev/taskly-app-node/pull/70) adds `GET /api/todos/due-soon?days=N`. Its description states the intended behaviour, including that a todo due exactly N days from today is included. The first push plants a Defect: that todo is left out. The second push fixes it. Both runs used the same skills: the Author ran `scope-change`, `extract-intent`, `author-tests` and `prove-tests`; the Reviewer ran `review-tests`.
 
-Both runs used the same skills. The Author ran `scope-change`, `extract-intent`, `author-tests` and `prove-tests`; the Reviewer ran `review-tests`.
-
-| | Push 1: planted defect | Push 2: fix |
+| | Push 1: planted Defect | Push 2: fix |
 |---|---|---|
-| Run | [40778549704](https://github.com/nikitaromanchukdev/taskly-app-node/actions/runs/40778549704) | [40781735968](https://github.com/nikitaromanchukdev/taskly-app-node/actions/runs/40781735968) |
-| Analyzed → Bot commit | `e4fb581` → `99f2945` | `dfb8adf` → `88233e6` |
-| Verdicts (11 Units) | 6 `added`, 3 `amended`, 1 `flagged-defect`, 1 `not-needed` | 1 `amended`, 10 `not-needed` (already covered) |
-| Bot commit | 8 test files, +215 lines | 1 test in `backend/tests/stats.test.ts` |
-| Defect | `computeTodoStats` counts a todo due today as overdue: expected 0, received 1. The Reviewer confirmed it, quoting the PR description. The failing test was left out of the Bot commit. | none |
-| Suites | backend 57, frontend 26, all pass | backend 58, frontend 26, all pass |
-| Mutation (information only) | backend 60.7%, frontend 43.6% | backend 62.6%, frontend 43.6% |
-| `test-agent/verify` | 🔴 1 confirmed defect: merge blocked | 🟢 merged |
+| Run | [41069426284](https://github.com/nikitaromanchukdev/taskly-app-node/actions/runs/41069426284) | [41070660047](https://github.com/nikitaromanchukdev/taskly-app-node/actions/runs/41070660047) |
+| Analyzed → Bot commit | `5b1b949` → `04f8a09`: route tests (the Defect test is kept out and run on its own) | `d237401` → `168d4c7`: three boundary tests for `isDueSoon` |
+| Units and tests | 5 Units: 1 amended, 1 flagged Defect (`isDueSoon`), 3 not needed (already covered) | 5 Units: `isDueSoon` amended, 4 not needed; 1 advisory Finding |
+| Defect | One, confirmed by the Reviewer with a quote of the PR description, and proven by its failing test in `suites` | none |
+| Coverage | The Defect test failed in `suites` with `expected` and `received` matching the Author's values | Every changed line covered (`dueSoon.ts` 10/10, `router.ts` 4/4); mutation score 91% |
+| `test-agent/verify` | 🔴 1 proven defect: merge blocked | 🟢 |
 
-Between the pushes, the author ran `git pull --rebase` to take the Bot commit, then changed `<=` to `<`. In push 2 the Author added the due-today test the first run could not commit, and marked the other Units as covered by the tests from push 1. Each run updated the same three comments in place. Each Bot commit left a workflow run waiting for approval, which does nothing.
+Between the pushes the author took the Bot commit with `git pull --rebase` and fixed the comparison. After push 2 the Report's "Previous runs" section still lists the red run. Earlier runs on the same PR are listed there too: they found three bugs in the workflow's own checks, fixed before the run above ([ADR 0010](docs/adr/0010-reject-one-unit-not-the-run-for-its-own-slip.md)).
 
 ## Backfill run
 
-The Backfill ran once per package. The Author used `map-coverage-gaps`, then the owner approved the gap list, then `extract-intent`, `author-tests` and `prove-tests`. The Reviewer then ran `review-tests` in a fresh session, twice per package: on the Author's tests, and again after the owner decided each Finding and edited the tests. Each PR description holds the full results.
+The Backfill ran once per package ([ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md)); each PR description holds the full results.
 
 | | Backend [#24](https://github.com/nikitaromanchukdev/taskly-app-node/pull/24) | Frontend [#25](https://github.com/nikitaromanchukdev/taskly-app-node/pull/25) |
 |---|---|---|
-| Units | 6 tested, 1 `not-needed` (unreachable) | 19 tested, 3 `not-needed` |
 | Lines, before → after | 40.16% → 86.06% | 61.25% → 99.37% |
-| Branches, before → after | 40.74% → 94.44% | 45.39% → 96.45% |
-| Mutation, local Stryker on the backfilled files | 68.71% | 94.57% |
-| Reviewer Findings | 4, all advisory; all fixed | 4, all advisory; 3 fixed, 1 disputed |
-| Defects | none confirmed; 2 Suspected Defects, decided below | none confirmed; 2 Suspected Defects, decided below |
-| `test-agent/verify` | 🟢 suites pass | 🟢 suites pass |
+| Mutation (local Stryker) | 68.71% | 94.57% |
+| Defects | none confirmed; 2 Suspected | none confirmed; 2 Suspected |
 
-Per-file coverage floors keep each backfilled file at the level it reached.
-
-The owner decided each Suspected Defect. The details are in each PR's Defects comment.
-
-| Suspected Defect | Owner decision |
-|---|---|
-| Backend: `/api/health` answers a database failure with the generic 500 body | Kept on purpose: the client gets no detail about why the server failed. |
-| Backend: body-parser client errors other than bad JSON and too-large bodies return 500 | Kept as is: fixing app code is outside this task, which only adds tests. |
-| Frontend: the overdue badge uses the local date, while the overdue counter uses the UTC date | Kept on purpose, see [limitations](#assumptions-and-limitations). |
-| Frontend: a 422 shows the fixed input-limits message and ignores the server's `detail` | Kept on purpose: the server's validation messages are not written for users. |
-
-These four decisions, and the gaps both Backfills found unreachable or not worth testing, are recorded in `docs/backfill-decisions.json`. Later gap lists leave them out until their file changes ([ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md)).
+The owner kept the behaviour of all four Suspected Defects. They and the gaps found unreachable are in `docs/backfill-decisions.json`; later gap lists leave them out until their file changes.
 
 ## Assumptions and limitations
 
 ### Assumptions
 
 - One maintainer, who is a repo admin. No review approvals are required.
-- The repo is on GitHub with Actions enabled and a hosted Ubuntu runner, which has Docker.
-- The model key is a secret of the Environment `test-agent`, and the spend limit is set in the console.
+- GitHub with Actions and a hosted Ubuntu runner (which has Docker); the model key and spend limit are set up as in the prerequisites.
 - The Intent sources are correct. The workflow cannot check them.
-- The agents and skills are specific to Claude Code: they live in `.claude/`, because the owner works in Claude Code. A tool-neutral location such as `.agents/skills/` would let other agent CLIs use them too. Moving them would also mean adding that folder to the base-branch overlay and to the sandbox's read-only paths ([ADR 0004](docs/adr/0004-isolate-pr-code-from-secrets.md)), so a PR cannot change the skills its own run uses.
+- The agents and skills are specific to Claude Code and live in `.claude/`. A tool-neutral folder such as `.agents/skills/` would need to join the base-branch overlay and the sandbox's read-only paths ([ADR 0004](docs/adr/0004-isolate-pr-code-from-secrets.md)).
 
 ### Limitations
 
 **Trust boundary**
 
-- Same-repo PR code is trusted more than fork code. `suites` runs the PR's own test setup (`npm ci`, configs, tests) on the host, without secrets. The sandbox mounts the checkout read-only, and the overlay is checked again before each agent; one writable path remains, `backend/src/generated`, which that check covers for instruction files. The controls are a person reading the diff and the limits in [ADR 0004](docs/adr/0004-isolate-pr-code-from-secrets.md). CODEOWNERS would add a required review, which a sole maintainer cannot give.
-- The status comes from a GitHub App, and the ruleset accepts it only from that App, so a PR that edits a workflow cannot post a green `test-agent/verify` ([ADR 0005](docs/adr/0005-gate-merges-on-test-agent-verify.md)). The trusted parts are the workflow on `main`, the App's private key (Environment `test-agent`, `main` only) and the admin bypass.
-- `suites` runs PR code on the host, so that code can forge the raw reports (coverage, Stryker report, test counts) it uploads as the artifact `reports`. Green needs the `suites` job result, which fails when a typecheck or suite fails; `results.ts` runs in `publish`, keeps only numbers and known labels, and its output can only add red reasons. A forged coverage or mutation figure can still reach the report; the PR author can already write passing tests. `publish` downloads `scope`, `agents` and `checked` only when their job succeeded, so `suites` cannot replace them (artifact names are unique and immutable). B uses no cache.
-- The proof of a Defect comes from a report that PR code wrote, so the PR can forge it. Forging "proven" turns its own status red. Forging "unproven" makes a confirmed Defect a warning, which weakens the gate. A same-repo author can already edit the code under test and the suites, so this is accepted; the Defect stays visible in the Report as unproven, with its reason. If the Defect test run does not happen (no report, the patch does not apply, the step fails), the Defect is also unproven. The run has no network where the runner has `unshare` and passwordless `sudo`; otherwise the log says it ran with network.
-- Fork PRs get no agent run and no status. A maintainer pushes the branch into the repo to merge it.
-- The owner is the only admin, so they can merge past the gate with the bypass. Every bypass shows on the PR and in the audit log, and [ADR 0005](docs/adr/0005-gate-merges-on-test-agent-verify.md) limits when it is used.
+- Same-repo PR code is trusted more than fork code. `suites` runs the PR's own test setup (`npm ci`, configs, tests) on the host, without secrets. The sandbox mounts the checkout read-only except `backend/src/generated`, and the overlay is checked before each agent. The controls are a person reading the diff and the limits in [ADR 0004](docs/adr/0004-isolate-pr-code-from-secrets.md).
+- The ruleset accepts `test-agent/verify` only from the GitHub App, so a status a PR's own workflow posts does not count. What the gate trusts: the workflow on `main`, the App's private key (in the Environment, reachable only from `main`), and the admin bypass.
+- PR code in `suites` can forge the raw reports it uploads (coverage, Stryker, test counts). Green needs the `suites` job result, and `results.ts` (in `publish`) keeps only numbers and known labels and can only add red reasons. A forged coverage or mutation figure can still reach the report.
+- A Defect's proof comes from a report that PR code wrote. Forging "proven" turns its own status red; forging "unproven" turns a confirmed Defect into a warning, which weakens the gate. This is accepted for the same reason; the Report shows the Defect as unproven, with its reason. The Defect test run has no network where the runner has `unshare` and passwordless `sudo`; otherwise the log says so.
+- Fork PRs get no agent run and no status; a maintainer pushes the branch into the repo to merge it.
+- The owner is the only admin and can merge past the gate. Every bypass shows on the PR and in the audit log ([ADR 0005](docs/adr/0005-gate-merges-on-test-agent-verify.md)).
 
 **Agent results**
 
-- The Reviewer is a model too. It lowers the rate of false Defects; it does not remove them.
-- A blocking Finding drops its whole test file from the Bot commit, good tests included ([ADR 0003](docs/adr/0003-derive-expectations-from-intent-and-review-defects.md)).
-- The agents do not always follow procedure. In demo runs the Author used shell commands for file work and tried commands its rules deny; the guard hook now blocks every shell command outside `AGENT_COMMANDS` and names the tool to use instead. One summary named a Unit that does not exist while the Units table was right. `agent-output.ts` now rejects a Unit whose name is not in its file and a test whose file does not exist, and flags in the comment each backticked name in a summary that no Unit, test or file of the run contains. A flagged name does not change the status, and a drifted name in plain text is not caught: read the tables, not only the summary. Rendering summaries from the structured output is planned.
+- The Reviewer is a model too: it lowers the rate of false Defects, not to zero. A blocking Finding drops its whole test file, good tests included ([ADR 0003](docs/adr/0003-derive-expectations-from-intent-and-review-defects.md)).
+- The agents do not always follow procedure; the guard hook and `agent-output.ts` catch what they can. A summary can still drift in plain text, so read the tables, not only the summary.
 
 **Workflow**
 
-- Each push costs two agent runs. Local demo runs on a one-function change cost about $0.30 together; larger changes cost more. Each agent step is capped by `TEST_AGENT_MAX_TURNS` and `TEST_AGENT_TIMEOUT_MINUTES`. With `CLAUDE_CODE_OAUTH_TOKEN`, runs share the subscriber's usage limits.
-- A run tests at most `MAX_CANDIDATES` changed source files ([`rules.ts`](.github/scripts/contracts/rules.ts)); the rest are skipped as `over-cap` and shown in the report ([ADR 0002](docs/adr/0002-test-changed-units-and-write-only-tests.md)). The Author is still one session: if it hits `TEST_AGENT_MAX_TURNS` it returns no structured output, and the status is red with no tests. `claude -p` leaves no reliable partial result to use.
-- The final status waits for mutation testing, up to 8 minutes per package. The mutation score is reported, not enforced.
-- Each Bot commit is pushed by the App and starts a `pr-intake` run that does nothing; `pr-test-engineer` does not start. Whether GitHub asks to approve that run is not confirmed.
-- The agents start about a minute after a push, because `pr-intake` runs first and `pr-test-engineer` starts when it ends. The pending status appears after `scope`, so until then the merge is blocked as "expected".
-- A PR that changes the agent config runs with the base copy, so CI cannot test the change. `make demo` tests it locally against two committed cases, a planted Defect and a tautology the Reviewer must block ([ADR 0009](docs/adr/0009-test-agent-config-changes-against-committed-cases.md)); nothing requires that it ran.
+- Each push costs two agent runs: about $0.30 together for a one-function change in local demo runs, more for larger changes. `TEST_AGENT_MAX_TURNS` and `TEST_AGENT_TIMEOUT_MINUTES` cap each step. With `CLAUDE_CODE_OAUTH_TOKEN`, runs share the subscriber's usage limits.
+- A run tests at most `MAX_CANDIDATES` changed source files ([`rules.ts`](.github/scripts/contracts/rules.ts)); the rest are skipped as `over-cap` ([ADR 0002](docs/adr/0002-test-changed-units-and-write-only-tests.md)). The Author is one session: if it hits the turn limit it returns no structured output, and the status is red with no tests.
+- The final status waits for mutation testing (up to 8 minutes per package); the score is reported, not enforced.
+- The App pushes the Bot commit, which starts a `pr-intake` run that does nothing (the Bot actor is skipped). Whether GitHub still asks to approve that run is not verified yet; approving it changes nothing.
+- The agents start about a minute after a push; until `scope` sets the pending status, the merge is blocked as "expected".
+- A PR that changes the agent config runs with the base copy. `make demo` tests it locally; nothing requires that it ran ([ADR 0009](docs/adr/0009-test-agent-config-changes-against-committed-cases.md)).
 
-**Backfill**
+**Backfill and scripts**
 
-- No CI run proves a Backfill's results. Its PR description is written from the tables `make backfill-tests` renders, so the prose around them can drift ([ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md)).
-- A decided gap is left out of later gap lists only while its file is unchanged and the records cover all of the gap's uncovered lines, which `gap-lines.ts` takes from `lcov.info` for each gap. Otherwise the owner decides it again ([ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md)).
-
-**Scripts**
-
-- The script tests cover the scripts that decide what reaches the PR (`guard.ts`, `sanitize.ts`, `agent-output.ts`, `status.ts`, `intake.ts`), the comment renderers in `render.ts`, the run history of the Report in `history.ts`, the job-result reading of `context.ts`, and the local `trial.ts` and `gap-lines.ts`. `prepare.ts` is tested only for the candidate cap, via `--local`. The GitHub calls of `prepare.ts`, and `report.ts` and `github.ts`, and the shell scripts have no tests.
-- The TypeScript types in `artifacts.ts` repeat the schema enums by hand, so they can drift from the schemas.
+- No CI run proves a Backfill's results; its PR description is written from rendered tables, so the prose around them can drift.
+- A decided gap stays out of later gap lists only while its file is unchanged and the records cover all its uncovered lines (`gap-lines.ts`) ([ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md)).
+- The script tests cover the scripts that decide what reaches the PR, the renderers, the run history and the local scripts. `prepare.ts` is tested only for the candidate cap. The GitHub calls, `report.ts`, `github.ts` and the shell scripts have no tests.
+- Types in `artifacts.ts` repeat the schema enums by hand and can drift.
 
 **App**
 
@@ -232,36 +150,7 @@ These four decisions, and the gaps both Backfills found unreachable or not worth
 
 ## Production version
 
-Items a production version would add.
-
-**Security**
-
-- Container isolation for every job that runs PR code, `suites` included, with no host fallback. This also closes the forged results above.
-- CODEOWNERS on `.github/`, `.claude/` and the test run config (`**/package.json`, the vitest and vite configs, test setup files), with a ruleset that requires code-owner review. This needs a team, and a release-manager team as the only bypass actor.
-- Budgets and config read from the base branch only.
-- A fork PR flow, where a maintainer applies a label to start a run.
-
-**Reliability**
-
-- One Author session per package or per batch of Units, so a large PR is tested in parts and one exhausted session loses only its part.
-- One bounded revise round after review: the Author fixes the flagged tests, a narrow final review runs, and only then are blocked tests dropped. This replaces dropping whole files.
-- Agent procedure moved into scripts: summaries rendered from the structured output.
-- Citation checks on the Intent sources in the tests.
-- The mutation score as a gate on changed files.
-- A required check for gaps in the lines a PR touches. The Report already shows the changed lines the suite ran, for information only ([`changed-lines.ts`](.github/scripts/workflow/changed-lines.ts)).
-- Tests for the scripts that call GitHub, against a fake API.
-- The committed agent-test cases (`truncate`, `tautology`) run in a scheduled CI job, with more cases added over time.
-- The whole Backfill PR description rendered by a script.
-
-**Usability and cost**
-
-- An interactive setup wizard with guided steps, links to the console pages, and a summary of skipped steps, in place of the plain setup script.
-- Run modes and triggers, read from the base branch. For example, a strict mode with a local pre-push hook, and a manual trigger by label.
-- Optional human approval before the Bot commit, through a GitHub Environment with required reviewers.
-- Coverage and mutation in the local `make trial`, which today stops before `suites`.
-- Cost telemetry for each run.
-
-**App and checks outside this task**
-
-- The due moment stored as a UTC instant (`timestamptz`), so the badge and the counter both check `now > due` and agree.
-- API smoke tests against Postgres, and a frontend build, in `suites`.
+- **Security.** Container isolation for every job that runs PR code, `suites` included (closes the forged results). CODEOWNERS on `.github/`, `.claude/` and the test run config, with code-owner review and a release-manager team as the only bypass actor. A fork PR flow, where a maintainer applies a label to start a run.
+- **Reliability.** One Author session per package or batch of Units. One bounded revise round after review, instead of dropping whole files. Summaries and the Backfill PR description rendered by scripts; citation checks on Intent sources. The mutation score as a gate on changed files, and a required check for coverage gaps in the changed lines (the Report already shows them, for information). Tests for the scripts that call GitHub, against a fake API; the agent-test cases in a scheduled CI job.
+- **Usability and cost.** An interactive setup wizard; run modes and triggers read from the base branch; optional human approval before the Bot commit, through an Environment with required reviewers; coverage and mutation in `make trial`; cost telemetry per run.
+- **App, outside this task.** The due moment stored as a UTC instant (`timestamptz`), so the badge and the counter agree. API smoke tests against Postgres and a frontend build in `suites`.

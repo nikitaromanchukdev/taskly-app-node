@@ -5,7 +5,7 @@ import { createTodosRouter } from '../src/features/todos/router.ts';
 import { todo } from './fixture.ts';
 
 function setup() {
-  const repository = { list: vi.fn().mockResolvedValue([todo]), create: vi.fn().mockResolvedValue(todo), stats: vi.fn(), get: vi.fn(), update: vi.fn(), delete: vi.fn() };
+  const repository = { list: vi.fn().mockResolvedValue([todo]), create: vi.fn().mockResolvedValue(todo), stats: vi.fn(), dueSoon: vi.fn(), get: vi.fn(), update: vi.fn(), delete: vi.fn() };
   const app = express();
   app.use(express.json());
   app.use('/api/todos', createTodosRouter(repository));
@@ -27,6 +27,29 @@ it('returns task stats from the repository and not a task by ID', async () => {
   expect(response.body).toEqual(stats);
   expect(repository.stats).toHaveBeenCalledOnce();
   expect(repository.get).not.toHaveBeenCalled();
+});
+it('returns due-soon tasks from the repository for the requested days and not a task by ID', async () => {
+  const { app, repository } = setup();
+  repository.dueSoon.mockResolvedValue([todo]);
+  const response = await request(app).get('/api/todos/due-soon?days=7');
+  expect(response.status).toBe(200);
+  expect(response.body).toEqual([todo]);
+  expect(repository.dueSoon).toHaveBeenCalledWith(7);
+  expect(repository.get).not.toHaveBeenCalled();
+});
+it('defaults due-soon days to 3 when omitted', async () => {
+  const { app, repository } = setup();
+  repository.dueSoon.mockResolvedValue([]);
+  const response = await request(app).get('/api/todos/due-soon');
+  expect(response.status).toBe(200);
+  expect(repository.dueSoon).toHaveBeenCalledWith(3);
+});
+it.each(['-1', '31', '1.5', 'abc'])('rejects due-soon days=%s with 422 and a detail list, without calling the repository', async (days) => {
+  const { app, repository } = setup();
+  const response = await request(app).get(`/api/todos/due-soon?days=${days}`);
+  expect(response.status).toBe(422);
+  expect(Array.isArray(response.body.detail)).toBe(true);
+  expect(repository.dueSoon).not.toHaveBeenCalled();
 });
 it('creates tasks with trimmed input and defaults', async () => {
   const { app, repository } = setup();

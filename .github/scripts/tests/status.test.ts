@@ -22,6 +22,7 @@ const results = (overrides: Partial<Results> = {}): Results => ({
   typecheck: { backend: 'pass', frontend: 'pass' },
   tests: { backend: { status: 'pass', passed: 3, failed: 0 }, frontend: { status: 'pass', passed: 2, failed: 0 } },
   flaky: [],
+  thresholds: { backend: 'pass', frontend: 'pass' },
   coverage: { baseline: {}, final: {} },
   mutation: {},
   ...overrides,
@@ -115,7 +116,7 @@ describe('decide', () => {
   });
 
   it('does not count a check-rejected Unit, and stays green', () => {
-    const checked = { ok: true, errors: [], dropFiles: ['backend/tests/todos.test.ts'], reviewRejected: [], checkRejected: [{ unit: 'backend/src/todos.ts#todos', errors: ['x'] }], missingDefectTests: [], unknownNames: { author: [], reviewer: [] } };
+    const checked = { ok: true, errors: [], dropFiles: [], reviewRejected: [], checkRejected: [{ unit: 'backend/src/todos.ts#todos', errors: ['x'], kept: ['backend/tests/todos.test.ts'], dropped: [] }], missingDefectTests: [], unknownNames: { author: [], reviewer: [] } };
     assert.deepEqual(decide(run({ checked })), { state: 'success', description: '0 units tested, 0 proven defects' });
   });
 
@@ -157,6 +158,50 @@ describe('decide', () => {
       tests: { backend: { status: 'pass', passed: 1, failed: 0 }, frontend: { status: 'fail', passed: 0, failed: 2 } },
     });
     assert.deepEqual(decide(run({ results: failing })), { state: 'failure', description: 'backend typecheck, frontend tests failed' });
+  });
+
+  // Live run 41061277234 (#70): tests passed, router.ts was under its coverage floor, and the status said only "suites job failed".
+  describe('coverage floor', () => {
+    const jobs = { ...context().jobs, suites: 'failure' as const };
+    const floor = results({ thresholds: { backend: 'fail', frontend: 'pass' } });
+    const checked = (overrides: Partial<NonNullable<Run['checked']>> = {}) => ({ ...run().checked!, ...overrides });
+    const failed = (overrides: Partial<Run> = {}) => decide(run({ context: context({ jobs }), results: floor, ...overrides }));
+
+    it('names the floor, not just "suites job failed"', () => {
+      assert.deepEqual(failed(), { state: 'failure', description: 'suites failed: backend coverage floor' });
+    });
+
+    it('says when the agents ran and there is no Bot commit', () => {
+      const same = context({ jobs, final_sha: 'a' });
+      assert.equal(failed({ context: same }).description, 'suites failed: backend coverage floor; no Bot commit');
+    });
+
+    it('says how many Units the Bot commit left out, by a blocking Finding or an overclaiming test, and gives no names', () => {
+      const left = checked({ reviewRejected: ['backend/src/a.ts#a'], checkRejected: [{ unit: 'backend/src/b.ts#b', errors: ['<script>'], kept: [], dropped: ['backend/tests/b.test.ts'] }] });
+      assert.equal(failed({ checked: left }).description, 'suites failed: backend coverage floor; Bot commit left out tests of 2 units');
+    });
+
+    it('does not count a check-rejected Unit whose tests are in the Bot commit', () => {
+      const kept = checked({ checkRejected: [{ unit: 'backend/src/b.ts#b', errors: ['x'], kept: ['backend/tests/b.test.ts'], dropped: [] }] });
+      assert.equal(failed({ checked: kept }).description, 'suites failed: backend coverage floor');
+    });
+
+    it('says nothing about the Bot commit when no agent ran', () => {
+      const none = context({ jobs, run_agent: false, final_sha: 'a' });
+      assert.equal(failed({ context: none, author: undefined, checked: undefined }).description, 'suites failed: backend coverage floor');
+    });
+
+    it('is ignored when the package tests failed (the failed test is the reason)', () => {
+      const both = results({ thresholds: { backend: 'fail', frontend: 'pass' }, tests: { backend: { status: 'fail', passed: 0, failed: 1 }, frontend: { status: 'pass', passed: 1, failed: 0 } } });
+      assert.equal(failed({ results: both }).description, 'backend tests failed');
+    });
+
+    it('stays within the status limit with a proven defect', () => {
+      const same = context({ jobs, final_sha: 'a' });
+      const status = failed({ context: same, author: author(added('todos'), flagged), reviewer: reviewer('confirmed'), proof: proof('proven') });
+      assert.equal(status.description, 'suites failed: backend coverage floor; no Bot commit; 1 proven defect');
+      assert.ok(status.description.length <= 140);
+    });
   });
 
   it('is red when suites did not finish', () => {

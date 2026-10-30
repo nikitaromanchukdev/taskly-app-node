@@ -16,7 +16,6 @@ import type { LineRule } from '../lib/scan.ts';
 
 type PatchFiles = { file: string; added: Map<string, string[]>; created: Set<string> };
 type DefectTests = { errors: string[]; dropFiles: string[]; missing: string[] };
-type NameRule = { prefixed: boolean; must: string };
 type Checkout = { root: string; patch: PatchFiles };
 // What a summary may name: the text of the Units' files and test files as the Bot commit leaves them, by path.
 type Known = { files: Map<string, string> };
@@ -40,23 +39,30 @@ function checkUnit(unit: Unit, maxAttempts: number): string[] {
 }
 
 // The test name must say what its Expectation's kind says, so neither the file nor the report claims intent
-// that no source states.
+// that no source states. Only a test that overclaims (a characterization test named like an intent test) is a
+// danger: its file is left out of the Bot commit. A characterization name on an intent Expectation understates it.
+type NameRule = { prefixed: boolean; must: string; overclaims: boolean };
 const NAME_RULES: Record<Kind, NameRule> = {
-  intent: { prefixed: false, must: 'must not start with' },
-  characterization: { prefixed: true, must: 'must start with' },
+  intent: { prefixed: false, must: 'must not start with', overclaims: false },
+  characterization: { prefixed: true, must: 'must start with', overclaims: true },
 };
 
-function checkTestKinds(unit: Unit): string[] {
+// The errors of a Unit's tests, and the tests among them that overclaim intent.
+type TestKindSlips = { errors: string[]; overclaimed: string[] };
+
+function checkTestKinds(unit: Unit): TestKindSlips {
   const name = `${unit.path} ${unit.unit}`;
   const tests = unitTests(unit);
   const repeated = new Set(tests.filter((test, index) => tests.indexOf(test) !== index));
   const errors = [...repeated].map((test) => `${name}: test "${test}" is listed under more than one Expectation`);
+  const overclaimed: string[] = [];
   for (const { kind, tests: listed } of unit.expectations) {
     const rule = NAME_RULES[kind];
     const wrong = listed.filter((test) => testName(test).startsWith(CHARACTERIZATION_PREFIX) !== rule.prefixed);
     errors.push(...wrong.map((test) => `${name}: test "${test}" checks an Expectation of kind ${kind}, so its name ${rule.must} "${CHARACTERIZATION_PREFIX}"`));
+    if (rule.overclaims) overclaimed.push(...wrong);
   }
-  return errors;
+  return { errors, overclaimed };
 }
 
 function checkDuplicates(units: Unit[]): string[] {
@@ -137,12 +143,25 @@ const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&
 const word = (name: string, flags = '') => new RegExp(`(?<![\\w$])${escapeRegExp(name)}(?![\\w$])`, flags);
 const identifiers = (text: string) => text.match(/[A-Za-z_$][\w$]*/g) ?? [];
 
+// A route Unit may be named by its public path (`GET /api/todos/due-soon`), while the file holds only the path below
+// the router's mount point (`router.get('/due-soon'`). It matches when the method and a final part of the path appear
+// together as a route in the file.
+const ROUTE_NAME = /^(get|post|put|patch|delete)\s+(\/\S*)$/i;
+function routeInFile(unitName: string, text: string): boolean {
+  const [, method, path] = ROUTE_NAME.exec(unitName.trim()) ?? [];
+  if (!method || !path) return false;
+  const segments = path.split('/').filter(Boolean);
+  const tails = segments.map((_, i) => `/${segments.slice(i).join('/')}`);
+  return tails.some((tail) => new RegExp(`\\.${method.toLowerCase()}\\(\\s*['"\`]${escapeRegExp(tail)}['"\`]`).test(text));
+}
+
 // Each identifier of a Unit's name (`TodoRepository.stats`, `default`, `GET /todos/:id`) must appear in its file.
 // Case is ignored, because a route's method is `GET` in its name and `router.get` in the code.
 function checkUnitName(unit: Unit, checkout: Checkout): string[] {
   const name = `${unit.path} ${unit.unit}`;
   if (!exists(checkout, unit.path)) return [`${name}: ${unit.path} is not in the checkout`];
   const text = fileText(checkout, unit.path);
+  if (routeInFile(unit.unit, text)) return [];
   const missing = identifiers(unit.unit).filter((id) => !word(id, 'i').test(text));
   return missing.length ? [`${name}: ${missing.join(', ')} does not appear in ${unit.path}`] : [];
 }
@@ -160,27 +179,31 @@ const checkTestFiles = (unit: Unit, checkout: Checkout) =>
     .filter((file) => !exists(checkout, file))
     .map((file) => `${unit.path} ${unit.unit}: test file "${file}" is in neither the checkout nor the patch; give its path from the repo root`);
 
-// Unit-level: what one Unit's own content gets wrong. The Unit is check-rejected and its test files are left out of the
-// Bot commit; the other Units and the run stay valid.
-const checkOwn = (unit: Unit, checkout: Checkout) => [...checkTestKinds(unit), ...checkUnitName(unit, checkout), ...checkTestFiles(unit, checkout)];
+// Unit-level: what one Unit's own content gets wrong. The Unit is check-rejected ("not verified"): the checks catch
+// slips in how the Author labelled its output, not invalid tests, so its tests stay in the Bot commit (the sandbox run,
+// the write guard and the Reviewer judge them) and count as no evidence. The one exception is a test that overclaims
+// intent: its file is left out, because the file would state an intent that no source states.
+type Own = { unit: Unit; errors: string[]; overclaimed: string[] };
 
-// A check-rejected Unit takes its test files out of the Bot commit. Another Unit with tests in the same file goes with
-// them, as with a blocking Finding (ADR 0003), and is listed with the reason.
+function checkOwn(unit: Unit, checkout: Checkout): Own {
+  const kinds = checkTestKinds(unit);
+  return { unit, errors: [...kinds.errors, ...checkUnitName(unit, checkout), ...checkTestFiles(unit, checkout)], overclaimed: kinds.overclaimed };
+}
+
+// A Unit that shares a dropped file loses its tests there too, as with a blocking Finding (ADR 0003), and says so.
 function checkRejections(units: Unit[], checkout: Checkout): { rejected: CheckRejected[]; dropFiles: string[] } {
-  const own = units.map((unit) => ({ unit, errors: checkOwn(unit, checkout) })).filter(({ errors }) => errors.length);
-  const dropFiles = [...new Set(own.flatMap(({ unit }) => unitFiles(unit)))];
-  const ownKeys = new Set(own.map(({ unit }) => unitKey(unit)));
-  const affected = units
-    .filter((unit) => !ownKeys.has(unitKey(unit)))
-    .map((unit) => ({ unit, files: unitFiles(unit).filter((file) => dropFiles.includes(file)) }))
-    .filter(({ files }) => files.length);
-  const rejected = [
-    ...own.map(({ unit, errors }) => ({ unit: unitKey(unit), errors })),
-    ...affected.map(({ unit, files }) => ({
-      unit: unitKey(unit),
-      errors: files.map((file) => `test file "${file}" is left out of the Bot commit because another Unit's tests in it are check-rejected`),
-    })),
-  ];
+  const owns = units.map((unit) => checkOwn(unit, checkout));
+  const dropFiles = [...new Set(owns.flatMap(({ overclaimed }) => overclaimed.map(testFile)))];
+  const rejected = owns.flatMap(({ unit, errors, overclaimed }) => {
+    const gone = unitFiles(unit).filter((file) => dropFiles.includes(file));
+    const shared = gone.filter((file) => !overclaimed.some((test) => testFile(test) === file));
+    const all = [
+      ...errors,
+      ...shared.map((file) => `test file "${file}" is left out of the Bot commit because another Unit has a test in it that overclaims intent`),
+    ];
+    if (!all.length) return [];
+    return [{ unit: unitKey(unit), errors: all, kept: unitFiles(unit).filter((file) => !gone.includes(file) && exists(checkout, file)), dropped: gone }];
+  });
   return { rejected, dropFiles };
 }
 

@@ -1,4 +1,5 @@
 import { fromModel } from './mappers.js';
+import { selectDueSoon } from './dueSoon.js';
 import { computeTodoStats } from './stats.js';
 import type { Database, TodoStore, TodoCreate, TodoUpdate, Todo, TodoStats } from './types.js';
 
@@ -12,6 +13,10 @@ export class TodoRepository implements TodoStore {
 
   async stats(): Promise<TodoStats> {
     return computeTodoStats(await this.list(), new Date());
+  }
+
+  async dueSoon(days: number): Promise<Todo[]> {
+    return selectDueSoon(await this.list(), new Date(), days);
   }
 
   async get(id: number): Promise<Todo | null> {

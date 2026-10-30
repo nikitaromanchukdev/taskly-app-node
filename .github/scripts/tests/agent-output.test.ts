@@ -98,8 +98,9 @@ const rejects = (inputs: Inputs, error: RegExp) => {
   assert.match(outcome.stderr, error);
 };
 
-// A slip in one Unit's own content: the run stays valid, the Unit is check-rejected and its test files are dropped.
-const isolates = (inputs: Inputs, error: RegExp, dropped: string[] = ['backend/tests/todos.test.ts']) => {
+// A slip in one Unit's own content: the run stays valid and the Unit is check-rejected (not verified). Its tests stay
+// in the Bot commit unless a test overclaims intent, which drops its file (ADR 0010).
+const isolates = (inputs: Inputs, error: RegExp, dropped: string[] = []) => {
   const outcome = check(inputs);
   assert.equal(outcome.code, 0);
   assert.equal(outcome.checked.ok, true);
@@ -107,6 +108,12 @@ const isolates = (inputs: Inputs, error: RegExp, dropped: string[] = ['backend/t
   assert.match(outcome.checked.checkRejected.flatMap(({ errors }) => errors).join('\n'), error);
   assert.match(outcome.stderr, /check-rejected backend\/src\/.+#/);
   return outcome;
+};
+
+// Exit 0 alone does not show acceptance: a check-rejected Unit exits 0 too (ADR 0010).
+const assertAccepted = (result: { code: number | null; stderr: string }) => {
+  assert.equal(result.code, 0);
+  assert.doesNotMatch(result.stderr, /check-rejected/);
 };
 
 describe('agent-output.ts', () => {
@@ -127,12 +134,14 @@ describe('agent-output.ts', () => {
 
   it('check-rejects an intent test whose name says characterization', () => {
     const expectations = [{ text: 'sorts by id', source: 'PR body', kind: 'intent' as const, tests: [CHARACTERIZATION_TEST] }];
-    isolates({ author: author(unit({ expectations })), reviewer: reviewer() }, /kind intent, so its name must not start with/);
+    const outcome = isolates({ author: author(unit({ expectations })), reviewer: reviewer() }, /kind intent, so its name must not start with/);
+    assert.deepEqual(outcome.checked.checkRejected.map(({ kept, dropped }) => ({ kept, dropped })), [{ kept: ['backend/tests/todos.test.ts'], dropped: [] }]);
   });
 
   it('check-rejects a characterization test whose name does not say so', () => {
     const expectations = [{ text: 'counts open todos', source: 'none', kind: 'characterization' as const, tests: [TEST] }];
-    isolates({ author: author(unit({ expectations })), reviewer: reviewer() }, /kind characterization, so its name must start with/);
+    const outcome = isolates({ author: author(unit({ expectations })), reviewer: reviewer() }, /kind characterization, so its name must start with/, ['backend/tests/todos.test.ts']);
+    assert.deepEqual(outcome.checked.checkRejected.map(({ kept, dropped }) => ({ kept, dropped })), [{ kept: [], dropped: ['backend/tests/todos.test.ts'] }]);
   });
 
   it('check-rejects a test listed under two Expectations', () => {
@@ -158,13 +167,22 @@ describe('agent-output.ts', () => {
       assert.equal(outcome.checked.checkRejected[0].errors.length, 2);
     });
 
-    it('marks another Unit that has tests in the dropped file', () => {
+    it('marks another Unit that has tests in the file dropped for an overclaiming test', () => {
+      const overclaiming = unit({ unit: 'countClosed', expectations: [{ text: 'counts open todos', source: 'none', kind: 'characterization', tests: [TEST] }] });
       const sharing = unit({ path: 'backend/src/stats.ts', unit: 'stats', expectations: [{ text: 'counts overdue', source: 'PR body', kind: 'intent', tests: ['backend/tests/todos.test.ts > counts overdue'] }] });
-      const outcome = check({ author: author(unit({ unit: 'countClosed' }), sharing), reviewer: reviewer() });
+      const outcome = check({ author: author(overclaiming, sharing), reviewer: reviewer() });
       assert.equal(outcome.code, 0);
       assert.deepEqual(outcome.checked.checkRejected.map(({ unit }) => unit), ['backend/src/todos.ts#countClosed', 'backend/src/stats.ts#stats']);
-      assert.match(outcome.checked.checkRejected[1].errors[0], /test file "backend\/tests\/todos\.test\.ts" is left out of the Bot commit/);
+      assert.match(outcome.checked.checkRejected[1].errors[0], /test file "backend\/tests\/todos\.test\.ts" is left out of the Bot commit because another Unit has a test in it that overclaims intent/);
+      assert.deepEqual(outcome.checked.checkRejected[1].dropped, ['backend/tests/todos.test.ts']);
       assert.deepEqual(outcome.checked.dropFiles, ['backend/tests/todos.test.ts']);
+    });
+
+    it('does not touch a Unit that shares a file with a Unit that only has a label slip', () => {
+      const sharing = unit({ path: 'backend/src/stats.ts', unit: 'stats', expectations: [{ text: 'counts overdue', source: 'PR body', kind: 'intent', tests: ['backend/tests/todos.test.ts > counts overdue'] }] });
+      const outcome = check({ author: author(unit({ unit: 'countClosed' }), sharing), reviewer: reviewer() });
+      assert.deepEqual(outcome.checked.checkRejected.map(({ unit }) => unit), ['backend/src/todos.ts#countClosed']);
+      assert.deepEqual(outcome.checked.dropFiles, []);
     });
 
     it('stays invalid when a run-level error comes with it', () => {
@@ -175,9 +193,9 @@ describe('agent-output.ts', () => {
       assert.match(outcome.stderr, /countClosed does not appear/);
     });
 
-    it('still proves a Defect of a Unit with a slip: its new test file is dropped and the Defect test is not missing', () => {
+    it('still proves a Defect of a Unit with an overclaiming test: both files are dropped and the Defect test is not missing', () => {
       const test = 'backend/tests/stats-defect.test.ts > due today is not overdue';
-      const bad = { ...flagged(test), unit: 'stats', expectations: [{ text: 'a', source: 'PR body', kind: 'intent' as const, tests: [CHARACTERIZATION_TEST] }] };
+      const bad = { ...flagged(test), unit: 'stats', expectations: [{ text: 'a', source: 'none', kind: 'characterization' as const, tests: [TEST] }] };
       const patch = addedFile('backend/tests/stats-defect.test.ts', ["it('due today is not overdue', () => {})"]);
       const outcome = check({ author: author(bad), reviewer: reviewer([], [confirmed]), patch });
       assert.equal(outcome.code, 0);
@@ -204,7 +222,7 @@ describe('agent-output.ts', () => {
   });
 
   it('needs no Reviewer output when nothing was tested', () => {
-    assert.equal(check({ author: author(unit({ verdict: 'not-needed', reason: 'trivial', expectations: [] })) }).code, 0);
+    assertAccepted(check({ author: author(unit({ verdict: 'not-needed', reason: 'trivial', expectations: [] })) }));
   });
 
   it('rejects a Finding on a test the Author did not write', () => {
@@ -270,7 +288,31 @@ describe('agent-output.ts', () => {
   });
 
   it('check-rejects a Unit whose name is not in its file', () => {
-    isolates({ author: author(unit({ unit: 'countClosed' })), reviewer: reviewer() }, /countClosed does not appear in backend\/src\/todos\.ts/);
+    const outcome = isolates({ author: author(unit({ unit: 'countClosed' })), reviewer: reviewer() }, /countClosed does not appear in backend\/src\/todos\.ts/);
+    assert.deepEqual(outcome.checked.checkRejected[0].kept, ['backend/tests/todos.test.ts']);
+  });
+
+  // Live run 41061277234 (#70): `GET /due-soon route` passed for want of a pattern; the schema now holds the name shape.
+  describe('Unit name shape', () => {
+    const named = (name: string) => check({ author: author(unit({ unit: name })), reviewer: reviewer(), tree: { ...TREE, ...REPOSITORY_TREE, 'backend/src/todos.ts': 'countOpen default useTodosQuery stats router.get("/due-soon"); $x' } });
+
+    it('rejects a name with words after it', () => {
+      for (const name of ['GET /due-soon route', 'countOpen (error path)', 'countOpen function', '/due-soon', 'GET /a b']) {
+        const outcome = named(name);
+        assert.equal(outcome.code, 1, name);
+        assert.match(outcome.stderr, /unit: ".*" does not match/, name);
+      }
+    });
+
+    it('accepts an identifier, a dotted identifier and a route', () => {
+      for (const name of ['countOpen', 'default', 'useTodosQuery', 'stats', '$x', 'GET /due-soon']) assertAccepted(named(name));
+    });
+
+    it('applies to the Reviewer\'s Defect decisions too', () => {
+      const outcome = check({ author: author(flagged()), reviewer: reviewer([], [{ ...confirmed, unit: 'stats (boundary)' }]) });
+      assert.equal(outcome.code, 1);
+      assert.match(outcome.stderr, /reviewer .*unit: "stats \(boundary\)" does not match/);
+    });
   });
 
   it('check-rejects a Unit whose file is not in the checkout', () => {
@@ -288,10 +330,27 @@ describe('agent-output.ts', () => {
     assert.match(result.stderr, /\.\.\/outside\.ts is not in the checkout/);
   });
 
+  // Live run 41059126519 (#70): the Author named the route by its public path, below which the router is mounted.
+  it('accepts a route Unit named by its public path when the file holds the path below the mount point', () => {
+    const route = unit({ path: 'backend/src/router.ts', unit: 'GET /api/todos/due-soon' });
+    const tree = { ...TREE, 'backend/src/router.ts': "router.get('/due-soon', async (req, res) => {});\n" };
+    const result = check({ author: author(route), reviewer: reviewer(), tree });
+    assert.equal(result.code, 0);
+    assert.doesNotMatch(result.stderr, /check-rejected/);
+  });
+
+  it('still check-rejects a route whose path or method is not a route in the file', () => {
+    const tree = { ...TREE, 'backend/src/router.ts': "router.get('/due-soon', async (req, res) => {});\n" };
+    for (const name of ['POST /api/todos/due-soon', 'GET /api/todos/overdue']) {
+      const result = check({ author: author(unit({ path: 'backend/src/router.ts', unit: name })), reviewer: reviewer(), tree });
+      assert.match(result.stderr, /check-rejected/, name);
+    }
+  });
+
   it('accepts a method Unit named by its class, and a route Unit named by its method and path', () => {
     const route = unit({ path: 'backend/src/router.ts', unit: 'GET /todos' });
     const tree = { ...TREE, ...REPOSITORY_TREE, 'backend/src/router.ts': "router.get('/todos', list);\n" };
-    assert.equal(check({ author: author(repositoryUnit('TodoRepository.stats'), route), reviewer: reviewer(), tree }).code, 0);
+    assertAccepted(check({ author: author(repositoryUnit('TodoRepository.stats'), route), reviewer: reviewer(), tree }));
   });
 
   // The schema pattern rejects a test without its path from the repo root (live run 41046325172 named a describe block).
@@ -306,14 +365,14 @@ describe('agent-output.ts', () => {
 
   it('check-rejects a test with a full path to a file that is in neither the checkout nor the patch', () => {
     const expectations = [{ text: 'counts open todos', source: 'PR body', kind: 'intent' as const, tests: ['backend/tests/missing.test.ts > counts open todos'] }];
-    isolates({ author: author(unit({ expectations })), reviewer: reviewer() }, /test file "backend\/tests\/missing\.test\.ts" is in neither the checkout nor the patch/, ['backend/tests/missing.test.ts']);
+    isolates({ author: author(unit({ expectations })), reviewer: reviewer() }, /test file "backend\/tests\/missing\.test\.ts" is in neither the checkout nor the patch/);
   });
 
   it('accepts a test file that only the patch creates', () => {
     const test = 'backend/tests/open.test.ts > counts open todos';
     const expectations = [{ text: 'counts open todos', source: 'PR body', kind: 'intent' as const, tests: [test] }];
     const patch = addedFile('backend/tests/open.test.ts', ["it('counts open todos', () => {})"]);
-    assert.equal(check({ author: author(unit({ expectations })), reviewer: reviewer(), patch }).code, 0);
+    assertAccepted(check({ author: author(unit({ expectations })), reviewer: reviewer(), patch }));
   });
 
   it('flags, without failing, a summary that names a class the Unit does not have', () => {

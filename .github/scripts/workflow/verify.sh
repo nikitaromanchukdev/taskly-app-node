@@ -54,7 +54,7 @@ mutation_summary() {
 }
 
 checks() {
-  local pkg="$1" typecheck=fail
+  local pkg="$1" typecheck=fail thresholds=fail
   if ! group "$pkg" "npm ci" npm ci --no-audit --no-fund; then
     echo fail > "$out/$pkg.typecheck"
     failed=1
@@ -63,8 +63,11 @@ checks() {
   fi
   group "$pkg" typecheck npm run typecheck && typecheck=pass || failed=1
   echo "$typecheck" > "$out/$pkg.typecheck"
+  # vitest exits non-zero for a failed test and for a missed coverage floor alike. results.ts reads this file only when
+  # the report says every test passed, and then a failure here means the floor (ADR 0010: why a run can fail with green tests).
   group "$pkg" "tests with coverage" npx vitest run --coverage --coverage.reportOnFailure --reporter=default --reporter=json \
-    --outputFile.json="$out/$pkg.vitest.json" || failed=1
+    --outputFile.json="$out/$pkg.vitest.json" && thresholds=pass || { thresholds=fail; failed=1; }
+  echo "$thresholds" > "$out/$pkg.thresholds"
   cp coverage/coverage-summary.json "$out/$pkg.coverage.json"
   cp coverage/lcov.info "$out/$pkg.lcov.info" # line hits, for the changed-lines figure
   summary+=("$pkg: typecheck $typecheck, $(suite_summary "$out/$pkg.vitest.json")")
