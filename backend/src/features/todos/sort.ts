@@ -4,8 +4,8 @@ const PRIORITY_RANK: Record<Todo['priority'], number> = { high: 0, medium: 1, lo
 
 function compareDueDate(a: Todo['due_date'], b: Todo['due_date']): number {
   if (a === b) return 0;
-  if (a === null) return -1;
-  if (b === null) return 1;
+  if (a === null) return 1;
+  if (b === null) return -1;
   return a < b ? -1 : 1;
 }
 
