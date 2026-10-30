@@ -1,0 +1,9 @@
+{
+  "ignored": [
+    {
+      "package": "frontend",
+      "paths": ["src/design-system/**"],
+      "reason": "Shared presentational components, shown in Storybook; feature tests replace them with design-system/mocks."
+    }
+  ]
+}

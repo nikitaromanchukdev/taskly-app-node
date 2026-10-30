@@ -53,7 +53,7 @@ Group the gaps by Unit. Every logic file under 100% appears exactly once in the 
 
 | If | Then |
 |---|---|
-| It matches a skip rule in `.github/scripts/contracts/rules.ts` | **Out of scope**, with the rule's reason id |
+| It matches a skip rule in `.github/scripts/contracts/rules.ts`, or a path in `ignored-paths.json` there (reason id `ignored`) | **Out of scope**, with the rule's reason id |
 | No clean way to exercise it from a unit test (e.g., process startup) | **Unreachable**, with why |
 | Anything else | **Recommendation** |
 

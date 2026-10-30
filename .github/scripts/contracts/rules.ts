@@ -1,5 +1,7 @@
 // Single declarative rule set: where tests live, which changed files are skipped and why.
 // Docs link here instead of copying these lists.
+import { readJson } from '../lib/json.ts';
+import { readSchema, validate } from '../lib/schema.ts';
 
 export type Pkg = 'backend' | 'frontend';
 export const PACKAGES: readonly Pkg[] = ['backend', 'frontend'];
@@ -46,6 +48,7 @@ export type SkipReason =
   | 'barrel'
   | 'deleted'
   | 'over-cap'
+  | 'ignored'
   | 'not-source';
 
 export type SkipRule = { reason: SkipReason; patterns: readonly string[] };
@@ -98,17 +101,33 @@ export function isTestPath(path: string): boolean {
   return PACKAGES.some((pkg) => matches(path, TEST_PATHS[pkg]));
 }
 
+// Source the owner chose not to test, from ignored-paths.json. Paths there are relative to the package, as vitest's
+// coverage.exclude takes them; both packages' vitest configs read the same file, so coverage and the rules agree.
+// The workflow runs this file from the base branch, so a PR cannot ignore its own code.
+export type IgnoredPaths = { package: Pkg; paths: readonly string[]; reason: string };
+
+export function readIgnoredPaths(file: URL = new URL('./ignored-paths.json', import.meta.url)): IgnoredPaths[] {
+  const value = readJson(file);
+  const errors = validate(value, readSchema('../contracts/ignored-paths.schema.json'));
+  if (errors.length) throw new Error(`${file.pathname}: ${errors.join('; ')}`);
+  return (value as { ignored: IgnoredPaths[] }).ignored;
+}
+
+export const IGNORED_PATHS: readonly IgnoredPaths[] = readIgnoredPaths();
+
 export type Classification =
   | { kind: 'candidate'; package: Pkg }
-  | { kind: 'skip'; reason: SkipReason };
+  | { kind: 'skip'; reason: SkipReason; note?: string };
 
-export function classify(path: string): Classification {
+export function classify(path: string, ignored: readonly IgnoredPaths[] = IGNORED_PATHS): Classification {
   if (isTestPath(path)) return { kind: 'skip', reason: 'tests' };
   for (const rule of SKIP_RULES) {
     if (matches(path, rule.patterns)) return { kind: 'skip', reason: rule.reason };
   }
   for (const pkg of PACKAGES) {
-    if (matches(path, SOURCE_PATHS[pkg])) return { kind: 'candidate', package: pkg };
+    if (!matches(path, SOURCE_PATHS[pkg])) continue;
+    const entry = ignored.find((item) => item.package === pkg && matches(path, item.paths.map((glob) => `${pkg}/${glob}`)));
+    return entry ? { kind: 'skip', reason: 'ignored', note: entry.reason } : { kind: 'candidate', package: pkg };
   }
   return { kind: 'skip', reason: 'not-source' };
 }

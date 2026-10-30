@@ -153,7 +153,7 @@ function defectLines(run: Run, repo: string): string[] {
 function skippedLines(run: Run, repo: string): string[] {
   const skipped = run.scope?.skipped ?? [];
   if (!skipped.length) return [];
-  const items = skipped.map((file) => `- ${code(file.path, repo)} · ${file.reason}`);
+  const items = skipped.map((file) => `- ${code(file.path, repo)} · ${file.reason}${file.note ? `: ${cell(file.note, repo)}` : ''}`);
   return [...details(`Skipped files (${skipped.length})`, items), ''];
 }
 
