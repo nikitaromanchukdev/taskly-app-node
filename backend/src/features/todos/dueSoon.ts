@@ -10,7 +10,7 @@ export function isDueSoon(todo: Todo, today: Date, days: number): boolean {
   if (todo.completed || !todo.due_date) return false;
   const todayDay = dayString(today);
   const lastDay = dayString(new Date(today.getTime() + days * DAY_MS));
-  return todo.due_date >= todayDay && todo.due_date < lastDay;
+  return todo.due_date >= todayDay && todo.due_date <= lastDay;
 }
 
 export function selectDueSoon(todos: Todo[], today: Date, days: number): Todo[] {
