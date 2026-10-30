@@ -111,7 +111,7 @@ The same steps with raw `gh` commands:
 | `scope` | no | commit status | no | Reads the live PR. Checks the budget variables. Writes `scope.json`. Sets the status to pending. |
 | `agents` | yes: Author, then Reviewer | none (read-only token) | only in containers | Restores base-branch config, and checks it again before each agent. Installs dependencies in the sandbox. Runs the agents. Saves `author.json`, `reviewer.json` and `tests.patch`. |
 | `bot_commit` | no | repo contents | no | Checks the patch and the agent output. Drops test files with blocking Findings, and new files that hold a flagged Defect's test. Pushes the Bot commit. |
-| `suites` | no | none (read-only token) | yes, on the host, with no secrets | Typecheck and suites with coverage on the final commit, and the tests of the workflow's own scripts. Mutation testing for information only. |
+| `suites` | no | none (read-only token) | yes, on the host, with no secrets | Typecheck and suites with coverage on the final commit, the tests of the workflow's own scripts, and three shuffled reruns of the test files the Bot commit added or changed (flaky check, see [`flaky.ts`](.github/scripts/workflow/flaky.ts)). Mutation testing for information only. |
 | `publish` | no | commit status, PR comments | no | Decides the status. Renders the three comments and the job summary. |
 
 Agents never post. Only `scope` (the pending status) and `publish` (the final status and the comments) post to the PR. `bot_commit` pushes the Bot commit.

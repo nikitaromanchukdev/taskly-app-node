@@ -36,7 +36,11 @@ function verifyFailure(run: Run): string | undefined {
     ...Object.entries(run.results.typecheck).filter(([, check]) => check === 'fail').map(([pkg]) => `${pkg} typecheck`),
     ...Object.entries(run.results.tests).filter(([, suite]) => suite.status === 'fail').map(([pkg]) => `${pkg} tests`),
   ];
-  return failed.length ? `${failed.join(', ')} failed` : undefined;
+  const reasons = [
+    failed.length ? `${failed.join(', ')} failed` : undefined,
+    run.results.flaky.length ? `${plural(run.results.flaky.length, 'new test file')} flaky in shuffled reruns` : undefined,
+  ];
+  return reasons.filter((reason) => reason !== undefined).join('; ') || undefined;
 }
 
 function headline(run: Run): string {

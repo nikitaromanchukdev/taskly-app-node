@@ -3,6 +3,7 @@
 // <dir>/final/ (and <dir>/baseline/ when a bot commit exists) hold, per package written by verify.sh:
 //   <pkg>.typecheck (pass|fail) · <pkg>.vitest.json (vitest json reporter) · <pkg>.coverage.json (json-summary)
 //   <pkg>.mutation.json (Stryker json report, final only, missing when not run)
+//   <pkg>.rerun.files and <pkg>.rerun.<n>.json (shuffled reruns of the Bot commit's tests, final only; see flaky.ts)
 // and once: scripts.tap (node --test TAP report of the workflow's own scripts)
 // A missing report counts as a failure; a missing baseline falls back to the final coverage.
 import { existsSync, readFileSync } from 'node:fs';
@@ -11,6 +12,7 @@ import { parseArgs } from 'node:util';
 import type { Check, Coverage, CoverageFigures, MutationResult, Results, SuiteResult } from '../lib/artifacts.ts';
 import { die } from '../lib/cli.ts';
 import { readJson, readJsonIfExists, writeJson } from '../lib/json.ts';
+import { flakyFiles } from './flaky.ts';
 import { PACKAGES } from '../contracts/rules.ts';
 import type { Pkg } from '../contracts/rules.ts';
 
@@ -122,6 +124,7 @@ function main() {
   const results: Results = {
     typecheck: Object.fromEntries(PACKAGES.map((pkg) => [pkg, typecheck(finalDir, pkg)])),
     tests: { ...Object.fromEntries(PACKAGES.map((pkg) => [pkg, suite(finalDir, pkg)])), scripts: scriptsSuite(finalDir) },
+    flaky: PACKAGES.flatMap((pkg) => flakyFiles(finalDir, finalTree, pkg)),
     coverage: { baseline, final },
     mutation: Object.fromEntries(PACKAGES.map((pkg) => [pkg, mutation(finalDir, finalTree, pkg)])),
   };
