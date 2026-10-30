@@ -17,6 +17,16 @@ describe('sortForTriage', () => {
     expect(ids(sortForTriage(input))).toEqual([2, 3, 1]);
   });
 
+  it('puts todos without a due date after every dated todo within the same priority', () => {
+    const input = [make(1, 'high', null), make(2, 'high', '2026-12-01'), make(3, 'high', '2026-10-01'), make(4, 'high', null)];
+    expect(ids(sortForTriage(input))).toEqual([3, 2, 1, 4]);
+  });
+
+  it('ranks priority above due date', () => {
+    const input = [make(1, 'low', '2026-01-01'), make(2, 'high', null)];
+    expect(ids(sortForTriage(input))).toEqual([2, 1]);
+  });
+
   it('keeps input order for the same priority and due date', () => {
     const input = [make(1, 'medium', '2026-10-01'), make(2, 'medium', '2026-10-01'), make(3, 'medium', '2026-10-01')];
     expect(ids(sortForTriage(input))).toEqual([1, 2, 3]);
