@@ -36,4 +36,33 @@ describe('results.ts', () => {
   it('counts a missing report as a failure', () => {
     assert.equal(resultsFor({}).tests.backend.status, 'fail');
   });
+
+  describe('thresholds', () => {
+    const passing = JSON.stringify({ success: true, numPassedTests: 3, numFailedTests: 0 });
+    const failing = JSON.stringify({ success: false, numPassedTests: 1, numFailedTests: 2 });
+
+    it('records a missed coverage floor when every test passed and vitest exited non-zero', () => {
+      const results = resultsFor({ 'backend.vitest.json': passing, 'backend.thresholds': 'fail\n', 'frontend.vitest.json': passing, 'frontend.thresholds': 'pass\n' });
+      assert.deepEqual(results.thresholds, { backend: 'fail', frontend: 'pass' });
+    });
+
+    it('has no figure when a test failed, when the label is unknown or when the file is missing', () => {
+      const results = resultsFor({ 'backend.vitest.json': failing, 'backend.thresholds': 'fail', 'frontend.vitest.json': passing, 'frontend.thresholds': '<b>fail</b>' });
+      assert.deepEqual(results.thresholds, { backend: 'skipped', frontend: 'skipped' });
+      assert.equal(resultsFor({ 'backend.vitest.json': passing }).thresholds.backend, 'skipped');
+    });
+  });
+
+  it('computes the changed lines a candidate got from scope.json and lcov, as numbers only', () => {
+    const dir = tempDir();
+    mkdirSync(join(dir, 'final'));
+    const lcov = ['SF:' + join(dir, 'tree', 'backend', 'src', 'a.ts'), 'DA:1,1', 'DA:2,0', 'DA:3,0', 'DA:evil,1', 'end_of_record'].join('\n');
+    writeFileSync(join(dir, 'final', 'backend.lcov.info'), lcov);
+    const scope = { base: 'b', head: 'h', budgets: {}, skipped: [], candidates: [{ path: 'backend/src/a.ts', package: 'backend', status: 'modified', hunks: [{ start: 1, count: 3 }] }] };
+    writeFileSync(join(dir, 'scope.json'), JSON.stringify(scope));
+    const out = join(dir, 'results.json');
+    const result = runScript('workflow/results.ts', [dir, '--final-tree', join(dir, 'tree'), '--scope', join(dir, 'scope.json'), '--out', out]);
+    assert.equal(result.code, 0, result.stderr);
+    assert.deepEqual(JSON.parse(readFileSync(out, 'utf8')).changedLines, { 'backend/src/a.ts': { covered: 1, total: 3, uncovered: [2, 3] } });
+  });
 });

@@ -7,7 +7,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { basename, resolve, sep } from 'node:path';
 import { parseArgs } from 'node:util';
 import { CHARACTERIZATION_PREFIX, isFlaggedDefect, namedIn, testName, unitKey, unitTests, VERDICT_RULES, writesTests } from '../lib/artifacts.ts';
-import type { AuthorOutput, Checked, Kind, ReviewerOutput, Unit, UnknownNames } from '../lib/artifacts.ts';
+import type { AuthorOutput, CheckRejected, Checked, Kind, ReviewerOutput, Unit, UnknownNames } from '../lib/artifacts.ts';
 import { die, EXIT_CODES } from '../lib/cli.ts';
 import { readJson, writeJson } from '../lib/json.ts';
 import { readSchema, validate } from '../lib/schema.ts';
@@ -16,7 +16,6 @@ import type { LineRule } from '../lib/scan.ts';
 
 type PatchFiles = { file: string; added: Map<string, string[]>; created: Set<string> };
 type DefectTests = { errors: string[]; dropFiles: string[]; missing: string[] };
-type NameRule = { prefixed: boolean; must: string };
 type Checkout = { root: string; patch: PatchFiles };
 // What a summary may name: the text of the Units' files and test files as the Bot commit leaves them, by path.
 type Known = { files: Map<string, string> };
@@ -28,33 +27,42 @@ const SCRIPT = 'agent-output';
 
 const testFile = (test: string) => test.split(' > ')[0];
 
+// Run-level: the shape of the Unit and the attempt budget (ADR 0006). A Unit that breaks them can't be trusted, and
+// a flagged Defect with no `defect` would hide a confirmed one.
 function checkUnit(unit: Unit, maxAttempts: number): string[] {
   const name = `${unit.path} ${unit.unit}`;
   const rule = VERDICT_RULES[unit.verdict];
   const errors = rule.requires.filter((field) => unit[field] === undefined).map((field) => `${name}: ${unit.verdict} needs ${field}`);
   if (rule.writesTests && unitTests(unit).length === 0) errors.push(`${name}: ${unit.verdict} lists no tests`);
   if (unit.attempts < 0 || unit.attempts > maxAttempts) errors.push(`${name}: attempts ${unit.attempts} outside 0..${maxAttempts}`);
-  return [...errors, ...checkTestKinds(unit)];
+  return errors;
 }
 
 // The test name must say what its Expectation's kind says, so neither the file nor the report claims intent
-// that no source states.
+// that no source states. Only a test that overclaims (a characterization test named like an intent test) is a
+// danger: its file is left out of the Bot commit. A characterization name on an intent Expectation understates it.
+type NameRule = { prefixed: boolean; must: string; overclaims: boolean };
 const NAME_RULES: Record<Kind, NameRule> = {
-  intent: { prefixed: false, must: 'must not start with' },
-  characterization: { prefixed: true, must: 'must start with' },
+  intent: { prefixed: false, must: 'must not start with', overclaims: false },
+  characterization: { prefixed: true, must: 'must start with', overclaims: true },
 };
 
-function checkTestKinds(unit: Unit): string[] {
+// The errors of a Unit's tests, and the tests among them that overclaim intent.
+type TestKindSlips = { errors: string[]; overclaimed: string[] };
+
+function checkTestKinds(unit: Unit): TestKindSlips {
   const name = `${unit.path} ${unit.unit}`;
   const tests = unitTests(unit);
   const repeated = new Set(tests.filter((test, index) => tests.indexOf(test) !== index));
   const errors = [...repeated].map((test) => `${name}: test "${test}" is listed under more than one Expectation`);
+  const overclaimed: string[] = [];
   for (const { kind, tests: listed } of unit.expectations) {
     const rule = NAME_RULES[kind];
     const wrong = listed.filter((test) => testName(test).startsWith(CHARACTERIZATION_PREFIX) !== rule.prefixed);
     errors.push(...wrong.map((test) => `${name}: test "${test}" checks an Expectation of kind ${kind}, so its name ${rule.must} "${CHARACTERIZATION_PREFIX}"`));
+    if (rule.overclaims) overclaimed.push(...wrong);
   }
-  return errors;
+  return { errors, overclaimed };
 }
 
 function checkDuplicates(units: Unit[]): string[] {
@@ -135,12 +143,25 @@ const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&
 const word = (name: string, flags = '') => new RegExp(`(?<![\\w$])${escapeRegExp(name)}(?![\\w$])`, flags);
 const identifiers = (text: string) => text.match(/[A-Za-z_$][\w$]*/g) ?? [];
 
+// A route Unit may be named by its public path (`GET /api/todos/due-soon`), while the file holds only the path below
+// the router's mount point (`router.get('/due-soon'`). It matches when the method and a final part of the path appear
+// together as a route in the file.
+const ROUTE_NAME = /^(get|post|put|patch|delete)\s+(\/\S*)$/i;
+function routeInFile(unitName: string, text: string): boolean {
+  const [, method, path] = ROUTE_NAME.exec(unitName.trim()) ?? [];
+  if (!method || !path) return false;
+  const segments = path.split('/').filter(Boolean);
+  const tails = segments.map((_, i) => `/${segments.slice(i).join('/')}`);
+  return tails.some((tail) => new RegExp(`\\.${method.toLowerCase()}\\(\\s*['"\`]${escapeRegExp(tail)}['"\`]`).test(text));
+}
+
 // Each identifier of a Unit's name (`TodoRepository.stats`, `default`, `GET /todos/:id`) must appear in its file.
 // Case is ignored, because a route's method is `GET` in its name and `router.get` in the code.
 function checkUnitName(unit: Unit, checkout: Checkout): string[] {
   const name = `${unit.path} ${unit.unit}`;
   if (!exists(checkout, unit.path)) return [`${name}: ${unit.path} is not in the checkout`];
   const text = fileText(checkout, unit.path);
+  if (routeInFile(unit.unit, text)) return [];
   const missing = identifiers(unit.unit).filter((id) => !word(id, 'i').test(text));
   return missing.length ? [`${name}: ${missing.join(', ')} does not appear in ${unit.path}`] : [];
 }
@@ -149,11 +170,42 @@ const testFiles = (units: Unit[]) => [
   ...new Set(units.flatMap((unit) => [...unitTests(unit), ...(unit.defect ? [unit.defect.test] : [])]).map(testFile)),
 ];
 
+// The files of a Unit's own tests, not of its Defect test (defectTests handles that one).
+const unitFiles = (unit: Unit) => [...new Set(unitTests(unit).map(testFile))];
+
 // A test is `file > name` with the file's path from the repo root; a bare file name matches nothing in the patch.
-const checkTestFiles = (units: Unit[], checkout: Checkout) =>
-  testFiles(units)
+const checkTestFiles = (unit: Unit, checkout: Checkout) =>
+  [...new Set([...unitTests(unit), ...(unit.defect ? [unit.defect.test] : [])].map(testFile))]
     .filter((file) => !exists(checkout, file))
-    .map((file) => `test file "${file}" is in neither the checkout nor the patch; give its path from the repo root`);
+    .map((file) => `${unit.path} ${unit.unit}: test file "${file}" is in neither the checkout nor the patch; give its path from the repo root`);
+
+// Unit-level: what one Unit's own content gets wrong. The Unit is check-rejected ("not verified"): the checks catch
+// slips in how the Author labelled its output, not invalid tests, so its tests stay in the Bot commit (the sandbox run,
+// the write guard and the Reviewer judge them) and count as no evidence. The one exception is a test that overclaims
+// intent: its file is left out, because the file would state an intent that no source states.
+type Own = { unit: Unit; errors: string[]; overclaimed: string[] };
+
+function checkOwn(unit: Unit, checkout: Checkout): Own {
+  const kinds = checkTestKinds(unit);
+  return { unit, errors: [...kinds.errors, ...checkUnitName(unit, checkout), ...checkTestFiles(unit, checkout)], overclaimed: kinds.overclaimed };
+}
+
+// A Unit that shares a dropped file loses its tests there too, as with a blocking Finding (ADR 0003), and says so.
+function checkRejections(units: Unit[], checkout: Checkout): { rejected: CheckRejected[]; dropFiles: string[] } {
+  const owns = units.map((unit) => checkOwn(unit, checkout));
+  const dropFiles = [...new Set(owns.flatMap(({ overclaimed }) => overclaimed.map(testFile)))];
+  const rejected = owns.flatMap(({ unit, errors, overclaimed }) => {
+    const gone = unitFiles(unit).filter((file) => dropFiles.includes(file));
+    const shared = gone.filter((file) => !overclaimed.some((test) => testFile(test) === file));
+    const all = [
+      ...errors,
+      ...shared.map((file) => `test file "${file}" is left out of the Bot commit because another Unit has a test in it that overclaims intent`),
+    ];
+    if (!all.length) return [];
+    return [{ unit: unitKey(unit), errors: all, kept: unitFiles(unit).filter((file) => !gone.includes(file) && exists(checkout, file)), dropped: gone }];
+  });
+  return { rejected, dropFiles };
+}
 
 // Backticked text shaped like a path or a code name is checked. Anything else (`true`, `404`, `--flag`, `a < b`) is a literal.
 const NAME_SHAPES: readonly RegExp[] = [
@@ -215,7 +267,7 @@ function knownFiles(units: Unit[], checkout: Checkout): Known {
 
 const NO_UNKNOWN_NAMES: UnknownNames = { author: [], reviewer: [] };
 
-const invalid = (errors: string[]): Checked => ({ ok: false, errors, dropFiles: [], reviewRejected: [], missingDefectTests: [], unknownNames: NO_UNKNOWN_NAMES });
+const invalid = (errors: string[]): Checked => ({ ok: false, errors, dropFiles: [], reviewRejected: [], checkRejected: [], missingDefectTests: [], unknownNames: NO_UNKNOWN_NAMES });
 
 function check({ author, reviewer, patch, root, maxAttempts }: Inputs): Checked {
   const schemaErrors = [
@@ -230,15 +282,17 @@ function check({ author, reviewer, patch, root, maxAttempts }: Inputs): Checked 
 
   const checkout: Checkout = { root, patch: patchFiles(patch ?? '') };
   const defects = defectTests(units, checkout.patch);
+  const checks = checkRejections(units, checkout);
+  // Run-level errors make the whole output invalid. A Unit-level error is listed too when the run is invalid, so one
+  // run shows everything that is wrong.
   const errors = [
     ...checkDuplicates(units),
-    ...units.flatMap((unit) => [...checkUnit(unit, maxAttempts), ...checkUnitName(unit, checkout)]),
-    ...checkTestFiles(units, checkout),
+    ...units.flatMap((unit) => checkUnit(unit, maxAttempts)),
     ...(reviewRequired && !review ? ['reviewer.json is missing but the author produced tests or defects'] : []),
     ...(review ? [...checkFindings(units, review), ...checkDefectDecisions(units, review)] : []),
     ...defects.errors,
   ];
-  if (errors.length) return invalid(errors);
+  if (errors.length) return invalid([...errors, ...checks.rejected.flatMap(({ errors: own }) => own)]);
 
   const blocking = blockingFiles(review);
   const reviewRejected = units
@@ -251,7 +305,7 @@ function check({ author, reviewer, patch, root, maxAttempts }: Inputs): Checked 
     author: unknownNames(summary, known, checkout),
     reviewer: review ? unknownNames(review.summary, known, checkout) : [],
   };
-  return { ok: true, errors: [], dropFiles: [...new Set([...blocking, ...defects.dropFiles])], reviewRejected, missingDefectTests: defects.missing, unknownNames: unknown };
+  return { ok: true, errors: [], dropFiles: [...new Set([...blocking, ...checks.dropFiles, ...defects.dropFiles])], reviewRejected, checkRejected: checks.rejected, missingDefectTests: defects.missing, unknownNames: unknown };
 }
 
 // ---- CLI ----
@@ -296,8 +350,9 @@ function main() {
     names.map((name) => `${SCRIPT}: warning: ${agent} summary names \`${name}\`, which no Unit, test or file of this run contains`),
   );
   for (const warning of warnings) console.error(warning);
+  for (const { unit, errors } of result.checkRejected) console.error(`${SCRIPT}: check-rejected ${unit}: ${errors.join('; ')}`);
   const list = (items: string[]) => items.join(', ') || 'none';
-  console.log(`${SCRIPT}: ${result.ok ? 'ok' : 'INVALID'}; drop files: ${list(result.dropFiles)}; review-rejected: ${list(result.reviewRejected)}; missing Defect tests: ${list(result.missingDefectTests)}`);
+  console.log(`${SCRIPT}: ${result.ok ? 'ok' : 'INVALID'}; drop files: ${list(result.dropFiles)}; review-rejected: ${list(result.reviewRejected)}; check-rejected: ${list(result.checkRejected.map(({ unit }) => unit))}; missing Defect tests: ${list(result.missingDefectTests)}`);
   process.exit(result.ok ? 0 : EXIT_CODES.failed);
 }
 

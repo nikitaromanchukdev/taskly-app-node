@@ -76,6 +76,12 @@ A report-only state for a Unit whose test file was dropped from the Bot commit b
 
 Avoid: rejected (that word belongs to a Defect), failed, dropped.
 
+## Check-rejected
+
+A report-only state for a Unit whose own content failed a check in `.github/scripts/workflow/agent-output.ts` (a name that its file does not contain, a test name that contradicts its Expectation's kind, a test listed twice, a test file that does not exist). The Unit is not verified: its tests count as no evidence. They stay in the Bot commit, except a test that overclaims intent (a characterization test named like an intent test), whose file is left out together with the tests of any Unit in it. The Author cannot set it. It does not turn the status red, and it does not make the rest of the output invalid.
+
+Avoid: invalid (that word belongs to the whole output), rejected, dropped.
+
 ## PR workflow
 
 The GitHub Actions workflows `pr-intake` and `pr-test-engineer`, which add or update tests for the Units each PR changes, on every push. `pr-intake` only records the PR event; `pr-test-engineer` does the work. Each execution of `pr-test-engineer` is a PR run.

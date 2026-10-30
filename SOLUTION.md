@@ -20,6 +20,7 @@ This repo adds two ways to get tests written, both by the same agents and skills
 | Defects appear as review comments on the changed code, with a suggested fix (proposed, not built) | A person makes every fix, and the code is where they already review | [0007](docs/adr/0007-report-defects-next-to-the-code-with-a-suggested-fix.md) |
 | The Backfill runs locally and reports in its PR description | It stops for the owner's approval, and its PR has no source lines to test | [0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md) |
 | A change to the agent config is tested with `make demo` against committed cases | The PR's own run uses the base config, so CI cannot test the change | [0009](docs/adr/0009-test-agent-config-changes-against-committed-cases.md) |
+| A slip in one Unit's output makes that Unit not verified, not the whole run invalid | The slips are labels, not invalid tests; one must not cost the other Units or hide a confirmed Defect | [0010](docs/adr/0010-reject-one-unit-not-the-run-for-its-own-slip.md) |
 
 ## How to run the PR workflow
 
@@ -62,9 +63,9 @@ scripts/setup-github.sh ruleset    # step 4, then a read-back check
   - `intake` checks the `pr-intake` artifact against the live PR and stops quietly on a closed PR, a fork or a moved head.
   - `scope` checks the budget variables, writes `scope.json`, sets the status to pending.
   - `agents` restores the base-branch config and runs the Author, then the Reviewer. It alone holds the model secret, and PR code runs in it only in containers.
-  - `bot_commit` checks the patch and the output, drops test files with blocking Findings and the files that hold a flagged Defect's test (kept in the artifact `defects`), and pushes the Bot commit.
+  - `bot_commit` checks the patch and the output, drops test files with blocking Findings or a test that overclaims intent, and the files that hold a flagged Defect's test (kept in the artifact `defects`), and pushes the Bot commit. A Unit whose own output breaks a naming rule keeps its tests but counts as not verified ([ADR 0010](docs/adr/0010-reject-one-unit-not-the-run-for-its-own-slip.md)).
   - `suites` runs PR code on the host with no secrets: typecheck, suites with coverage, the scripts' own tests, three shuffled reruns of the Bot commit's test files (flaky check), mutation testing (information only), and the `defects` test files once.
-  - `publish` turns the reports into `results.json` and `proof.json`, decides the status, renders the comments.
+  - `publish` turns the reports into `results.json` (with the changed lines the suite ran, from scope hunks and lcov, as numbers only) and `proof.json`, decides the status, renders the comments.
 - **Who posts.** Agents never do. Only `scope` (pending) and `publish` (final status, comments) post, and only `bot_commit` pushes.
 - **Defects and the status.** A confirmed Defect turns the status red when it is proven (its test failed in `suites`) or its test is missing. One that is unproven although its test is present is a warning, shown with its reason ([ADR 0005](docs/adr/0005-gate-merges-on-test-agent-verify.md)).
 - **CI on `main`.** `.github/workflows/ci.yml` runs the script tests and each package's typecheck and tests with coverage after a merge. It has no secrets and no `pull_request` trigger.
@@ -149,6 +150,6 @@ The owner kept the behaviour of all four Suspected Defects. They and the gaps fo
 ## Production version
 
 - **Security.** Container isolation for every job that runs PR code, `suites` included (closes the forged results). The status posted by a GitHub App whose id the ruleset pins (closes the forged green). CODEOWNERS on `.github/`, `.claude/` and the test run config, with code-owner review and a release-manager team as the only bypass actor. A fork PR flow, where a maintainer applies a label to start a run.
-- **Reliability.** One Author session per package or batch of Units. One bounded revise round after review, instead of dropping whole files. Summaries and the Backfill PR description rendered by scripts; citation checks on Intent sources. The mutation score as a gate on changed files, and a check for coverage gaps in touched lines. Tests for the scripts that call GitHub, against a fake API; the agent-test cases in a scheduled CI job.
+- **Reliability.** One Author session per package or batch of Units. One bounded revise round after review, instead of dropping whole files. Summaries and the Backfill PR description rendered by scripts; citation checks on Intent sources. The mutation score as a gate on changed files, and a required check for coverage gaps in the changed lines (the Report already shows them, for information). Tests for the scripts that call GitHub, against a fake API; the agent-test cases in a scheduled CI job.
 - **Usability and cost.** An interactive setup wizard; run modes and triggers read from the base branch; optional human approval before the Bot commit, through an Environment with required reviewers; coverage and mutation in `make trial`; cost telemetry per run.
 - **App, outside this task.** The due moment stored as a UTC instant (`timestamptz`), so the badge and the counter agree. API smoke tests against Postgres and a frontend build in `suites`.

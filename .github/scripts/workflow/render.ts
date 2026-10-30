@@ -29,6 +29,8 @@ const DEFECT_LABELS: Record<DefectLabel, string> = {
 const DECISION_LABELS: Record<DefectDecision, string> = { confirmed: '🔴 confirmed', rejected: '⚠️ rejected' };
 const SEVERITY_LABELS: Record<Severity, string> = { blocking: '⚠️ blocking', advisory: 'advisory' };
 const MAX_SURVIVORS = 20;
+// Ranges of uncovered changed lines listed per file in the Report.
+const MAX_UNCOVERED_RANGES = 10;
 const TEST_MISSING = 'no test: the Author removed the Defect test instead of moving it to a file of its own. The Reviewer still confirmed it: check the code against its quote, or re-run the workflow to get the test';
 
 // ---- Shared parts ----
@@ -159,6 +161,7 @@ function resultLines(results: Results | undefined, repo: string): string[] {
   if (!results) return ['#### Test results', 'No results (suites did not finish).', ''];
   const rows = [
     ...Object.entries(results.typecheck).map(([pkg, check]) => [`${pkg} typecheck`, CHECK_LABELS[check]]),
+    ...Object.entries(results.thresholds ?? {}).filter(([, check]) => check === 'fail').map(([pkg]) => [`${pkg} coverage floor`, `${CHECK_LABELS.fail}: tests pass, vitest exited non-zero (a floor in its config was missed)`]),
     ...Object.entries(results.tests).map(([pkg, suite]) => [
       `${pkg} tests`,
       `${CHECK_LABELS[suite.status]} (${suite.passed} passed, ${suite.failed} failed)`,
@@ -171,6 +174,19 @@ function resultLines(results: Results | undefined, repo: string): string[] {
   return ['#### Test results', ...table(['Check', 'Result'], rows, 'No checks.'), ''];
 }
 
+// Sorted line numbers as "3-5, 9, 12-13", at most `max` ranges, then "… N more".
+export function lineRanges(lines: number[], max: number): string {
+  const ranges: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    let end = i;
+    while (lines[end + 1] === lines[end] + 1) end++;
+    ranges.push(end > i ? `${lines[i]}-${lines[end]}` : `${lines[i]}`);
+    i = end;
+  }
+  const more = ranges.length - max;
+  return more > 0 ? `${ranges.slice(0, max).join(', ')}, … ${more} more` : ranges.join(', ');
+}
+
 function coverageLines(run: Run, repo: string): string[] {
   const change = (before?: number, after?: number) =>
     before === undefined && after === undefined ? 'n/a' : `${before ?? 'n/a'} → ${after ?? 'n/a'}`;
@@ -178,9 +194,17 @@ function coverageLines(run: Run, repo: string): string[] {
     const key = packageRelative(candidate);
     const before = run.results?.coverage.baseline[candidate.package]?.[key];
     const after = run.results?.coverage.final[candidate.package]?.[key];
-    return [code(candidate.path, repo), change(before?.lines, after?.lines), change(before?.branches, after?.branches)];
+    const changed = run.results?.changedLines?.[candidate.path];
+    return [
+      code(candidate.path, repo),
+      changed ? `${changed.covered}/${changed.total}` : 'n/a',
+      changed?.uncovered.length ? lineRanges(changed.uncovered, MAX_UNCOVERED_RANGES) : '',
+      change(before?.lines, after?.lines),
+      change(before?.branches, after?.branches),
+    ];
   });
-  return ['#### Coverage of changed files', ...table(['File', 'Lines %', 'Branches %'], rows, 'No changed source files.'), ''];
+  const headers = ['File', 'Changed lines covered', 'Uncovered changed lines', 'File lines %', 'File branches %'];
+  return ['#### Coverage of changed files', ...table(headers, rows, 'No changed source files.'), ''];
 }
 
 function mutationLines(results: Results | undefined, repo: string): string[] {
@@ -201,12 +225,14 @@ function mutationLines(results: Results | undefined, repo: string): string[] {
 }
 
 function renderReport({ run, status, repo }: Report): string {
+  const notVerified = notVerifiedLines(run, repo);
   return [
     marker('report'),
     title(`${STATUS_EMOJI[status.state]} Report`, status.description),
     header(run.context),
     '',
     ...defectLines(run, repo),
+    ...(notVerified.length ? [...notVerified, ''] : []),
     ...resultLines(run.results, repo),
     ...coverageLines(run, repo),
     ...skippedLines(run, repo),
@@ -216,9 +242,49 @@ function renderReport({ run, status, repo }: Report): string {
 
 // ---- Author comment ----
 
-function verdictLabel(unit: Unit, rejected: Set<string>): string {
-  if (rejected.has(unitKey(unit))) return `${unit.verdict} (review-rejected)`;
+// The Units left out of the Bot commit, by the Reviewer or by a Unit-level check of agent-output.ts.
+type Rejected = { review: Set<string>; check: Set<string> };
+
+function rejectedOf(run: Run): Rejected {
+  return { review: new Set(run.checked?.reviewRejected ?? []), check: new Set((run.checked?.checkRejected ?? []).map(({ unit }) => unit)) };
+}
+
+const isRejected = (unit: Unit, { review, check }: Rejected) => review.has(unitKey(unit)) || check.has(unitKey(unit));
+
+function verdictLabel(unit: Unit, rejected: Rejected): string {
+  const tags = [rejected.review.has(unitKey(unit)) ? 'review-rejected' : '', rejected.check.has(unitKey(unit)) ? 'check-rejected' : ''].filter(Boolean);
+  if (tags.length) return `${unit.verdict} (${tags.join(', ')})`;
   return unit.verdict === 'not-needed' ? `not-needed (${unit.reason})` : unit.verdict;
+}
+
+const MAX_CHECK_REJECTED = 10;
+const MAX_CHECK_ERRORS = 3;
+const MAX_CHECK_FILES = 5;
+
+// Test files as a list, at most MAX_CHECK_FILES, then "… N more". Paths come from the agent's output, so they are sanitized.
+function fileList(files: string[], repo: string): string {
+  const more = files.length - MAX_CHECK_FILES;
+  return `${files.slice(0, MAX_CHECK_FILES).map((file) => code(file, repo)).join(', ')}${more > 0 ? `, … ${more} more` : ''}`;
+}
+
+// The Units a check of agent-output.ts could not verify (ADR 0010): why, and which of their test files are in the Bot
+// commit. Their tests count as no evidence: not in "N Units tested", and the coverage they give is no claim about them.
+// The reasons carry names the agent wrote, so they are sanitized.
+function notVerifiedLines(run: Run, repo: string): string[] {
+  const rejected = run.checked?.checkRejected ?? [];
+  if (!rejected.length) return [];
+  const lines = rejected.slice(0, MAX_CHECK_REJECTED).map(({ unit, errors, kept, dropped }) => {
+    const more = errors.length - MAX_CHECK_ERRORS;
+    const reasons = `${errors.slice(0, MAX_CHECK_ERRORS).map((error) => cell(error, repo)).join('; ')}${more > 0 ? `; … ${more} more` : ''}`;
+    const files = [
+      kept.length ? `tests in the Bot commit: ${fileList(kept, repo)}` : '',
+      dropped.length ? `tests left out of the Bot commit: ${fileList(dropped, repo)}` : '',
+    ].filter(Boolean);
+    return `- ${cell(unit, repo)}: ${reasons}${files.length ? ` (${files.join('; ')})` : ''}`;
+  });
+  const more = rejected.length - MAX_CHECK_REJECTED;
+  const heading = 'Check-rejected, so not verified: a check found a slip in these Units\' output. The tests listed as in the Bot commit are there and ran, but they count as no evidence of these Units: not as tested, and not as coverage. Fix the labels and re-run the workflow.';
+  return [`⚠️ ${heading}`, ...lines, ...(more > 0 ? [`- … ${more} more`] : [])];
 }
 
 const KINDS: readonly Kind[] = ['intent', 'characterization'];
@@ -240,13 +306,14 @@ function kindLabel(unit: Unit): string {
 const flaggedLine = (unit: Unit, defect: Defect, repo: string) =>
   `- ${unitName(unit, repo)}: expected ${cell(defect.expected, repo)}, received ${cell(defect.received, repo)} (${cell(defect.source, repo)})`;
 
-// "Tested" counts as the status headline does: Units with tests that were not review-rejected.
-function authorOutcome(units: readonly Unit[], rejected: Set<string>): string {
+// "Tested" counts as the status headline does: Units with tests that were not review-rejected or check-rejected.
+function authorOutcome(units: readonly Unit[], rejected: Rejected): string {
   const count = (when: (unit: Unit) => boolean) => units.filter(when).length;
   return outcome([
-    { count: count((unit) => writesTests(unit.verdict) && !rejected.has(unitKey(unit))), text: (n) => `${plural(n, 'Unit')} tested`, always: true },
+    { count: count((unit) => writesTests(unit.verdict) && !isRejected(unit, rejected)), text: (n) => `${plural(n, 'Unit')} tested`, always: true },
     { count: count((unit) => unit.verdict === 'not-needed'), text: (n) => `${n} not needed` },
-    { count: count((unit) => rejected.has(unitKey(unit))), text: (n) => `${n} review-rejected` },
+    { count: count((unit) => rejected.review.has(unitKey(unit))), text: (n) => `${n} review-rejected` },
+    { count: count((unit) => rejected.check.has(unitKey(unit))), text: (n) => `${n} check-rejected` },
     { count: count(isFlaggedDefect), text: (n) => `${plural(n, 'Defect')} flagged` },
   ]);
 }
@@ -255,7 +322,8 @@ function renderAuthor({ run, repo }: Report): string {
   const top = (result: string) => [marker('author'), title('Test author', result), header(run.context), ''];
   if (!run.author) return [...top(NOT_RUN), notRun(run, 'Author', whyNoAgent(run), repo)].join('\n');
 
-  const rejected = new Set(run.checked?.reviewRejected ?? []);
+  const rejected = rejectedOf(run);
+  const notVerified = notVerifiedLines(run, repo);
   const rows = run.author.units.map((unit) => [
     unitName(unit, repo),
     verdictLabel(unit, rejected),
@@ -267,6 +335,7 @@ function renderAuthor({ run, repo }: Report): string {
   return [
     ...top(authorOutcome(run.author.units, rejected)),
     ...table(['Unit', 'Verdict', 'Kind', 'Tests', 'Attempts'], rows, 'No Units.'),
+    ...(notVerified.length ? ['', ...notVerified] : []),
     ...(defects.length ? ['', '#### Defects flagged', ...defects] : []),
     ...unknownNamesLines(run, 'author', repo),
     ...notes('Author', run.author.summary, repo),

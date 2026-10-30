@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { unitKey } from '../lib/artifacts.ts';
-import type { Candidate, Context, Results, Run, Scope, Skipped, Unit, Verdict } from '../lib/artifacts.ts';
+import type { Candidate, CheckRejected, Context, Results, Run, Scope, Skipped, Unit, Verdict } from '../lib/artifacts.ts';
 import { RENDERERS } from '../workflow/render.ts';
 import type { CommentName } from '../workflow/render.ts';
 import type { Status } from '../workflow/status.ts';
@@ -115,6 +115,7 @@ const results: Results = {
   typecheck: { backend: 'pass', frontend: 'fail' },
   tests: { backend: { status: 'pass', passed: 3, failed: 0 } },
   flaky: [],
+  thresholds: { backend: 'pass' },
   coverage: { baseline: {}, final: {} },
   mutation: { backend: null },
 };
@@ -135,7 +136,7 @@ const agentRun = (summaries: { author?: string; reviewer?: string } = {}): Run =
       { test: 'backend/tests/kept.test.ts > works', severity: 'advisory', reason: 'weak-assertion', note: 'loose' },
     ],
   },
-  checked: { ok: true, errors: [], dropFiles: [], reviewRejected: [unitKey(tested('dropped'))], missingDefectTests: [], unknownNames: { author: [], reviewer: [] } },
+  checked: { ok: true, errors: [], dropFiles: [], reviewRejected: [unitKey(tested('dropped'))], checkRejected: [], missingDefectTests: [], unknownNames: { author: [], reviewer: [] } },
   results,
   proof: [{ path: flagged.path, unit: flagged.unit, state: 'proven', reason: '' }],
 });
@@ -168,6 +169,53 @@ describe('one format for every comment', () => {
   it('the Test author title counts the Units in the structured output, not what the summary says', () => {
     assert.equal(titleOf('author', agentRun()), '### Test author · 1 Unit tested, 1 not needed, 1 review-rejected, 1 Defect flagged');
     assert.equal(titleOf('author', { ...agentRun(), author: { summary: '', units: [] } }), '### Test author · 0 Units tested');
+  });
+
+  describe('Units that are not verified (check-rejected)', () => {
+    const kept = 'backend/tests/kept.test.ts';
+    const withCheck = (checkRejected: CheckRejected[], extra: Partial<Run> = {}): Run => {
+      const run = agentRun();
+      return { ...run, checked: { ...run.checked!, checkRejected }, ...extra };
+    };
+    const slip = { unit: unitKey(tested('kept')), errors: ['bad name <script>alert(1)</script>', 'two', 'three', 'four'], kept: [kept], dropped: [] };
+
+    it('the Test author comment marks them, with sanitized reasons and the test files the Bot commit holds', () => {
+      const body = render('author', withCheck([slip]));
+      assert.match(body, /\(check-rejected\)/);
+      assert.match(body, /1 check-rejected/);
+      assert.match(body, /Check-rejected, so not verified/);
+      assert.match(body, /count as no evidence/);
+      assert.match(body, /\(tests in the Bot commit: `backend\/tests\/kept\.test\.ts`\)/);
+      assert.match(body, /… 1 more/);
+      assert.ok(!body.includes('<script>'));
+    });
+
+    it('lists the test files left out of the Bot commit apart from those kept, with a cap', () => {
+      const dropped = Array.from({ length: 7 }, (_, i) => `backend/tests/d${i}.test.ts`);
+      const body = render('author', withCheck([{ ...slip, kept: [], dropped }]));
+      assert.match(body, /tests left out of the Bot commit: `backend\/tests\/d0\.test\.ts`/);
+      assert.doesNotMatch(body, /tests in the Bot commit/);
+      assert.match(body, /… 2 more\)/);
+      assert.ok(!body.includes('d6.test.ts'));
+    });
+
+    it('does not count them as tested', () => {
+      assert.match(titleOf('author', withCheck([slip])), /^### Test author · 0 Units tested, 1 not needed, 1 review-rejected, 1 check-rejected/);
+    });
+
+    it('the Report says the same, once, before the test results; nothing is shown without a check-rejected Unit', () => {
+      const body = render('report', withCheck([slip]));
+      assert.ok(body.indexOf('Check-rejected, so not verified') < body.indexOf('#### Test results'));
+      assert.ok(body.indexOf('#### Defects') < body.indexOf('Check-rejected, so not verified'));
+      assert.match(body, /tests in the Bot commit: `backend\/tests\/kept\.test\.ts`/);
+      assert.doesNotMatch(render('report', agentRun()), /not verified/);
+    });
+  });
+
+  it('the Report names a missed coverage floor in the test results, only when it was missed', () => {
+    const missed: Run = { ...agentRun(), results: { ...results, thresholds: { backend: 'fail', frontend: 'skipped' } } };
+    assert.match(render('report', missed), /\| backend coverage floor \| 🔴 fail: tests pass, vitest exited non-zero/);
+    assert.doesNotMatch(render('report', agentRun()), /coverage floor/);
   });
 
   it('the Test reviewer title counts Defect decisions and Findings', () => {
@@ -205,6 +253,27 @@ describe('one format for every comment', () => {
     const parts = ['#### Defects', '#### Test results', '#### Coverage of changed files', '<details><summary>Skipped files (1)</summary>', '<details><summary>Mutation'];
     const positions = parts.map((part) => at(body, part));
     assert.deepEqual(positions, [...positions].sort((a, b) => a - b));
+  });
+
+  describe('changed lines in the coverage table', () => {
+    const withChanged = (changedLines?: Results['changedLines']): Run => ({ ...agentRun(), results: { ...results, changedLines } });
+    const row = (body: string) => body.split('\n').find((line) => line.startsWith('|') && line.includes('backend/src/todos.ts')) ?? '';
+
+    it('shows covered/total and the uncovered lines as ranges', () => {
+      const body = render('report', withChanged({ 'backend/src/todos.ts': { covered: 4, total: 9, uncovered: [3, 4, 5, 9, 12, 13] } }));
+      assert.ok(row(body).includes('| 4/9 | 3-5, 9, 12-13 |'), body);
+    });
+
+    it('caps the ranges at 10 and counts the rest', () => {
+      const uncovered = Array.from({ length: 13 }, (_, i) => 2 * i + 1);
+      const body = render('report', withChanged({ 'backend/src/todos.ts': { covered: 0, total: 13, uncovered } }));
+      assert.ok(row(body).includes('19, … 3 more |'), row(body));
+      assert.ok(!row(body).includes('21'), row(body));
+    });
+
+    it('says n/a when there is no figure for the file', () => {
+      assert.ok(row(render('report', withChanged())).includes('| n/a |'), 'no figure');
+    });
   });
 
   it('the Report says per Defect whether it is proven, and warns for a confirmed Defect that is not', () => {
@@ -262,7 +331,7 @@ describe('agent comments when a summary names something the run does not contain
     scope: scope([candidate]),
     author: { summary: 'Tested `TodoStore.stats()`.', units: [] },
     reviewer: { summary: 'Reviewed `TodoStore.stats()`.', findings: [], defects: [] },
-    checked: { ok: true, errors: [], dropFiles: [], reviewRejected: [], missingDefectTests: [], unknownNames },
+    checked: { ok: true, errors: [], dropFiles: [], reviewRejected: [], checkRejected: [], missingDefectTests: [], unknownNames },
   });
   const comment = (name: CommentName, run: Run) => RENDERERS[name]({ run, status: { state: 'success', description: '' }, repo: REPO });
   const WARNING = /⚠️ The (Author|Reviewer)'s notes name `TodoStore\.stats\(\)`, which no Unit, test or file of this run contains/;

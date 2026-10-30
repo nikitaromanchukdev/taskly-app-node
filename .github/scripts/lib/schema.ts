@@ -1,5 +1,5 @@
 // JSON Schema validation for the subset our schemas use: types, required, enum, items,
-// additionalProperties: false and maxLength. No dependencies.
+// additionalProperties: false, maxLength and pattern. No dependencies.
 import { readJson } from './json.ts';
 
 type SchemaType = 'object' | 'array' | 'string' | 'integer';
@@ -11,6 +11,7 @@ export type Schema = {
   properties?: Record<string, Schema>;
   items?: Schema;
   maxLength?: number;
+  pattern?: string;
 };
 type Validator = (value: unknown, schema: Schema, at: string) => string[];
 
@@ -42,6 +43,7 @@ const validateString: Validator = (value, schema, at) => {
   const errors: string[] = [];
   if (schema.enum && !schema.enum.includes(value)) errors.push(`${at}: "${value}" not one of ${schema.enum.join('|')}`);
   if (schema.maxLength !== undefined && value.length > schema.maxLength) errors.push(`${at}: longer than ${schema.maxLength}`);
+  if (schema.pattern !== undefined && !new RegExp(schema.pattern).test(value)) errors.push(`${at}: "${value}" does not match ${schema.pattern}`);
   return errors;
 };
 

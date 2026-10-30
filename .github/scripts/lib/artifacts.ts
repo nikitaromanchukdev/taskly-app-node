@@ -86,11 +86,17 @@ export type SummaryAgent = 'author' | 'reviewer';
 // Per agent: backticked names in its summary that no Unit, test or file of the run contains (report-only).
 export type UnknownNames = Record<SummaryAgent, string[]>;
 
+// A Unit whose own content failed a check, or that shares a test file with one that did (report-only state): its tests
+// count as no evidence. unit is its unitKey; `kept` are its test files that stay in the Bot commit, `dropped` those left
+// out of it (only for a test that overclaims intent, or a file shared with one).
+export type CheckRejected = { unit: string; errors: string[]; kept: string[]; dropped: string[] };
+
 export type Checked = {
   ok: boolean;
   errors: string[];
-  dropFiles: string[]; // test files with a blocking finding, and new files holding a flagged Defect's failing test
+  dropFiles: string[]; // test files with a blocking finding or with a test that overclaims intent, and new files holding a flagged Defect's failing test
   reviewRejected: string[]; // unitKey of units whose tests live in a file with a blocking finding (report-only state)
+  checkRejected: CheckRejected[]; // Units not verified: a Unit-level check failed (name, test kind, test file). Their tests are committed unless they overclaim intent
   missingDefectTests: string[]; // unitKey of flagged Defects whose test is in no file of the patch (the Author removed it)
   unknownNames: UnknownNames;
 };
@@ -118,6 +124,9 @@ export type Proof = { path: string; unit: string; state: ProofState; reason: str
 export type Check = 'pass' | 'fail' | 'skipped';
 export type CoverageFigures = { lines: number; branches: number };
 export type Coverage = Record<string, Record<string, CoverageFigures>>;
+// Of the lines a PR changed in one source file, those the final suite ran: `total` counts executable lines only.
+// `uncovered` holds the first uncovered line numbers, capped.
+export type ChangedLines = { covered: number; total: number; uncovered: number[] };
 export type SuiteResult = { status: Check; passed: number; failed: number };
 export type Mutant = { file: string; line: number; mutator: string };
 export type MutationResult = { score: number; survived: Mutant[] };
@@ -127,7 +136,11 @@ export type Results = {
   typecheck: Record<string, Check>;
   tests: Record<string, SuiteResult>;
   flaky: FlakyFile[];
+  // Per package: whether vitest exited 0, i.e. no coverage floor was missed. skipped: no figure (old report, or tests failed).
+  thresholds: Record<string, Check>;
   coverage: { baseline: Coverage; final: Coverage };
+  // By repo path of each changed source file; missing when the run had no scope.
+  changedLines?: Record<string, ChangedLines>;
   mutation: Record<string, MutationResult | null>;
 };
 
