@@ -12,6 +12,20 @@ describe('isDueSoon', () => {
   it('counts a todo due before the last day as due soon', () => {
     expect(isDueSoon(make(1, '2026-10-18'), today, 3)).toBe(true);
   });
+  it('counts a todo due exactly N days from today as due soon (inclusive)', () => {
+    expect(isDueSoon(make(1, '2026-10-19'), today, 3)).toBe(true);
+    expect(isDueSoon(make(1, '2026-10-16'), today, 0)).toBe(true);
+  });
+  it('does not count a todo due the day after the last day', () => {
+    expect(isDueSoon(make(1, '2026-10-20'), today, 3)).toBe(false);
+    expect(isDueSoon(make(1, '2026-10-17'), today, 0)).toBe(false);
+  });
+  it('uses the UTC day of today, whatever the time of day', () => {
+    const late = new Date('2026-10-16T23:59:59.000Z');
+    expect(isDueSoon(make(1, '2026-10-16'), late, 0)).toBe(true);
+    expect(isDueSoon(make(1, '2026-10-15'), late, 0)).toBe(false);
+    expect(isDueSoon(make(1, '2026-10-19'), late, 3)).toBe(true);
+  });
   it('does not count a todo due more than N days away', () => {
     expect(isDueSoon(make(1, '2026-10-20'), today, 3)).toBe(false);
   });
