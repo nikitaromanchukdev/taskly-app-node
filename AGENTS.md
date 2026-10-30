@@ -53,6 +53,7 @@ Paths in this table are under `.github/scripts/` unless they start with a packag
   | [0007](docs/adr/0007-report-defects-next-to-the-code-with-a-suggested-fix.md) | Review comments on the code (proposed, not built) |
   | [0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md) | Backfill |
   | [0009](docs/adr/0009-test-agent-config-changes-against-committed-cases.md) | `make demo` for agent config changes |
+  | [0010](docs/adr/0010-reject-one-unit-not-the-run-for-its-own-slip.md) | which `agent-output.ts` errors reject one Unit and which the whole run |
 
 - **Terms.** Before you write docs, comments, prompts or any text people read, read [TERMINOLOGY.md](TERMINOLOGY.md) and use its terms as written, not the synonyms it lists. If a concept has no term there, say so instead of inventing one.
 - **Rules live in code.** Test paths and skip rules are in [`rules.ts`](.github/scripts/contracts/rules.ts); Verdicts, reasons and kinds in [`author.schema.json`](.github/scripts/contracts/author.schema.json) and [`reviewer.schema.json`](.github/scripts/contracts/reviewer.schema.json); the status policy in [`status.ts`](.github/scripts/workflow/status.ts). Link them; never copy their lists into a doc.

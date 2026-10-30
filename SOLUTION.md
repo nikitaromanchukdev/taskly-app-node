@@ -20,6 +20,7 @@ This repo adds two ways to get tests written, both by the same agents and skills
 | Found bugs appear as review comments on the changed code (in the Backfill, one PR comment), each with a suggested fix that a person applies (proposed) | [0007](docs/adr/0007-report-defects-next-to-the-code-with-a-suggested-fix.md) |
 | The Backfill runs locally and reports in its PR description; on a PR that changes only tests, the agent comments say why the agents did not run | [0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md) |
 | A change to the agent config is tested before the merge with `make demo`, against committed cases (a planted Defect, a tautology) and their expected results | [0009](docs/adr/0009-test-agent-config-changes-against-committed-cases.md) |
+| A slip in one Unit's output rejects that Unit and its test files, not the whole run; output that cannot be trusted as a whole still fails | [0010](docs/adr/0010-reject-one-unit-not-the-run-for-its-own-slip.md) |
 
 ## How to run the PR workflow
 
