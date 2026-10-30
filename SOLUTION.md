@@ -99,7 +99,7 @@ The same steps with raw `gh` commands:
   | `contracts/` | Rules and output formats, no logic | `rules.ts`, `author.schema.json`, `reviewer.schema.json`, `gaps.schema.json`, `backfill-decisions.schema.json` |
   | `agent/` | Security controls that run inside or around an agent session | `sandbox.sh`, `guard.ts` |
   | `workflow/` | The CI jobs' steps | `prepare.ts`, `agent-output.ts`, `verify.sh`, `results.ts`, `context.ts`, `report.ts`, `render.ts`, `status.ts`, `sanitize.ts`, `github.ts` |
-  | `local/` | Local runs only, from the Makefile and contributor skills | `trial.ts` |
+  | `local/` | Local runs only, from the Makefile and contributor skills | `trial.ts`, `gap-lines.ts` |
   | `lib/` | Shared helpers, no CLI | `artifacts.ts`, `cli.ts`, `json.ts`, `schema.ts`, `scan.ts` |
   | `tests/` | Tests of the scripts above | `run.ts`, `*.test.ts` |
 
@@ -201,11 +201,11 @@ These four decisions, and the gaps both Backfills found unreachable or not worth
 **Backfill**
 
 - No CI run proves a Backfill's results. Its PR description is written from the tables `make backfill-tests` renders, so the prose around them can drift ([ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md)).
-- A decided gap is left out of later gap lists only while its file is unchanged and the records cover all of the gap's uncovered lines, which the Author lists for each gap. Otherwise the owner decides it again ([ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md)).
+- A decided gap is left out of later gap lists only while its file is unchanged and the records cover all of the gap's uncovered lines, which `gap-lines.ts` takes from `lcov.info` for each gap. Otherwise the owner decides it again ([ADR 0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md)).
 
 **Scripts**
 
-- The script tests cover the scripts that decide what reaches the PR (`guard.ts`, `sanitize.ts`, `agent-output.ts`, `status.ts`), the comment renderers in `render.ts`, the job-result reading of `context.ts`, and the local `trial.ts`. `prepare.ts` is tested only for the candidate cap, via `--local`. The GitHub calls of `prepare.ts`, and `report.ts` and `github.ts`, and the shell scripts have no tests.
+- The script tests cover the scripts that decide what reaches the PR (`guard.ts`, `sanitize.ts`, `agent-output.ts`, `status.ts`), the comment renderers in `render.ts`, the job-result reading of `context.ts`, and the local `trial.ts` and `gap-lines.ts`. `prepare.ts` is tested only for the candidate cap, via `--local`. The GitHub calls of `prepare.ts`, and `report.ts` and `github.ts`, and the shell scripts have no tests.
 - The TypeScript types in `artifacts.ts` repeat the schema enums by hand, so they can drift from the schemas.
 
 **App**
