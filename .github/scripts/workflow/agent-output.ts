@@ -6,7 +6,7 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { basename, resolve, sep } from 'node:path';
 import { parseArgs } from 'node:util';
-import { CHARACTERIZATION_PREFIX, isFlaggedDefect, testName, unitKey, unitTests, VERDICT_RULES, writesTests } from '../lib/artifacts.ts';
+import { CHARACTERIZATION_PREFIX, isFlaggedDefect, namedIn, testName, unitKey, unitTests, VERDICT_RULES, writesTests } from '../lib/artifacts.ts';
 import type { AuthorOutput, Checked, Kind, ReviewerOutput, Unit, UnknownNames } from '../lib/artifacts.ts';
 import { die, EXIT_CODES } from '../lib/cli.ts';
 import { readJson, writeJson } from '../lib/json.ts';
@@ -15,7 +15,7 @@ import { scanLines } from '../lib/scan.ts';
 import type { LineRule } from '../lib/scan.ts';
 
 type PatchFiles = { file: string; added: Map<string, string[]>; created: Set<string> };
-type DefectTests = { errors: string[]; dropFiles: string[] };
+type DefectTests = { errors: string[]; dropFiles: string[]; missing: string[] };
 type NameRule = { prefixed: boolean; must: string };
 type Checkout = { root: string; patch: PatchFiles };
 // What a summary may name: the text of the Units' files and test files as the Bot commit leaves them, by path.
@@ -87,16 +87,18 @@ const PATCH_LINES: readonly LineRule<PatchFiles>[] = [
 const patchFiles = (patch: string) =>
   scanLines(patch, PATCH_LINES, { file: '', added: new Map<string, string[]>(), created: new Set<string>() });
 
+const inPatch = (test: string, { added }: PatchFiles) => namedIn(added.get(testFile(test)) ?? [], test);
+
 // A flagged Defect's test fails against the code, so it must not reach the Bot commit. A file the patch creates is
 // dropped whole (prove-tests keeps such a test in a file of its own); in a file that existed, the Author must remove it.
-function defectTests(units: Unit[], { added, created }: PatchFiles): DefectTests {
-  const leftIn = (test: string) => {
-    const name = testName(test);
-    return (added.get(testFile(test)) ?? []).some((line) => line.includes(name));
-  };
-  const left = units.flatMap((unit) => (unit.defect ? [unit.defect.test] : [])).filter(leftIn);
+// A test that is in no file of the patch was removed instead of moved: it is reported, not an error.
+function defectTests(units: Unit[], files: PatchFiles): DefectTests {
+  const { created } = files;
+  const withTest = units.flatMap((unit) => (unit.defect ? [{ key: unitKey(unit), test: unit.defect.test }] : []));
+  const left = withTest.map(({ test }) => test).filter((test) => inPatch(test, files));
   const inNewFile = (test: string) => created.has(testFile(test));
   return {
+    missing: withTest.filter(({ test }) => !inPatch(test, files)).map(({ key }) => key),
     errors: left.filter((test) => !inNewFile(test)).map((test) => `flagged Defect test "${test}" is still in an existing test file`),
     dropFiles: left.filter(inNewFile).map(testFile),
   };
@@ -213,7 +215,7 @@ function knownFiles(units: Unit[], checkout: Checkout): Known {
 
 const NO_UNKNOWN_NAMES: UnknownNames = { author: [], reviewer: [] };
 
-const invalid = (errors: string[]): Checked => ({ ok: false, errors, dropFiles: [], reviewRejected: [], unknownNames: NO_UNKNOWN_NAMES });
+const invalid = (errors: string[]): Checked => ({ ok: false, errors, dropFiles: [], reviewRejected: [], missingDefectTests: [], unknownNames: NO_UNKNOWN_NAMES });
 
 function check({ author, reviewer, patch, root, maxAttempts }: Inputs): Checked {
   const schemaErrors = [
@@ -249,7 +251,7 @@ function check({ author, reviewer, patch, root, maxAttempts }: Inputs): Checked 
     author: unknownNames(summary, known, checkout),
     reviewer: review ? unknownNames(review.summary, known, checkout) : [],
   };
-  return { ok: true, errors: [], dropFiles: [...new Set([...blocking, ...defects.dropFiles])], reviewRejected, unknownNames: unknown };
+  return { ok: true, errors: [], dropFiles: [...new Set([...blocking, ...defects.dropFiles])], reviewRejected, missingDefectTests: defects.missing, unknownNames: unknown };
 }
 
 // ---- CLI ----
@@ -295,7 +297,7 @@ function main() {
   );
   for (const warning of warnings) console.error(warning);
   const list = (items: string[]) => items.join(', ') || 'none';
-  console.log(`${SCRIPT}: ${result.ok ? 'ok' : 'INVALID'}; drop files: ${list(result.dropFiles)}; review-rejected: ${list(result.reviewRejected)}`);
+  console.log(`${SCRIPT}: ${result.ok ? 'ok' : 'INVALID'}; drop files: ${list(result.dropFiles)}; review-rejected: ${list(result.reviewRejected)}; missing Defect tests: ${list(result.missingDefectTests)}`);
   process.exit(result.ok ? 0 : EXIT_CODES.failed);
 }
 
