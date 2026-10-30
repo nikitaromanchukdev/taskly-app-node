@@ -16,6 +16,7 @@ A few PRs cannot pass the gate at all, through no fault of their own. A PR run u
 - The status is red when any of these holds:
   - `scope` failed, for example because a budget variable is missing;
   - typecheck or a test suite fails;
+  - a test file the Bot commit added or changed fails in one of its shuffled reruns (flaky). The `suites` job reruns those files three times in random order, because the Author proved them only in the sandbox and a test that passes by luck or by file order would otherwise gate every later PR;
   - the Author or the Reviewer crashed, timed out, returned invalid output, its patch was rejected, or the `bot_commit` job failed, while there were candidate files;
   - verification did not finish;
   - a Defect is confirmed.

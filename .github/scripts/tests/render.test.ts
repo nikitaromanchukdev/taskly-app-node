@@ -114,6 +114,7 @@ const flagged = unit('broken', 'flagged-defect', { defect: { test: 't', expected
 const results: Results = {
   typecheck: { backend: 'pass', frontend: 'fail' },
   tests: { backend: { status: 'pass', passed: 3, failed: 0 } },
+  flaky: [],
   coverage: { baseline: {}, final: {} },
   mutation: { backend: null },
 };
@@ -216,6 +217,13 @@ describe('one format for every comment', () => {
     assert.ok(body.includes('| backend typecheck | 🟢 pass |'), body);
     assert.ok(body.includes('| frontend typecheck | 🔴 fail |'), body);
     assert.ok(body.includes('| backend tests | 🟢 pass (3 passed, 0 failed) |'), body);
+  });
+
+  it('the Report names each flaky test file with its failing tests, and shows none when nothing is flaky', () => {
+    const flaky = [{ file: 'backend/tests/a.test.ts', tests: ['x > one', 'x > two'], failedReruns: 2, reruns: 3 }];
+    const body = render('report', { ...agentRun(), results: { ...results, flaky } });
+    assert.ok(body.includes('| flaky `backend/tests/a.test.ts` | 🔴 fail: failed in 2 of 3 shuffled reruns (x > one; x > two) |'), body);
+    assert.ok(!render('report', agentRun()).includes('flaky'));
   });
 
   it('names a Unit as `path` name in all three comments, and labels a confirmed Defect the same in the Report and the Test reviewer comment', () => {

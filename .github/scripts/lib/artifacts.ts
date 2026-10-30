@@ -102,9 +102,12 @@ export type Coverage = Record<string, Record<string, CoverageFigures>>;
 export type SuiteResult = { status: Check; passed: number; failed: number };
 export type Mutant = { file: string; line: number; mutator: string };
 export type MutationResult = { score: number; survived: Mutant[] };
+// A test file the Bot commit added or changed that failed in a shuffled rerun. `file` is a repo path.
+export type FlakyFile = { file: string; tests: string[]; failedReruns: number; reruns: number };
 export type Results = {
   typecheck: Record<string, Check>;
   tests: Record<string, SuiteResult>;
+  flaky: FlakyFile[];
   coverage: { baseline: Coverage; final: Coverage };
   mutation: Record<string, MutationResult | null>;
 };

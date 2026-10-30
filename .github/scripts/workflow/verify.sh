@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # suites job: run a checked-out tree's checks and write the raw reports results.ts reads. Usage:
 #   verify.sh checks   <tree> <out-dir>              install, typecheck, suite with coverage, per package;
-#                                                    then the tests of the workflow's own scripts
+#                                                    then the tests of the workflow's own scripts. On the final tree
+#                                                    with a head tree beside it, also shuffled reruns of the Bot commit's tests
 #   verify.sh mutation <tree> <out-dir> <scope.json> StrykerJS on the changed files, per package (after checks)
 # Runs PR code, so the job holding it has a read-only token and no secrets.
 # The log names the tree (head: the analyzed PR head; final: the Bot commit, or the head when there is none) and its
@@ -14,6 +15,7 @@ out="$(cd "$3" && pwd)"
 scope="${4:+$(realpath "$4")}"
 label="$(basename "$tree")"
 summary=()
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 case "$mode" in
   checks | mutation) ;;
@@ -58,6 +60,25 @@ checks() {
     --outputFile.json="$out/$pkg.vitest.json"
   cp coverage/coverage-summary.json "$out/$pkg.coverage.json"
   summary+=("$pkg: typecheck $typecheck, $(suite_summary "$out/$pkg.vitest.json")")
+  flaky_check "$pkg"
+}
+
+# The final tree's tests that the Bot commit added or changed ran once above. Rerun them in shuffled order, so a test
+# that passes by luck or by file order fails here. Needs the head tree next to the final one, i.e. a Bot commit exists.
+flaky_check() {
+  local pkg="$1" files reruns n fails=0
+  [[ "$label" == final && -d "$tree/../head" ]] || return 0
+  jq -e '.success' "$out/$pkg.vitest.json" > /dev/null 2>&1 || return 0
+  files="$(node "$here/flaky.ts" changed "$tree/../head" "$tree" "$pkg")" || { summary+=("$pkg: flaky check failed to list the changed tests"); return; }
+  if [[ -z "$files" ]]; then summary+=("$pkg: flaky check skipped, the Bot commit changed no test file"); return; fi
+  printf '%s\n' "$files" > "$out/$pkg.rerun.files"
+  reruns="$(node "$here/flaky.ts" reruns)"
+  for ((n = 1; n <= reruns; n++)); do
+    # shellcheck disable=SC2086 # file names have no spaces
+    group "$pkg" "shuffled rerun $n of $reruns" npx vitest run --sequence.shuffle --reporter=default --reporter=json \
+      --outputFile.json="$out/$pkg.rerun.$n.json" $files || fails=$((fails + 1))
+  done
+  summary+=("$pkg: flaky check, $(wc -l <<< "$files" | tr -d ' ') test file(s) in $reruns shuffled reruns, $fails failed")
 }
 
 mutation() {

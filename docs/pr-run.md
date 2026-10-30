@@ -33,7 +33,7 @@ flowchart LR
 | `scope` | contents, pull requests, issues read; statuses write | no | no | the live PR, the diff | `scope.json`: changed files to test, skipped files with a reason; the pending status |
 | `agents` | contents read | yes | only in Docker containers | `scope.json`, the PR description | `tests.patch`, `author.json`, `reviewer.json` |
 | `bot_commit` | contents write | no | no | the `agents` files | the Bot commit; `checked.json` |
-| `suites` | contents read | no | yes, with no secrets | the final commit | `results.json`: typecheck, suites, coverage, mutation |
+| `suites` | contents read | no | yes, with no secrets | the final commit | `results.json`: typecheck, suites, flaky check, coverage, mutation |
 | `publish` | statuses write, pull-requests write | no | no | every file above | the `test-agent/verify` status and the three comments |
 
 Files pass between jobs as workflow artifacts. A job never reads another job's disk.
