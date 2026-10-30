@@ -192,11 +192,13 @@ jobs:
       # anyway, this restores it and warns with each file. The same check runs again before the Reviewer.
       - name: Check agent config before the Author
         run: bash "$RUNNER_TEMP/overlay.sh" check "$OUT/overlay.sha"
+      # claude_args passes each schema inside single quotes, so a `'` in a description would end the argument early.
+      # It is written as the JSON escape ', which parses to the same text.
       - name: Read the output schemas
         id: schemas
         run: |
-          echo "author=$(jq -c . .github/scripts/contracts/author.schema.json)" >> "$GITHUB_OUTPUT"
-          echo "reviewer=$(jq -c . .github/scripts/contracts/reviewer.schema.json)" >> "$GITHUB_OUTPUT"
+          echo "author=$(jq -c . .github/scripts/contracts/author.schema.json | sed "s/'/\\\\u0027/g")" >> "$GITHUB_OUTPUT"
+          echo "reviewer=$(jq -c . .github/scripts/contracts/reviewer.schema.json | sed "s/'/\\\\u0027/g")" >> "$GITHUB_OUTPUT"
       - name: Author
         id: author
         timeout-minutes: ${{ fromJSON(vars.TEST_AGENT_TIMEOUT_MINUTES) }}
