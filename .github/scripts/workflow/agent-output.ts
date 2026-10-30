@@ -137,12 +137,25 @@ const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&
 const word = (name: string, flags = '') => new RegExp(`(?<![\\w$])${escapeRegExp(name)}(?![\\w$])`, flags);
 const identifiers = (text: string) => text.match(/[A-Za-z_$][\w$]*/g) ?? [];
 
+// A route Unit may be named by its public path (`GET /api/todos/due-soon`), while the file holds only the path below
+// the router's mount point (`router.get('/due-soon'`). It matches when the method and a final part of the path appear
+// together as a route in the file.
+const ROUTE_NAME = /^(get|post|put|patch|delete)\s+(\/\S*)$/i;
+function routeInFile(unitName: string, text: string): boolean {
+  const [, method, path] = ROUTE_NAME.exec(unitName.trim()) ?? [];
+  if (!method || !path) return false;
+  const segments = path.split('/').filter(Boolean);
+  const tails = segments.map((_, i) => `/${segments.slice(i).join('/')}`);
+  return tails.some((tail) => new RegExp(`\\.${method.toLowerCase()}\\(\\s*['"\`]${escapeRegExp(tail)}['"\`]`).test(text));
+}
+
 // Each identifier of a Unit's name (`TodoRepository.stats`, `default`, `GET /todos/:id`) must appear in its file.
 // Case is ignored, because a route's method is `GET` in its name and `router.get` in the code.
 function checkUnitName(unit: Unit, checkout: Checkout): string[] {
   const name = `${unit.path} ${unit.unit}`;
   if (!exists(checkout, unit.path)) return [`${name}: ${unit.path} is not in the checkout`];
   const text = fileText(checkout, unit.path);
+  if (routeInFile(unit.unit, text)) return [];
   const missing = identifiers(unit.unit).filter((id) => !word(id, 'i').test(text));
   return missing.length ? [`${name}: ${missing.join(', ')} does not appear in ${unit.path}`] : [];
 }
