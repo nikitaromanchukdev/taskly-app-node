@@ -142,6 +142,12 @@ REVIEW_ONLY := $(wildcard $(FIXTURE)/tests.patch)
 DEMO_GIT := git -C $(DEMO_TREE) -c user.name=demo -c user.email=demo@localhost
 # Trial steps inside the case worktree, with this Makefile; scope and install run before a review-only case's tests are applied.
 DEMO_MAKE := $(SUBMAKE) -C $(DEMO_TREE) -f $(CURDIR)/Makefile
+# Docker Desktop on macOS denies deletes in a folder it mounted until a few seconds after the container exits,
+# so a removal right after the last sandbox.sh call can fail. Retry, then stop with a clear message.
+remove_demo_tree = for i in 1 2 3 4 5 6 7 8 9 10; do \
+	  { git worktree remove --force $(DEMO_TREE) 2> /dev/null || rm -rf $(DEMO_TREE) 2> /dev/null; } && break; sleep 3; \
+	done; git worktree prune; \
+	test ! -e $(DEMO_TREE) || { echo "make: could not remove $(DEMO_TREE): Docker still holds it; retry in a few seconds" >&2; exit 1; }
 
 demo: preflight
 	@status=0; for c in $(or $(CASE),$(CASES)); do \
@@ -152,8 +158,7 @@ demo-case:
 	@test -n "$(CASE)" -a -d "$(FIXTURE)" || { echo "make: no case '$(CASE)' in .github/agent-tests/" >&2; exit 64; }
 	@echo "== demo case: $(CASE)"
 	@rm -rf $(DEMO_OUT) && mkdir -p $(DEMO_OUT)
-	@git worktree remove --force $(DEMO_TREE) 2> /dev/null || rm -rf $(DEMO_TREE)
-	@git worktree prune
+	@$(remove_demo_tree)
 	git worktree add -q --detach $(DEMO_TREE) HEAD
 	rsync -a --delete --exclude worktrees --exclude settings.local.json .claude/ $(DEMO_TREE)/.claude/
 	rsync -a --delete .github/scripts/ $(DEMO_TREE)/.github/scripts/
@@ -167,7 +172,7 @@ demo-case:
 	  $(DEMO_GIT) apply $(FIXTURE)/tests.patch && cp $(FIXTURE)/author.json $(DEMO_OUT)/author.json || status=1; \
 	fi; \
 	[ $$status != 0 ] || $$steps $(if $(REVIEW_ONLY),,author) patch review check report || status=$$?; \
-	git worktree remove --force $(DEMO_TREE); \
+	($(remove_demo_tree)); \
 	$(SCRIPTS)/local/trial.ts check --out $(DEMO_OUT) --expected $(FIXTURE)/expected.json || status=1; \
 	echo "Output: $(DEMO_OUT)"; exit $$status
 
