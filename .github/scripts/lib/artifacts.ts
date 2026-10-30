@@ -94,6 +94,24 @@ export type Checked = {
   unknownNames: UnknownNames;
 };
 
+// ---- defects.json, proof.json ----
+
+// One flagged Defect's test as bot_commit leaves it out of the Bot commit (defects.patch holds the file). `file` is
+// from the repo root, `packageFile` from the package folder, where the test run starts.
+export type DefectCase = {
+  package: Pkg;
+  path: string;
+  unit: string;
+  file: string;
+  packageFile: string;
+  test: string;
+  expected: string;
+  received: string;
+};
+export type ProofState = 'proven' | 'unproven';
+// reason is a fixed label chosen by defect-proof.ts, never text from a report; it is empty when proven.
+export type Proof = { path: string; unit: string; state: ProofState; reason: string };
+
 // ---- results.json ----
 
 export type Check = 'pass' | 'fail' | 'skipped';
@@ -136,6 +154,7 @@ export type Run = {
   reviewer?: ReviewerOutput;
   checked?: Checked;
   results?: Results;
+  proof?: Proof[];
 };
 
 // ---- Helpers ----

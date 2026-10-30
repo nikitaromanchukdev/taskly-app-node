@@ -4,6 +4,9 @@
 #                                                    then the tests of the workflow's own scripts. On the final tree
 #                                                    with a head tree beside it, also shuffled reruns of the Bot commit's tests
 #   verify.sh mutation <tree> <out-dir> <scope.json> StrykerJS on the changed files, per package (after checks)
+#   verify.sh defects  <tree> <out-dir> <defects-dir> the Defect tests (defects.patch, defects.json from bot_commit) on a
+#                                                    copy of the tree, with no network where the runner allows it;
+#                                                    <pkg>.defects.json is the vitest report. They fail on purpose: exit 0.
 # Runs PR code, so the job holding it has a read-only token and no secrets.
 # `checks` exits 1 when any install, typecheck, suite or script test failed, after writing every report: the job result
 # (needs.suites.result) is what lets the status be green. The reports are untrusted data and can only make it worse.
@@ -21,8 +24,8 @@ failed=0
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 case "$mode" in
-  checks | mutation) ;;
-  *) echo "usage: verify.sh <checks|mutation> <tree> <out-dir> [scope.json]" >&2; exit 64 ;;
+  checks | mutation | defects) ;;
+  *) echo "usage: verify.sh <checks|mutation|defects> <tree> <out-dir> [scope.json|defects-dir]" >&2; exit 64 ;;
 esac
 
 echo "verify.sh $mode: $label tree at $(git -C "$tree" rev-parse HEAD 2> /dev/null || echo 'unknown commit')"
@@ -98,6 +101,40 @@ mutation() {
   cp reports/mutation/mutation.json "$out/$pkg.mutation.json"
   summary+=("$pkg: mutation $(mutation_summary "$out/$pkg.mutation.json")")
 }
+
+# Runs a command with no network: a new network namespace holding only loopback, as the current user. Needs root or
+# passwordless sudo and unshare, as on a GitHub runner. Without them it runs the command as it is and says so.
+offline() {
+  local as_root=()
+  [[ "$(id -u)" != 0 ]] && as_root=(sudo -n)
+  if [[ "$(uname)" == Linux ]] && command -v unshare > /dev/null && command -v setpriv > /dev/null && "${as_root[@]}" true 2> /dev/null; then
+    "${as_root[@]}" unshare --net -- bash -c 'ip link set lo up || echo "verify.sh: cannot bring loopback up" >&2; u=$1 g=$2 h=$3 p=$4; shift 4; exec setpriv --reuid "$u" --regid "$g" --clear-groups env HOME="$h" PATH="$p" "$@"' \
+      _ "$(id -u)" "$(id -g)" "$HOME" "$PATH" "$@"
+  else
+    echo "verify.sh: no network namespace here (needs Linux, unshare, setpriv, root or sudo): the Defect tests run with network"
+    "$@"
+  fi
+}
+
+defects() {
+  local pkg="$1" files=() file
+  while IFS= read -r file; do files+=("$file"); done < <(jq -r --arg p "$pkg" '[.[] | select(.package == $p) | .packageFile] | unique | .[]' "$scope/defects.json")
+  if [[ ${#files[@]} -eq 0 ]]; then summary+=("$pkg: no Defect tests"); return; fi
+  group "$pkg" "Defect tests (they are expected to fail)" offline npx vitest run "${files[@]}" --reporter=default --reporter=json \
+    --outputFile.json="$out/$pkg.defects.json"
+  summary+=("$pkg: Defect tests $(suite_summary "$out/$pkg.defects.json")")
+}
+
+# The Defect tests are new files that are not in the final tree: a copy of it takes them, and the tree stays as it was.
+if [[ "$mode" == defects ]]; then
+  copy="$(mktemp -d)/tree"
+  cp -a "$tree" "$copy"
+  if ! git -C "$copy" apply "$scope/defects.patch"; then
+    echo "verify.sh defects: defects.patch does not apply to the final tree; no Defect test ran"
+    exit 0
+  fi
+  tree="$copy"
+fi
 
 for pkg in backend frontend; do
   cd "$tree/$pkg" || exit 1
