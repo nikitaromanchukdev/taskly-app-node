@@ -28,9 +28,14 @@ function confirmedDefects(run: Run): Unit[] {
 export const proofOf = (run: Run, unit: { path: string; unit: string }): Proof =>
   run.proof?.find((proof) => unitKey(proof) === unitKey(unit)) ?? { ...unit, state: 'unproven', reason: 'no proof of the Defect test' };
 
-// Only a confirmed Defect whose test was seen failing makes the status red (ADR 0005).
-const provenDefects = (run: Run) => confirmedDefects(run).filter((unit) => proofOf(run, unit).state === 'proven');
-const unprovenDefects = (run: Run) => confirmedDefects(run).filter((unit) => proofOf(run, unit).state === 'unproven');
+// A flagged Defect whose test is in no file of the patch: the Author removed it (agent-output.ts finds this from the
+// patch, which is trusted; PR code cannot change it).
+export const testMissing = (run: Run, unit: Unit) => (run.checked?.missingDefectTests ?? []).includes(unitKey(unit));
+
+// A confirmed Defect turns the status red when its test was seen failing, or when its test is missing (ADR 0005).
+const provenDefects = (run: Run) => confirmedDefects(run).filter((unit) => !testMissing(run, unit) && proofOf(run, unit).state === 'proven');
+const unprovenDefects = (run: Run) => confirmedDefects(run).filter((unit) => !testMissing(run, unit) && proofOf(run, unit).state === 'unproven');
+const testlessDefects = (run: Run) => confirmedDefects(run).filter((unit) => testMissing(run, unit));
 
 // The first agent step that failed explains the agent part.
 const AGENT_FAILURES: readonly ReasonRule[] = [
@@ -73,11 +78,13 @@ function headline(run: Run): string {
 
 export function decide(run: Run): Status {
   const defects = provenDefects(run).length;
+  const testless = testlessDefects(run).length;
   const reasons = [
     run.context.jobs.scope !== 'success' ? SCOPE_FAILED : undefined,
     run.context.run_agent ? firstReason(AGENT_FAILURES, run) : undefined,
     verifyFailure(run),
     defects ? plural(defects, 'proven defect') : undefined,
+    testless ? `${plural(testless, 'confirmed defect')} without a test` : undefined,
   ].filter((reason) => reason !== undefined);
 
   const prefix = run.context.label_skip ? `${labelSkipNote(run.context)}; ` : '';

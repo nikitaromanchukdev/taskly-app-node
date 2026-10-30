@@ -74,13 +74,15 @@ Stop retrying a Unit when it passes, or when its attempts reach the budget. A te
 
 1. **Record it** - the test name, expected, received, and the Intent source. Verdict `flagged-defect`.
 2. **Keep the rest** - keep the Unit's passing tests.
-3. **Isolate the failing test** in a new file of its own:
+3. **Isolate the failing test** in a new file of its own, and write that file before you touch the original:
 
    **If it is already alone in a file you created:** leave the file as it is.
 
-   **If it is anywhere else:** move the test with Write into a new file next to the original, named after the Unit and the Defect, then remove it from the original with Edit.
+   **If it is anywhere else:** move the test with Write into a new file next to the original, named after the Unit and the Defect. Only after that file exists, remove the test from the original with Edit. Never just delete it.
 
-`bot_commit` drops a new file that holds a flagged Defect's test, so the failing test never reaches the Bot commit. Never delete or empty files; you have no tool for it.
+   Write a Defect's test in its own file from the start when you can.
+
+`bot_commit` checks the patch for the test, and a confirmed Defect without its test turns the status red. `bot_commit` drops a new file that holds a flagged Defect's test, so the failing test never reaches the Bot commit. Never delete or empty files; you have no tool for it.
 
 ---
 

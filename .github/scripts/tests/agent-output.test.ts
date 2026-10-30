@@ -8,7 +8,7 @@ import { runScript, tempDir } from './run.ts';
 
 type Tree = Record<string, string>;
 type Inputs = { author: unknown; reviewer?: unknown; patch?: string; maxAttempts?: string; tree?: Tree };
-type Outcome = { code: number | null; stderr: string; checked: Checked };
+type Outcome = { code: number | null; stdout: string; stderr: string; checked: Checked };
 
 const TEST = 'backend/tests/todos.test.ts > counts open todos';
 const CHARACTERIZATION_TEST = 'backend/tests/todos.test.ts > characterization: sorts by id';
@@ -85,7 +85,7 @@ function check({ author, reviewer, patch, maxAttempts = '3', tree = TREE }: Inpu
   if (reviewer !== undefined) args.push('--reviewer', file('reviewer.json', JSON.stringify(reviewer)));
   if (patch !== undefined) args.push('--patch', file('tests.patch', patch));
   const result = runScript('workflow/agent-output.ts', args);
-  return { code: result.code, stderr: result.stderr, checked: JSON.parse(readFileSync(join(dir, 'checked.json'), 'utf8')) };
+  return { code: result.code, stdout: result.stdout, stderr: result.stderr, checked: JSON.parse(readFileSync(join(dir, 'checked.json'), 'utf8')) };
 }
 
 const addedFile = (path: string, lines: readonly string[], isNew = true) =>
@@ -102,7 +102,7 @@ describe('agent-output.ts', () => {
   it('accepts valid output and drops nothing', () => {
     const outcome = check({ author: author(unit()), reviewer: reviewer() });
     assert.equal(outcome.code, 0);
-    assert.deepEqual(outcome.checked, { ok: true, errors: [], dropFiles: [], reviewRejected: [], unknownNames: { author: [], reviewer: [] } });
+    assert.deepEqual(outcome.checked, { ok: true, errors: [], dropFiles: [], reviewRejected: [], missingDefectTests: [], unknownNames: { author: [], reviewer: [] } });
   });
 
   it('rejects output that breaks the schema', () => {
@@ -195,6 +195,23 @@ describe('agent-output.ts', () => {
     const outcome = check({ author: author(flagged()), reviewer: reviewer([], [confirmed]), patch });
     assert.equal(outcome.code, 0);
     assert.deepEqual(outcome.checked.dropFiles, []);
+    assert.deepEqual(outcome.checked.missingDefectTests, ['backend/src/stats.ts#stats']);
+  });
+
+  it('reports a flagged Defect whose test is in no file of the patch, and still accepts the output', () => {
+    const patch = addedFile('backend/tests/sort.test.ts', ["it('passing test', () => {})"]);
+    const outcome = check({ author: author(flagged('backend/tests/sort.test.ts > failing test')), reviewer: reviewer([], [confirmed]), patch });
+    assert.equal(outcome.code, 0);
+    assert.equal(outcome.checked.ok, true);
+    assert.deepEqual(outcome.checked.missingDefectTests, ['backend/src/stats.ts#stats']);
+    assert.deepEqual(outcome.checked.dropFiles, []);
+    assert.match(outcome.stdout, /missing Defect tests: backend\/src\/stats.ts#stats/);
+  });
+
+  it('does not report a flagged Defect whose test is in a new file of the patch', () => {
+    const patch = addedFile('backend/tests/stats.test.ts', ["it('due today is not overdue', () => {})"]);
+    const outcome = check({ author: author(flagged()), reviewer: reviewer([], [confirmed]), patch });
+    assert.deepEqual(outcome.checked.missingDefectTests, []);
   });
 
   it('rejects a Unit whose name is not in its file', () => {

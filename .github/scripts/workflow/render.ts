@@ -2,9 +2,9 @@
 // Every comment has the same shape: marker, `### {name} · {outcome}`, the meta line, what needs a person,
 // the tables, then collapsed details and the agent's free text last. The outcome is counted by script.
 import { isFlaggedDefect, packageRelative, unitKey, unitTests, writesTests } from '../lib/artifacts.ts';
-import type { Check, Context, Defect, DefectDecision, Kind, MutationResult, Results, ReviewerOutput, Run, Severity, SummaryAgent, Unit } from '../lib/artifacts.ts';
+import type { Check, Context, Defect, DefectDecision, Kind, MutationResult, Proof, Results, ReviewerOutput, Run, Severity, SummaryAgent, Unit } from '../lib/artifacts.ts';
 import { cell, code, sanitize } from './sanitize.ts';
-import { labelSkipNote, plural, proofOf, SCOPE_FAILED } from './status.ts';
+import { labelSkipNote, plural, proofOf, SCOPE_FAILED, testMissing } from './status.ts';
 import type { ReasonRule, Status, StatusState } from './status.ts';
 import type { SkipReason } from '../contracts/rules.ts';
 
@@ -29,6 +29,7 @@ const DEFECT_LABELS: Record<DefectLabel, string> = {
 const DECISION_LABELS: Record<DefectDecision, string> = { confirmed: '🔴 confirmed', rejected: '⚠️ rejected' };
 const SEVERITY_LABELS: Record<Severity, string> = { blocking: '⚠️ blocking', advisory: 'advisory' };
 const MAX_SURVIVORS = 20;
+const TEST_MISSING = 'no test: the Author removed the Defect test instead of moving it to a file of its own. The Reviewer still confirmed it: check the code against its quote, or re-run the workflow to get the test';
 
 // ---- Shared parts ----
 
@@ -114,6 +115,8 @@ function notRun(run: Run, who: string, { why, adr }: NotRunReason, repo: string)
 }
 const unitName = (unit: { path: string; unit: string }, repo: string) => `${code(unit.path, repo)} ${cell(unit.unit, repo)}`;
 
+const proofText = (proof: Proof) => (proof.state === 'proven' ? 'proven' : `unproven (${proof.reason})`);
+
 // ---- Pipeline report ----
 
 // Shown once the Author ran, even when empty; without Author output there is nothing to say.
@@ -124,10 +127,13 @@ function defectLines(run: Run, repo: string): string[] {
     const review = run.reviewer?.defects.find((decision) => unitKey(decision) === unitKey(unit));
     const defect = unit.defect;
     const proof = proofOf(run, unit);
-    const label = review?.decision === 'confirmed' && proof.state === 'unproven' ? 'confirmed-unproven' : (review?.decision ?? 'undecided');
+    const missing = testMissing(run, unit);
+    const confirmed = review?.decision === 'confirmed';
+    const label = confirmed && proof.state === 'unproven' && !missing ? 'confirmed-unproven' : (review?.decision ?? 'undecided');
+    const proofLine = missing ? TEST_MISSING : proofText(proof);
     return [
       `- ${DEFECT_LABELS[label]} · ${unitName(unit, repo)}`,
-      `  - proof: ${proof.state === 'proven' ? 'proven' : `unproven (${proof.reason})`}`,
+      `  - proof: ${proofLine}`,
       ...(defect
         ? [
             `  - test: ${cell(defect.test, repo)}`,

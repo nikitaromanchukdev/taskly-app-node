@@ -135,7 +135,7 @@ const agentRun = (summaries: { author?: string; reviewer?: string } = {}): Run =
       { test: 'backend/tests/kept.test.ts > works', severity: 'advisory', reason: 'weak-assertion', note: 'loose' },
     ],
   },
-  checked: { ok: true, errors: [], dropFiles: [], reviewRejected: [unitKey(tested('dropped'))], unknownNames: { author: [], reviewer: [] } },
+  checked: { ok: true, errors: [], dropFiles: [], reviewRejected: [unitKey(tested('dropped'))], missingDefectTests: [], unknownNames: { author: [], reviewer: [] } },
   results,
   proof: [{ path: flagged.path, unit: flagged.unit, state: 'proven', reason: '' }],
 });
@@ -216,6 +216,14 @@ describe('one format for every comment', () => {
     assert.ok(render('report', { ...agentRun(), proof: undefined }).includes('proof: unproven (no proof of the Defect test)'));
   });
 
+  it('the Report says a confirmed Defect has no test because the Author removed it, and labels it red', () => {
+    const checked = { ...agentRun().checked!, missingDefectTests: [unitKey(flagged)] };
+    const body = render('report', { ...agentRun(), proof: undefined, checked });
+    assert.ok(body.includes('- 🔴 confirmed ·'), body);
+    assert.ok(body.includes('  - proof: no test: the Author removed the Defect test instead of moving it to a file of its own'), body);
+    assert.ok(!body.includes('not proven'), body);
+  });
+
   it('the Report shows its Defects section once the Author ran, even with none flagged, and leaves it out before', () => {
     const clean: Run = { ...agentRun(), author: { summary: '', units: [tested('kept')] } };
     assert.ok(render('report', clean).includes('#### Defects\nNo Defects flagged.'));
@@ -254,7 +262,7 @@ describe('agent comments when a summary names something the run does not contain
     scope: scope([candidate]),
     author: { summary: 'Tested `TodoStore.stats()`.', units: [] },
     reviewer: { summary: 'Reviewed `TodoStore.stats()`.', findings: [], defects: [] },
-    checked: { ok: true, errors: [], dropFiles: [], reviewRejected: [], unknownNames },
+    checked: { ok: true, errors: [], dropFiles: [], reviewRejected: [], missingDefectTests: [], unknownNames },
   });
   const comment = (name: CommentName, run: Run) => RENDERERS[name]({ run, status: { state: 'success', description: '' }, repo: REPO });
   const WARNING = /⚠️ The (Author|Reviewer)'s notes name `TodoStore\.stats\(\)`, which no Unit, test or file of this run contains/;

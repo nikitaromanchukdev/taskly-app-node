@@ -1,6 +1,7 @@
 // status.ts decides test-agent/verify, the merge gate (ADR 0005).
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { unitKey } from '../lib/artifacts.ts';
 import type { AuthorOutput, Context, DefectDecision, Proof, Results, ReviewerOutput, Run, Unit } from '../lib/artifacts.ts';
 import { decide } from '../workflow/status.ts';
 
@@ -56,7 +57,7 @@ const run = (overrides: Partial<Run> = {}): Run => ({
   context: context(),
   author: author(added('todos')),
   reviewer: reviewer(),
-  checked: { ok: true, errors: [], dropFiles: [], reviewRejected: [], unknownNames: { author: [], reviewer: [] } },
+  checked: { ok: true, errors: [], dropFiles: [], reviewRejected: [], missingDefectTests: [], unknownNames: { author: [], reviewer: [] } },
   results: results(),
   ...overrides,
 });
@@ -91,13 +92,25 @@ describe('decide', () => {
     assert.equal(status.state, 'success');
   });
 
+  it('is red for a confirmed Defect whose test is missing, with no proof needed', () => {
+    const checked = { ...run().checked!, missingDefectTests: [unitKey(flagged)] };
+    const status = decide(run({ author: author(added('todos'), flagged), reviewer: reviewer('confirmed'), checked }));
+    assert.deepEqual(status, { state: 'failure', description: '1 confirmed defect without a test' });
+  });
+
+  it('stays green for a rejected Defect whose test is missing', () => {
+    const checked = { ...run().checked!, missingDefectTests: [unitKey(flagged)] };
+    const status = decide(run({ author: author(added('todos'), flagged), reviewer: reviewer('rejected'), checked }));
+    assert.deepEqual(status, { state: 'success', description: '1 unit tested, 0 proven defects' });
+  });
+
   it('stays green for a Defect the Reviewer rejected', () => {
     const status = decide(run({ author: author(added('todos'), flagged), reviewer: reviewer('rejected') }));
     assert.deepEqual(status, { state: 'success', description: '1 unit tested, 0 proven defects' });
   });
 
   it('does not count a Unit whose tests the Reviewer blocked', () => {
-    const checked = { ok: true, errors: [], dropFiles: ['backend/tests/todos.test.ts'], reviewRejected: ['backend/src/todos.ts#todos'], unknownNames: { author: [], reviewer: [] } };
+    const checked = { ok: true, errors: [], dropFiles: ['backend/tests/todos.test.ts'], reviewRejected: ['backend/src/todos.ts#todos'], missingDefectTests: [], unknownNames: { author: [], reviewer: [] } };
     assert.equal(decide(run({ checked })).description, '0 units tested, 0 proven defects');
   });
 
@@ -124,7 +137,7 @@ describe('decide', () => {
   });
 
   it('is red when the agent output was invalid or the patch was rejected', () => {
-    const checked = { ok: false, errors: ['patch rejected'], dropFiles: [], reviewRejected: [], unknownNames: { author: [], reviewer: [] } };
+    const checked = { ok: false, errors: ['patch rejected'], dropFiles: [], reviewRejected: [], missingDefectTests: [], unknownNames: { author: [], reviewer: [] } };
     assert.deepEqual(decide(run({ checked })), { state: 'failure', description: 'agent output invalid or patch rejected' });
   });
 
