@@ -157,7 +157,7 @@ describe('trial.ts check', () => {
   });
 
   it('fails when a Unit is check-rejected, so a demo stays strict', () => {
-    const checkRejected = [{ unit: 'backend/src/core/truncate.ts#truncate', errors: ['name does not appear'] }];
+    const checkRejected = [{ unit: 'backend/src/core/truncate.ts#truncate', errors: ['name does not appear'], kept: ['backend/tests/truncate.test.ts'], dropped: [] }];
     const result = check({ author: author('flagged-defect'), reviewer: reviewer('confirmed'), checked: { ...okCheck, checkRejected } });
     assert.equal(result.code, 1);
     assert.match(result.stderr, /truncate\.ts#truncate: check-rejected: name does not appear/);

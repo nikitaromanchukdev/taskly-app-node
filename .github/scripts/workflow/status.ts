@@ -45,6 +45,22 @@ const AGENT_FAILURES: readonly ReasonRule[] = [
   { when: (run) => !run.checked?.ok, reason: () => 'agent output invalid or patch rejected' },
 ];
 
+// Units whose tests the Bot commit does not hold: they have a blocking Finding, or a test that overclaims intent.
+export const leftOutUnits = (run: Run): string[] => [
+  ...new Set([...(run.checked?.reviewRejected ?? []), ...(run.checked?.checkRejected ?? []).filter(({ dropped }) => dropped.length).map(({ unit }) => unit)]),
+];
+
+// The agents ran, yet the Bot commit is missing or lacks tests: the usual cause when a coverage floor fails with green tests.
+// Counts only: a name or reason from the agents goes in the Report, not the status.
+function botCommitNote(run: Run): string[] {
+  if (!run.context.run_agent) return [];
+  const left = leftOutUnits(run).length;
+  return [
+    ...(run.context.analyzed_sha === run.context.final_sha ? ['no Bot commit'] : []),
+    ...(left ? [`Bot commit left out tests of ${plural(left, 'unit')}`] : []),
+  ];
+}
+
 // Green needs the suites job to have succeeded: that job fails when a typecheck or a suite fails, and its result comes
 // from GitHub, not from a file. results.json comes from a job that ran PR code, so it is untrusted: it can add red
 // reasons (they name what failed) and never remove one.
@@ -53,8 +69,11 @@ function verifyFailure(run: Run): string | undefined {
     ...Object.entries(run.results?.typecheck ?? {}).filter(([, check]) => check === 'fail').map(([pkg]) => `${pkg} typecheck`),
     ...Object.entries(run.results?.tests ?? {}).filter(([, suite]) => suite.status === 'fail').map(([pkg]) => `${pkg} tests`),
   ];
+  // Tests green, vitest red: a coverage floor (verify.sh). results.json can only add this reason, never remove one.
+  const floor = Object.entries(run.results?.thresholds ?? {}).filter(([pkg, check]) => check === 'fail' && run.results?.tests[pkg]?.status === 'pass').map(([pkg]) => pkg);
   const reasons = [
     failed.length ? `${failed.join(', ')} failed` : undefined,
+    floor.length ? [`suites failed: ${floor.join(', ')} coverage floor`, ...botCommitNote(run)].join('; ') : undefined,
     run.results?.flaky.length ? `${plural(run.results.flaky.length, 'new test file')} flaky in shuffled reruns` : undefined,
   ].filter((reason) => reason !== undefined);
   if (reasons.length) return reasons.join('; ');

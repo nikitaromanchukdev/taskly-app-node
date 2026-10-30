@@ -86,15 +86,17 @@ export type SummaryAgent = 'author' | 'reviewer';
 // Per agent: backticked names in its summary that no Unit, test or file of the run contains (report-only).
 export type UnknownNames = Record<SummaryAgent, string[]>;
 
-// A Unit whose own content failed a check, or that shares a test file with one that did (report-only state).
-export type CheckRejected = { unit: string; errors: string[] }; // unit is its unitKey
+// A Unit whose own content failed a check, or that shares a test file with one that did (report-only state): its tests
+// count as no evidence. unit is its unitKey; `kept` are its test files that stay in the Bot commit, `dropped` those left
+// out of it (only for a test that overclaims intent, or a file shared with one).
+export type CheckRejected = { unit: string; errors: string[]; kept: string[]; dropped: string[] };
 
 export type Checked = {
   ok: boolean;
   errors: string[];
-  dropFiles: string[]; // test files with a blocking finding or of a check-rejected Unit, and new files holding a flagged Defect's failing test
+  dropFiles: string[]; // test files with a blocking finding or with a test that overclaims intent, and new files holding a flagged Defect's failing test
   reviewRejected: string[]; // unitKey of units whose tests live in a file with a blocking finding (report-only state)
-  checkRejected: CheckRejected[]; // Units left out of the Bot commit by a Unit-level check (name, test kind, test file); their test files are in dropFiles
+  checkRejected: CheckRejected[]; // Units not verified: a Unit-level check failed (name, test kind, test file). Their tests are committed unless they overclaim intent
   missingDefectTests: string[]; // unitKey of flagged Defects whose test is in no file of the patch (the Author removed it)
   unknownNames: UnknownNames;
 };
@@ -134,6 +136,8 @@ export type Results = {
   typecheck: Record<string, Check>;
   tests: Record<string, SuiteResult>;
   flaky: FlakyFile[];
+  // Per package: whether vitest exited 0, i.e. no coverage floor was missed. skipped: no figure (old report, or tests failed).
+  thresholds: Record<string, Check>;
   coverage: { baseline: Coverage; final: Coverage };
   // By repo path of each changed source file; missing when the run had no scope.
   changedLines?: Record<string, ChangedLines>;

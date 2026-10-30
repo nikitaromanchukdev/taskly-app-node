@@ -37,6 +37,22 @@ describe('results.ts', () => {
     assert.equal(resultsFor({}).tests.backend.status, 'fail');
   });
 
+  describe('thresholds', () => {
+    const passing = JSON.stringify({ success: true, numPassedTests: 3, numFailedTests: 0 });
+    const failing = JSON.stringify({ success: false, numPassedTests: 1, numFailedTests: 2 });
+
+    it('records a missed coverage floor when every test passed and vitest exited non-zero', () => {
+      const results = resultsFor({ 'backend.vitest.json': passing, 'backend.thresholds': 'fail\n', 'frontend.vitest.json': passing, 'frontend.thresholds': 'pass\n' });
+      assert.deepEqual(results.thresholds, { backend: 'fail', frontend: 'pass' });
+    });
+
+    it('has no figure when a test failed, when the label is unknown or when the file is missing', () => {
+      const results = resultsFor({ 'backend.vitest.json': failing, 'backend.thresholds': 'fail', 'frontend.vitest.json': passing, 'frontend.thresholds': '<b>fail</b>' });
+      assert.deepEqual(results.thresholds, { backend: 'skipped', frontend: 'skipped' });
+      assert.equal(resultsFor({ 'backend.vitest.json': passing }).thresholds.backend, 'skipped');
+    });
+  });
+
   it('computes the changed lines a candidate got from scope.json and lcov, as numbers only', () => {
     const dir = tempDir();
     mkdirSync(join(dir, 'final'));

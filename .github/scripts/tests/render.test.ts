@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { unitKey } from '../lib/artifacts.ts';
-import type { Candidate, Context, Results, Run, Scope, Skipped, Unit, Verdict } from '../lib/artifacts.ts';
+import type { Candidate, CheckRejected, Context, Results, Run, Scope, Skipped, Unit, Verdict } from '../lib/artifacts.ts';
 import { RENDERERS } from '../workflow/render.ts';
 import type { CommentName } from '../workflow/render.ts';
 import type { Status } from '../workflow/status.ts';
@@ -115,6 +115,7 @@ const results: Results = {
   typecheck: { backend: 'pass', frontend: 'fail' },
   tests: { backend: { status: 'pass', passed: 3, failed: 0 } },
   flaky: [],
+  thresholds: { backend: 'pass' },
   coverage: { baseline: {}, final: {} },
   mutation: { backend: null },
 };
@@ -170,16 +171,51 @@ describe('one format for every comment', () => {
     assert.equal(titleOf('author', { ...agentRun(), author: { summary: '', units: [] } }), '### Test author · 0 Units tested');
   });
 
-  it('the Test author comment marks check-rejected Units with their sanitized reasons', () => {
-    const run = agentRun();
-    const checkRejected = [{ unit: unitKey(tested('kept')), errors: ['bad name <script>alert(1)</script>', 'two', 'three', 'four'] }];
-    const withCheck: Run = { ...run, checked: { ...run.checked!, checkRejected } };
-    const body = render('author', withCheck);
-    assert.match(body, /\(check-rejected\)/);
-    assert.match(body, /1 check-rejected/);
-    assert.match(body, /Check-rejected:/);
-    assert.match(body, /… 1 more/);
-    assert.ok(!body.includes('<script>'));
+  describe('Units that are not verified (check-rejected)', () => {
+    const kept = 'backend/tests/kept.test.ts';
+    const withCheck = (checkRejected: CheckRejected[], extra: Partial<Run> = {}): Run => {
+      const run = agentRun();
+      return { ...run, checked: { ...run.checked!, checkRejected }, ...extra };
+    };
+    const slip = { unit: unitKey(tested('kept')), errors: ['bad name <script>alert(1)</script>', 'two', 'three', 'four'], kept: [kept], dropped: [] };
+
+    it('the Test author comment marks them, with sanitized reasons and the test files the Bot commit holds', () => {
+      const body = render('author', withCheck([slip]));
+      assert.match(body, /\(check-rejected\)/);
+      assert.match(body, /1 check-rejected/);
+      assert.match(body, /Check-rejected, so not verified/);
+      assert.match(body, /count as no evidence/);
+      assert.match(body, /\(tests in the Bot commit: `backend\/tests\/kept\.test\.ts`\)/);
+      assert.match(body, /… 1 more/);
+      assert.ok(!body.includes('<script>'));
+    });
+
+    it('lists the test files left out of the Bot commit apart from those kept, with a cap', () => {
+      const dropped = Array.from({ length: 7 }, (_, i) => `backend/tests/d${i}.test.ts`);
+      const body = render('author', withCheck([{ ...slip, kept: [], dropped }]));
+      assert.match(body, /tests left out of the Bot commit: `backend\/tests\/d0\.test\.ts`/);
+      assert.doesNotMatch(body, /tests in the Bot commit/);
+      assert.match(body, /… 2 more\)/);
+      assert.ok(!body.includes('d6.test.ts'));
+    });
+
+    it('does not count them as tested', () => {
+      assert.match(titleOf('author', withCheck([slip])), /^### Test author · 0 Units tested, 1 not needed, 1 review-rejected, 1 check-rejected/);
+    });
+
+    it('the Report says the same, once, before the test results; nothing is shown without a check-rejected Unit', () => {
+      const body = render('report', withCheck([slip]));
+      assert.ok(body.indexOf('Check-rejected, so not verified') < body.indexOf('#### Test results'));
+      assert.ok(body.indexOf('#### Defects') < body.indexOf('Check-rejected, so not verified'));
+      assert.match(body, /tests in the Bot commit: `backend\/tests\/kept\.test\.ts`/);
+      assert.doesNotMatch(render('report', agentRun()), /not verified/);
+    });
+  });
+
+  it('the Report names a missed coverage floor in the test results, only when it was missed', () => {
+    const missed: Run = { ...agentRun(), results: { ...results, thresholds: { backend: 'fail', frontend: 'skipped' } } };
+    assert.match(render('report', missed), /\| backend coverage floor \| 🔴 fail: tests pass, vitest exited non-zero/);
+    assert.doesNotMatch(render('report', agentRun()), /coverage floor/);
   });
 
   it('the Test reviewer title counts Defect decisions and Findings', () => {

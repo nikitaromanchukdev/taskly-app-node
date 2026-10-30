@@ -2,6 +2,7 @@
 // Usage: node results.ts <dir> --final-tree <path> [--baseline-tree <path>] [--scope scope.json] [--out results.json]
 // <dir>/final/ (and <dir>/baseline/ when a bot commit exists) hold, per package written by verify.sh:
 //   <pkg>.typecheck (pass|fail) · <pkg>.vitest.json (vitest json reporter) · <pkg>.coverage.json (json-summary)
+//   <pkg>.thresholds (pass|fail: vitest's exit code, which also fails on a missed coverage floor)
 //   <pkg>.lcov.info (lcov, for the changed lines; see changed-lines.ts)
 //   <pkg>.mutation.json (Stryker json report, final only, missing when not run)
 //   <pkg>.rerun.files and <pkg>.rerun.<n>.json (shuffled reruns of the Bot commit's tests, final only; see flaky.ts)
@@ -50,6 +51,14 @@ function suite(dir: string, pkg: Pkg): SuiteResult {
   const failed = count(report.numFailedTests);
   const ok = report.success === true && failed === 0 && count(report.numFailedTestSuites) === 0;
   return { status: ok ? 'pass' : 'fail', passed: count(report.numPassedTests), failed };
+}
+
+// Whether vitest exited 0. It counts only when every test passed: then a non-zero exit is a missed coverage floor.
+// A package whose tests failed, or with no label, has no figure.
+function thresholds(dir: string, pkg: Pkg, tests: SuiteResult): Check {
+  const file = join(dir, `${pkg}.thresholds`);
+  if (tests.status !== 'pass' || !existsSync(file)) return 'skipped';
+  return CHECKS[readFileSync(file, 'utf8').trim()] ?? 'skipped';
 }
 
 // The workflow's own scripts. TAP ends with "# pass N" and "# fail N"; a run with no passing test fails too.
@@ -147,9 +156,11 @@ function main() {
   const baseline = values['baseline-tree'] && existsSync(baselineDir) ? coverageOf(baselineDir, values['baseline-tree']) : final;
 
   const scope = values.scope ? readJsonIfExists<Scope>(values.scope) : null;
+  const suites = Object.fromEntries(PACKAGES.map((pkg) => [pkg, suite(finalDir, pkg)]));
   const results: Results = {
     typecheck: Object.fromEntries(PACKAGES.map((pkg) => [pkg, typecheck(finalDir, pkg)])),
-    tests: { ...Object.fromEntries(PACKAGES.map((pkg) => [pkg, suite(finalDir, pkg)])), scripts: scriptsSuite(finalDir) },
+    tests: { ...suites, scripts: scriptsSuite(finalDir) },
+    thresholds: Object.fromEntries(PACKAGES.map((pkg) => [pkg, thresholds(finalDir, pkg, suites[pkg])])),
     flaky: PACKAGES.flatMap((pkg) => flakyFiles(finalDir, finalTree, pkg)),
     coverage: { baseline, final },
     ...(scope ? { changedLines: changedLines(finalDir, finalTree, scope) } : {}),
