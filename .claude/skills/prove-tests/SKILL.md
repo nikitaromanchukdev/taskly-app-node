@@ -15,7 +15,7 @@ Run every new and affected test until it is green or reported as a Defect.
 |---|---|---|
 | New test files and their Expectations | `author-tests` | |
 | Existing tests of each Unit | `scope-change` | |
-| Attempt budget | env `TEST_AGENT_MAX_ATTEMPTS`, or the prompt | Never default. Ask the owner if neither gives one |
+| Attempt budget | env `TEST_AGENT_MAX_ATTEMPTS`, or the prompt | Never default. If neither gives one, stop and report "Missing attempt budget" in `summary` with no Units; do not ask |
 
 ---
 

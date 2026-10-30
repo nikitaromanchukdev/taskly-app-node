@@ -58,7 +58,7 @@
           "reason": {
             "type": "string",
             "description": "The skip rule in .github/scripts/contracts/rules.ts that matches the file.",
-            "enum": ["tests", "stories", "generated", "lockfiles", "docs", "config", "type-only", "barrel", "deleted", "not-source"]
+            "enum": ["tests", "stories", "generated", "lockfiles", "docs", "config", "type-only", "barrel", "deleted", "over-cap", "not-source"]
           }
         }
       }

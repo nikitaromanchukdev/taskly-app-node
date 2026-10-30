@@ -110,20 +110,18 @@ jobs:
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: { name: scope, path: "${{ env.OUT }}" }
       # Agent config and scripts come from the base commit, never from the PR. The overlay is committed locally
-      # so tests.patch (a diff against it) contains only what the agent wrote.
+      # so tests.patch (a diff against it) contains only what the agent wrote. overlay.sh is read from the base
+      # commit into RUNNER_TEMP: the checkout's copy is the PR's, and later PR code runs next to the tree.
       - name: Overlay agent config from base
         env:
           BASE: ${{ needs.scope.outputs.base_sha }}
           HEAD_SHA: ${{ needs.scope.outputs.head_sha }}
         run: |
-          # Drop every agent instruction file the PR could have added anywhere (nested CLAUDE.md files load too).
-          git rm -rqf --ignore-unmatch -- ':(glob)**/.claude/**' ':(glob)**/CLAUDE.md' ':(glob)**/CLAUDE.local.md' \
-            ':(glob)**/AGENTS.md' .mcp.json .github/scripts
-          for p in .claude CLAUDE.md AGENTS.md .mcp.json .github/scripts; do
-            if git cat-file -e "$BASE:$p" 2> /dev/null; then git checkout "$BASE" -- "$p"; fi
-          done
-          git -c user.name=ci -c user.email=ci@localhost commit -q --allow-empty -m overlay
-          git rev-parse HEAD > "$OUT/overlay.sha"
+          git show "$BASE:.github/scripts/agent/overlay.sh" > "$RUNNER_TEMP/overlay.sh" || {
+            echo "::error::the base commit $BASE has no .github/scripts/agent/overlay.sh (ADR 0004: the base copy runs)"
+            exit 1
+          }
+          bash "$RUNNER_TEMP/overlay.sh" apply "$BASE" "$OUT/overlay.sha"
           echo "Agents run on PR head $HEAD_SHA, with agent config and scripts from base $BASE"
       - name: Install dependencies in the sandbox
         run: |
@@ -132,6 +130,10 @@ jobs:
             .github/scripts/agent/sandbox.sh install "$pkg"
             echo "::endgroup::"
           done
+      # PR postinstall scripts ran in the sandbox, which cannot write the checkout (ADR 0004). If anything changed
+      # anyway, this restores it and warns with each file. The same check runs again before the Reviewer.
+      - name: Check agent config before the Author
+        run: bash "$RUNNER_TEMP/overlay.sh" check "$OUT/overlay.sha"
       - name: Read the output schemas
         id: schemas
         run: |
@@ -178,6 +180,10 @@ jobs:
           if jq -e '[.units[] | select(.verdict != "not-needed")] | length > 0' "$OUT/author.json" > /dev/null; then
             echo review=true >> "$GITHUB_OUTPUT"
           fi
+      # The Author's tests ran in the sandbox: nothing it wrote may reach the Reviewer as instructions.
+      - name: Check agent config before the Reviewer
+        if: steps.patch.outputs.review == 'true'
+        run: bash "$RUNNER_TEMP/overlay.sh" check "$OUT/overlay.sha"
       - name: Reviewer
         id: reviewer
         if: steps.patch.outputs.review == 'true'
