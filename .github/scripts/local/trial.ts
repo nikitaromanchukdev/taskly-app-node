@@ -188,6 +188,7 @@ function mismatches(expected: Expected, author?: AuthorOutput, reviewer?: Review
   const expectedDrops = expected.dropFiles && [...expected.dropFiles].sort();
   return [
     ...(checked?.ok ? [] : [`agent output check: ${checked ? checked.errors.join('; ') : 'checked.json missing'}`]),
+    ...(checked?.checkRejected ?? []).map(({ unit, errors }) => `${unit}: check-rejected: ${errors.join('; ')}`),
     ...(checked?.missingDefectTests ?? []).map((key) => `${key}: the Defect test is in no file of the patch (the Author removed it)`),
     ...(expected.units ?? [])
       .filter((unit) => verdicts.get(unitKey(unit)) !== unit.verdict)

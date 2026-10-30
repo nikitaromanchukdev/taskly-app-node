@@ -239,9 +239,34 @@ function renderReport({ run, status, repo }: Report): string {
 
 // ---- Author comment ----
 
-function verdictLabel(unit: Unit, rejected: Set<string>): string {
-  if (rejected.has(unitKey(unit))) return `${unit.verdict} (review-rejected)`;
+// The Units left out of the Bot commit, by the Reviewer or by a Unit-level check of agent-output.ts.
+type Rejected = { review: Set<string>; check: Set<string> };
+
+function rejectedOf(run: Run): Rejected {
+  return { review: new Set(run.checked?.reviewRejected ?? []), check: new Set((run.checked?.checkRejected ?? []).map(({ unit }) => unit)) };
+}
+
+const isRejected = (unit: Unit, { review, check }: Rejected) => review.has(unitKey(unit)) || check.has(unitKey(unit));
+
+function verdictLabel(unit: Unit, rejected: Rejected): string {
+  const tags = [rejected.review.has(unitKey(unit)) ? 'review-rejected' : '', rejected.check.has(unitKey(unit)) ? 'check-rejected' : ''].filter(Boolean);
+  if (tags.length) return `${unit.verdict} (${tags.join(', ')})`;
   return unit.verdict === 'not-needed' ? `not-needed (${unit.reason})` : unit.verdict;
+}
+
+const MAX_CHECK_REJECTED = 10;
+const MAX_CHECK_ERRORS = 3;
+
+// Why each check-rejected Unit was left out, after the table. The reasons carry names the agent wrote, so they are sanitized.
+function checkRejectedLines(run: Run, repo: string): string[] {
+  const rejected = run.checked?.checkRejected ?? [];
+  if (!rejected.length) return [];
+  const lines = rejected.slice(0, MAX_CHECK_REJECTED).map(({ unit, errors }) => {
+    const more = errors.length - MAX_CHECK_ERRORS;
+    return `- ${cell(unit, repo)}: ${errors.slice(0, MAX_CHECK_ERRORS).map((error) => cell(error, repo)).join('; ')}${more > 0 ? `; … ${more} more` : ''}`;
+  });
+  const more = rejected.length - MAX_CHECK_REJECTED;
+  return ['', '⚠️ Check-rejected: the output named something its file does not contain, so these Units\' test files are left out of the Bot commit. Fix the names and re-run the workflow.', ...lines, ...(more > 0 ? [`- … ${more} more`] : [])];
 }
 
 const KINDS: readonly Kind[] = ['intent', 'characterization'];
@@ -263,13 +288,14 @@ function kindLabel(unit: Unit): string {
 const flaggedLine = (unit: Unit, defect: Defect, repo: string) =>
   `- ${unitName(unit, repo)}: expected ${cell(defect.expected, repo)}, received ${cell(defect.received, repo)} (${cell(defect.source, repo)})`;
 
-// "Tested" counts as the status headline does: Units with tests that were not review-rejected.
-function authorOutcome(units: readonly Unit[], rejected: Set<string>): string {
+// "Tested" counts as the status headline does: Units with tests that were not review-rejected or check-rejected.
+function authorOutcome(units: readonly Unit[], rejected: Rejected): string {
   const count = (when: (unit: Unit) => boolean) => units.filter(when).length;
   return outcome([
-    { count: count((unit) => writesTests(unit.verdict) && !rejected.has(unitKey(unit))), text: (n) => `${plural(n, 'Unit')} tested`, always: true },
+    { count: count((unit) => writesTests(unit.verdict) && !isRejected(unit, rejected)), text: (n) => `${plural(n, 'Unit')} tested`, always: true },
     { count: count((unit) => unit.verdict === 'not-needed'), text: (n) => `${n} not needed` },
-    { count: count((unit) => rejected.has(unitKey(unit))), text: (n) => `${n} review-rejected` },
+    { count: count((unit) => rejected.review.has(unitKey(unit))), text: (n) => `${n} review-rejected` },
+    { count: count((unit) => rejected.check.has(unitKey(unit))), text: (n) => `${n} check-rejected` },
     { count: count(isFlaggedDefect), text: (n) => `${plural(n, 'Defect')} flagged` },
   ]);
 }
@@ -278,7 +304,7 @@ function renderAuthor({ run, repo }: Report): string {
   const top = (result: string) => [marker('author'), title('Test author', result), header(run.context), ''];
   if (!run.author) return [...top(NOT_RUN), notRun(run, 'Author', whyNoAgent(run), repo)].join('\n');
 
-  const rejected = new Set(run.checked?.reviewRejected ?? []);
+  const rejected = rejectedOf(run);
   const rows = run.author.units.map((unit) => [
     unitName(unit, repo),
     verdictLabel(unit, rejected),
@@ -290,6 +316,7 @@ function renderAuthor({ run, repo }: Report): string {
   return [
     ...top(authorOutcome(run.author.units, rejected)),
     ...table(['Unit', 'Verdict', 'Kind', 'Tests', 'Attempts'], rows, 'No Units.'),
+    ...checkRejectedLines(run, repo),
     ...(defects.length ? ['', '#### Defects flagged', ...defects] : []),
     ...unknownNamesLines(run, 'author', repo),
     ...notes('Author', run.author.summary, repo),
