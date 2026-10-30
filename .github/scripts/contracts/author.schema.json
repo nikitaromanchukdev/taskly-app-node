@@ -35,8 +35,8 @@
                 },
                 "tests": {
                   "type": "array",
-                  "description": "The tests that check this Expectation, as file > test name. A test checks one Expectation.",
-                  "items": { "type": "string", "maxLength": 300 }
+                  "description": "The tests that check this Expectation, as <path from the repo root> > <test name>. A test checks one Expectation.",
+                  "items": { "type": "string", "maxLength": 300, "pattern": "^(backend|frontend)/[^ >]+\\.test\\.tsx? > .+" }
                 }
               }
             }
@@ -48,7 +48,7 @@
             "additionalProperties": false,
             "required": ["test", "expected", "received", "source"],
             "properties": {
-              "test": { "type": "string", "maxLength": 300 },
+              "test": { "type": "string", "maxLength": 300, "pattern": "^(backend|frontend)/[^ >]+\\.test\\.tsx? > .+", "description": "<path from the repo root> > <describe> > <test name>, e.g. backend/tests/sort.test.ts > sortForTriage > orders by priority." },
               "expected": { "type": "string", "maxLength": 500 },
               "received": { "type": "string", "maxLength": 500 },
               "source": { "type": "string", "maxLength": 300 }
