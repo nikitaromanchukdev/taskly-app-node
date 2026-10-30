@@ -29,7 +29,12 @@
         "required": ["path", "unit", "decision", "source_quote"],
         "properties": {
           "path": { "type": "string", "maxLength": 300 },
-          "unit": { "type": "string", "maxLength": 200 },
+          "unit": {
+            "type": "string",
+            "description": "The Unit's name only: an identifier or dotted identifier (createApp, TodoRepository.stats, default, useTodosQuery), or a route as METHOD and path (GET /api/todos/due-soon). Nothing after it: no notes, no words like route or handler.",
+            "maxLength": 200,
+            "pattern": "^([A-Za-z_$][\\w$]*(\\.[A-Za-z_$][\\w$]*)*|(GET|POST|PUT|PATCH|DELETE) /\\S*)$"
+          },
           "decision": { "type": "string", "enum": ["confirmed", "rejected"] },
           "source_quote": { "type": "string", "maxLength": 1000 }
         }
