@@ -133,7 +133,7 @@ The owner's yes covers this one write only. **Why:** approval in one context doe
 | Comment ids | `gh api repos/{owner}/{repo}/issues/{n}/comments --jq '.[] \| {id, user: .user.login, start: .body[0:60]}'` |
 
 - **One number space** - issues and PRs share numbers. If `gh pr view {n}` fails, try `gh issue view {n}`.
-- **Approve-run prompt** - after a Bot commit, GitHub asks to approve a run for it. Approving or not changes nothing: that run skips every job.
+- **Approve-run prompt** - if GitHub asks to approve a run after a Bot commit, approving or not changes nothing: that run skips every job.
 - **The status sits on the last commit** - after a Bot commit, `test-agent/verify` is on the Bot commit, not on your push.
 
 ---

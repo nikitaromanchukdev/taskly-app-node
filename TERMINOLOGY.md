@@ -96,7 +96,7 @@ Avoid: build, CI run, check run.
 
 ## Bot commit
 
-The commit that the `github-actions[bot]` account adds to the PR branch with the Author's tests. A Bot commit starts no agent run: GitHub creates a `pr-intake` run for it that waits for approval, and that run does nothing.
+The commit that the GitHub App's bot account (`<slug>[bot]`) adds to the PR branch with the Author's tests. A Bot commit starts no agent run: GitHub creates a `pr-intake` run for it, and that run does nothing.
 
 Avoid: auto-commit, agent commit, fix commit.
 

@@ -21,7 +21,7 @@
       "type": "required_status_checks",
       "parameters": {
         "strict_required_status_checks_policy": true,
-        "required_status_checks": [{ "context": "test-agent/verify", "integration_id": 15368 }]
+        "required_status_checks": [{ "context": "test-agent/verify", "integration_id": "set by setup-github.sh from TEST_AGENT_APP_ID" }]
       }
     }
   ]

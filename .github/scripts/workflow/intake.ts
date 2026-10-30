@@ -4,8 +4,9 @@
 // The PR is bound from the workflow_run event (its pull_requests[0] and head_sha), not from the artifact: the artifact
 // only gives hints (action, label), and a different PR number or head SHA in it stops the run.
 // Env: EVENT_NAME (workflow_run | workflow_dispatch), GITHUB_REPOSITORY, GITHUB_TOKEN, GITHUB_OUTPUT,
+//      BOT_LOGIN (the GitHub App's login, from the repo variable TEST_AGENT_BOT_LOGIN; the job fails without it),
 //      workflow_run: INTAKE_FILE (downloaded intake.json), RUN_PR (pull_requests[0].number, empty for a fork PR),
-//      RUN_HEAD_SHA, RUN_HEAD_REPO
+//      RUN_HEAD_SHA, RUN_HEAD_REPO, RUN_ACTOR (actor.login of the pr-intake run)
 //      workflow_dispatch: DISPATCH_PR
 // Outputs: stop (true | false), and when false: pr, head_sha, head_ref, base_ref, action, label. Every output is validated.
 // A stop prints its reason and posts nothing. A malformed artifact fails the job with the reason.
@@ -14,6 +15,7 @@ import { die } from '../lib/cli.ts';
 import { githubFromEnv } from './github.ts';
 import type { GitHub } from './github.ts';
 import { SKIP_LABEL } from '../contracts/rules.ts';
+import { botLoginFrom, isBotActor } from './bot.ts';
 
 type Env = Record<string, string | undefined>;
 type ArtifactAction = 'opened' | 'synchronize' | 'reopened' | 'ready_for_review' | 'labeled' | 'unlabeled';
@@ -24,8 +26,8 @@ type Parsed = { ok: true; intake: Intake } | { ok: false; problem: string };
 type EventName = 'workflow_run' | 'workflow_dispatch';
 type OutputValue = string | number | boolean;
 
-// What the checks compare the live PR with. headShas is empty for a dispatch, which has no artifact.
-type Expected = { repo: string; headShas: string[]; runHeadRepo: string };
+// What the checks compare the live PR with. headShas is empty for a dispatch, which has no artifact; so is runActor.
+type Expected = { repo: string; headShas: string[]; runHeadRepo: string; runActor: string; botLogin: string };
 type StopCheck = (pr: PullRequest, expected: Expected) => string | undefined;
 
 // The parts of the GitHub API response this script reads.
@@ -94,6 +96,8 @@ const STOP_CHECKS: readonly StopCheck[] = [
       ? undefined
       : `the PR head is ${pr.head.repo?.full_name ?? 'a deleted repo'} and its base is ${pr.base.repo?.full_name ?? 'a deleted repo'}; only ${repo} is analyzed (fork PRs get no run)`,
   (_pr, { repo, runHeadRepo }) => (runHeadRepo === repo ? undefined : `the workflow run came from ${runHeadRepo}, not ${repo}`),
+  // The workflow's `if` skips these too. This is the check that has the App's login from the variable.
+  (_pr, { runActor, botLogin }) => (isBotActor(runActor, botLogin) ? `the pr-intake run was started by the Bot (${runActor}); a Bot commit starts no run` : undefined),
   (pr, { headShas }) => {
     const stale = headShas.find((sha) => sha !== pr.head.sha);
     return stale === undefined ? undefined : `the PR head is ${pr.head.sha} now, but the run was for ${stale}; a newer push has its own run`;
@@ -114,11 +118,11 @@ export function stopReason(pr: PullRequest, expected: Expected): string | undefi
 
 // stop: a reason found before the live PR is read. artifactPr and the SHAs are claims to compare, never to trust.
 type Claims = { pr: string; action: RunAction; label: string; expected: Expected; stop?: string };
-type ClaimReader = (env: Env, repo: string) => Claims;
+type ClaimReader = (env: Env, repo: string, botLogin: string) => Claims;
 
 const need = (env: Env, name: string): string => env[name]?.trim() || die(SCRIPT, `${name} is not set`);
 
-function fromArtifact(env: Env, repo: string): Claims {
+function fromArtifact(env: Env, repo: string, botLogin: string): Claims {
   const file = need(env, 'INTAKE_FILE');
   let text: string;
   try {
@@ -134,7 +138,7 @@ function fromArtifact(env: Env, repo: string): Claims {
   const { intake } = parsed;
   const runHeadSha = need(env, 'RUN_HEAD_SHA');
   const runPr = (env.RUN_PR ?? '').trim();
-  const expected = { repo, headShas: [intake.head_sha, runHeadSha], runHeadRepo: need(env, 'RUN_HEAD_REPO') };
+  const expected = { repo, headShas: [intake.head_sha, runHeadSha], runHeadRepo: need(env, 'RUN_HEAD_REPO'), runActor: need(env, 'RUN_ACTOR'), botLogin };
   const claims = { pr: runPr, action: intake.action, label: intake.label, expected };
   if (!runPr) return { ...claims, stop: 'the workflow run lists no pull request (a fork PR, or a branch name that matches several)' };
   if (!PR_PATTERN.test(runPr)) return die(SCRIPT, `RUN_PR must be a PR number, got ${JSON.stringify(runPr)}`);
@@ -142,10 +146,10 @@ function fromArtifact(env: Env, repo: string): Claims {
   return claims;
 }
 
-function fromDispatch(env: Env, repo: string): Claims {
+function fromDispatch(env: Env, repo: string, botLogin: string): Claims {
   const pr = need(env, 'DISPATCH_PR');
   if (!PR_PATTERN.test(pr)) die(SCRIPT, `the pull-request input must be a PR number, got ${JSON.stringify(pr)}`);
-  return { pr, action: 'dispatch', label: '', expected: { repo, headShas: [], runHeadRepo: repo } };
+  return { pr, action: 'dispatch', label: '', expected: { repo, headShas: [], runHeadRepo: repo, runActor: '', botLogin } };
 }
 
 const CLAIM_READERS: Record<EventName, ClaimReader> = { workflow_run: fromArtifact, workflow_dispatch: fromDispatch };
@@ -161,7 +165,7 @@ export async function main(env: Env, gh: GitHub = githubFromEnv(env)) {
   const eventName = need(env, 'EVENT_NAME');
   if (!isEventName(eventName)) die(SCRIPT, `event ${eventName} is not accepted; expected workflow_run or workflow_dispatch`);
   const repo = need(env, 'GITHUB_REPOSITORY');
-  const claims = CLAIM_READERS[eventName](env, repo);
+  const claims = CLAIM_READERS[eventName](env, repo, botLoginFrom(env, SCRIPT));
   console.log(`${SCRIPT}: ${eventName} claims PR #${claims.pr}, action ${claims.action}, label "${claims.label}"`);
   if (claims.stop !== undefined) {
     console.log(`${SCRIPT}: stop, no status and no comment: ${claims.stop}`);
