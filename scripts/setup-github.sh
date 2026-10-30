@@ -67,6 +67,8 @@ ruleset() {
   check "pull request required" 'any(.[]; .type == "pull_request")'
   check "$status_context required" \
     'any(.[]; .type == "required_status_checks" and any(.parameters.required_status_checks[]; .context == "'"$status_context"'"))'
+  check "$status_context must pass on a branch up to date with $branch" \
+    'any(.[]; .type == "required_status_checks" and .parameters.strict_required_status_checks_policy == true)'
   check "force-push blocked" 'any(.[]; .type == "non_fast_forward")'
   # The rules endpoint does not list bypass actors, so this reads the ruleset the API returned.
   check "only admins may bypass, and only through a PR" \

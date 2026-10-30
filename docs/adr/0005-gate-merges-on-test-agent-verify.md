@@ -20,7 +20,7 @@ A few PRs cannot pass the gate at all, through no fault of their own. A PR run u
   - verification did not finish;
   - a Defect is confirmed.
 - Otherwise the status is green. That includes "no candidate files", rejected Defects, `review-rejected` Units, and a skip by label. Suites must still pass on a skip by label.
-- The merge gate is a ruleset on the default branch. It requires a pull request, requires the status from GitHub Actions, blocks force pushes and branch deletion, and requires no review approvals. Its only bypass actor is the repository admin role, in pull-request mode: an admin can merge a PR without the status, but cannot push to the default branch directly. The ruleset file is `.github/rulesets/main.json`.
+- The merge gate is a ruleset on the default branch. It requires a pull request, requires the status from GitHub Actions on a branch that is up to date with the default branch (a green status from an older base does not count), blocks force pushes and branch deletion, and requires no review approvals. Its only bypass actor is the repository admin role, in pull-request mode: an admin can merge a PR without the status, but cannot push to the default branch directly. The ruleset file is `.github/rulesets/main.json`.
 - The `skip-test-agent` label skips the Author and the Reviewer for a PR run. It exists for:
   - dependency or lockfile bumps;
   - reverts;
