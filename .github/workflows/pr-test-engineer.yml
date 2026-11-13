@@ -103,6 +103,7 @@ jobs:
       head_sha: ${{ steps.scope.outputs.head_sha }}
       base_sha: ${{ steps.scope.outputs.base_sha }}
       same_repo: ${{ steps.scope.outputs.same_repo }}
+      draft: ${{ steps.scope.outputs.draft }}
       label_skip: ${{ steps.scope.outputs.label_skip }}
       label_actor: ${{ steps.scope.outputs.label_actor }}
       run_agent: ${{ steps.scope.outputs.run_agent }}
@@ -437,7 +438,8 @@ jobs:
         run: |
           mapfile -t drop < <(jq -r '.dropFiles[] | "--exclude=" + .' "../$OUT/checked.json")
           echo "Test files left out of the Bot commit: ${#drop[@]}"
-          git apply --index "${drop[@]}" "../$OUT/tests.patch"
+          # An Author run that changed no test file leaves an empty patch, which git apply refuses (live PR #76, run 41080157151).
+          if [ -s "../$OUT/tests.patch" ]; then git apply --index "${drop[@]}" "../$OUT/tests.patch"; fi
           if git diff --cached --quiet; then
             echo "No Bot commit: nothing left to commit. The final commit is the PR head $HEAD_SHA"
           else
@@ -518,7 +520,8 @@ jobs:
           include-hidden-files: true
           if-no-files-found: ignore
 
-  # Runs after upstream failures too (not after a cancel by a newer push), so a crash still ends in a red status and comments.
+  # Runs after upstream failures too, so a crash still ends in a red status and comments. If the run was cancelled or a
+  # newer push moved the PR head, report.ts posts nothing (a cancelled job is not a failure; status.ts supersededReason).
   publish:
     name: "Publish: test-agent/verify status and comments"
     needs: [intake, scope, agents, bot_commit, suites]
