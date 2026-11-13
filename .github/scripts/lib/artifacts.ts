@@ -188,15 +188,26 @@ export const VERDICT_RULES: Record<Verdict, VerdictRule> = {
 };
 
 export const writesTests = (verdict: Verdict) => VERDICT_RULES[verdict].writesTests;
-// Whether a test's name appears in lines a patch adds to its file (the lines of one file, without the `+`).
-export const namedIn = (lines: readonly string[], test: string) => lines.some((line) => line.includes(testName(test)));
+// Whether a test's name appears, as the start of a string literal, in lines a patch adds to its file (the lines of one
+// file, without the `+`). The id is `file > describe > name` and a name may hold ` > `, so the parts after the file are
+// tried from the longest: `describe > name` is never in a line, `name` is. Quotes before the name keep a tail such as
+// `max` of "when min > max" from matching.
+const QUOTES = ["'", '"', '`'];
+export const namedIn = (lines: readonly string[], test: string) => {
+  const parts = testName(test).split(' > ');
+  return parts.some((_, i) => {
+    const name = parts.slice(i).join(' > ');
+    return lines.some((line) => QUOTES.some((quote) => line.includes(quote + name)));
+  });
+};
 export const isFlaggedDefect = (unit: Unit) => unit.verdict === 'flagged-defect';
 
 // A test checks one Expectation, so a Unit's tests are its Expectations' tests.
 export const unitTests = (unit: Unit) => unit.expectations.flatMap((expectation) => expectation.tests);
 
-// Tests are named `file > test name`; the name is the last part.
-export const testName = (test: string) => test.split(' > ').at(-1) ?? test;
+// Tests are named `file > describe > ... > test name`; the name is what follows the file. It can hold ` > ` itself,
+// so it is never cut at the last separator.
+export const testName = (test: string) => (test.includes(' > ') ? test.split(' > ').slice(1).join(' > ') : test);
 
 // A Characterization test says so in its name, so a reader of the test file knows no Intent source backs it.
 export const CHARACTERIZATION_PREFIX = 'characterization: ';

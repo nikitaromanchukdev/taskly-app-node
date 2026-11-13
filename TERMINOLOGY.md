@@ -36,7 +36,7 @@ A Unit whose Expectation the code contradicts. A test that still fails after the
 - **confirmed**: the Reviewer quotes an Intent source that states the expected behaviour, and the code contradicts it. A confirmed Defect makes the status red once it is proven.
 - **rejected**: the Reviewer finds no Intent source for the Expectation, or finds that the test is wrong. A rejected Defect is a warning only.
 
-A confirmed Defect is also **proven** or **unproven**. Proven: a trusted script saw its test fail with an assertion that shows the expected and received values. Unproven: it did not (the test passed, died with an error, or failed with other values), and the Report says why. Only a proven Defect makes the status red.
+A confirmed Defect is also **proven** or **unproven**. Proven: a trusted script saw its test fail with an assertion that shows the expected and received values, or with a `toThrow` assertion when the Author expected a throw. Unproven: it did not (the test passed, died with an error, or failed with other values), and the Report says why. Only a proven Defect makes the status red.
 
 Avoid: bug (a Defect is a claim until it is confirmed), failing test, issue.
 

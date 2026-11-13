@@ -19,7 +19,7 @@ import type { Pkg } from '../contracts/rules.ts';
 
 type Judgement = Pick<Proof, 'state' | 'reason'>;
 type FailureRule = { pattern: RegExp; reason: string };
-type TestResult = { title?: unknown; fullName?: unknown; status?: unknown; failureMessages?: unknown };
+type TestResult = { title?: unknown; fullName?: unknown; ancestorTitles?: unknown; status?: unknown; failureMessages?: unknown };
 type FileReport = { name?: unknown; assertionResults?: unknown };
 
 const SCRIPT = 'defect-proof';
@@ -98,8 +98,18 @@ function judgeFailure(messages: string[], expected: string, received: string): J
   if (!lines.some((line) => ASSERTION_START.test(line))) return unproven('the test failed with an error that is not an assertion');
   const text = compact(withoutStack(messages.join('\n').slice(0, MAX_FAILURE_TEXT)));
   const states = [expected, received].map((value) => valueForms(value).some((form) => text.includes(form)));
-  return states.every(Boolean) ? proven() : unproven("the assertion does not show the Author's expected and received values");
+  if (states.every(Boolean) || (lines.some((line) => THROW_ASSERTION.test(line)) && saysThrows(expected))) return proven();
+  return unproven("the assertion does not show the Author's expected and received values");
 }
+
+// vitest 4 (toThrow, toThrowError, rejects.toThrow) says "expected function to throw an error, but it didn't",
+// "expected promise to throw an error, ...", or, for a string or regex, "expected [Function] to throw error including ...".
+// Those messages print no value, so the Author's text decides: it must say the call throws, or name an Error type.
+// The negated forms ("to not throw ...") are left to the value rule: they say the code threw, which is not that.
+const THROW_ASSERTION = /^(?:AssertionError: )?expected .* to throw\b/i;
+const SAYS_THROWS = /throw|\b[A-Z]\w*Error\b/;
+const SAYS_NO_THROW = /\b(?:not|never|no|without)\b[^.;]{0,20}throw|n't throw/i;
+const saysThrows = (expected: string) => SAYS_THROWS.test(expected) && !SAYS_NO_THROW.test(expected);
 
 // The Author writes values in prose ("ids [2, 3, 1]: the null-dated todo comes last"); the runner prints only the value
 // ("expected [ 1, 2, 3 ] to deeply equal [ 2, 3, 1 ]"). So a value matches by its whole text or by a literal in it:
@@ -117,21 +127,39 @@ function valueForms(value: string): string[] {
   return [text, ...literals].map((form) => form.replace(/\s+/g, '')).filter((form) => form.length > 0);
 }
 
+// The names a result answers to: its title, the full name vitest builds (ancestors and title joined by a space), and the
+// repo's test-id form (ancestors and title joined by ` > `). Exact equality only, so another test is never taken for it.
 const MATCH_NAMES: readonly ((result: TestResult, name: string) => boolean)[] = [
   (result, name) => result.title === name,
   (result, name) => result.fullName === name,
+  (result, name) => typeof result.title === 'string' && [...strings(result.ancestorTitles), result.title].join(' > ') === name,
 ];
+
+function reportFiles(report: unknown): FileReport[] {
+  return typeof report === 'object' && report !== null && Array.isArray((report as { testResults?: unknown }).testResults)
+    ? (report as { testResults: FileReport[] }).testResults
+    : [];
+}
+
+const isFileOf = (file: FileReport, found: DefectCase) =>
+  typeof file === 'object' && file !== null && typeof file.name === 'string' && file.name.endsWith(`/${found.packageFile}`);
+const resultsOf = (file: FileReport) => (Array.isArray(file.assertionResults) ? (file.assertionResults as TestResult[]) : []);
 
 // The report's result for the case's test: in a file whose path ends with the case's file, with its name.
 function resultOf(report: unknown, found: DefectCase): TestResult | undefined {
-  const files = typeof report === 'object' && report !== null && Array.isArray((report as { testResults?: unknown }).testResults)
-    ? ((report as { testResults: FileReport[] }).testResults)
-    : [];
-  const matches = files
-    .filter((file) => typeof file === 'object' && file !== null && typeof file.name === 'string' && file.name.endsWith(`/${found.packageFile}`))
-    .flatMap((file) => (Array.isArray(file.assertionResults) ? (file.assertionResults as TestResult[]) : []))
+  const matches = reportFiles(report)
+    .filter((file) => isFileOf(file, found))
+    .flatMap(resultsOf)
     .filter((result) => typeof result === 'object' && result !== null && MATCH_NAMES.some((match) => match(result, found.test)));
   return matches.find((result) => result.status === 'failed') ?? matches[0];
+}
+
+// For the job log only (the PR comment gets the fixed label): what was looked for and what the report held, as counts.
+export function missDetail(report: unknown, found: DefectCase): string {
+  const files = reportFiles(report);
+  const inFile = files.filter((file) => isFileOf(file, found));
+  const tests = inFile.flatMap(resultsOf).length;
+  return `looked for ${JSON.stringify(found.test)} in a file ending ${JSON.stringify(found.packageFile)}; the report has ${files.length} file(s), ${inFile.length} of them that file, with ${tests} test(s)`;
 }
 
 const STATUS_REASONS: Record<string, string> = {
@@ -151,7 +179,12 @@ export function judge(report: unknown, found: DefectCase): Judgement {
 }
 
 export function decideProofs(cases: DefectCase[], reportOf: (pkg: Pkg) => unknown): Proof[] {
-  return cases.map((found) => ({ path: found.path, unit: found.unit, ...judge(reportOf(found.package), found) }));
+  return cases.map((found) => {
+    const report = reportOf(found.package);
+    const judgement = judge(report, found);
+    if (report !== undefined && !resultOf(report, found)) console.error(`${SCRIPT}: ${found.path} ${found.unit}: ${missDetail(report, found)}`);
+    return { path: found.path, unit: found.unit, ...judgement };
+  });
 }
 
 // ---- CLI ----
