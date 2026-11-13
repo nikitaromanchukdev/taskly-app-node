@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import type { AuthorOutput, DefectCase, Proof, Unit } from '../lib/artifacts.ts';
-import { buildDefects, judge } from '../workflow/defect-proof.ts';
+import { buildDefects, judge, missDetail } from '../workflow/defect-proof.ts';
 import { runScript, tempDir } from './run.ts';
 
 const FILE = 'backend/tests/stats.test.ts';
@@ -87,6 +87,84 @@ describe('judge: a Defect is proven only by an assertion that shows the Author v
   });
 });
 
+describe('judge: a test name is matched exactly, by title, full name or test id (live run 41078124349)', () => {
+  // The live shape: the name holds " > " and the test sits in a describe.
+  const live: DefectCase = { ...found, test: 'clamp with min greater than max > throws a RangeError when min > max', expected: 'clamp(5, 10, 1) throws a RangeError', received: 'No error thrown; clamp returns min (10)' };
+  const result = (title: string, ancestorTitles: string[], status = 'failed') => ({
+    title,
+    ancestorTitles,
+    fullName: [...ancestorTitles, title].join(' '),
+    status,
+    failureMessages: ['AssertionError: expected function to throw an error, but it didn\'t throw anything (clamp(5, 10, 1): RangeError, No error thrown; returns min (10))'],
+  });
+  const report = (...results: object[]) => ({ testResults: [{ name: '/tmp/tree/backend/tests/stats.test.ts', assertionResults: results }] });
+  const mine = result('throws a RangeError when min > max', ['clamp with min greater than max']);
+
+  it('proves a test whose name holds " > ", by describe > name', () => {
+    assert.equal(judge(report(mine), live).state, 'proven');
+  });
+
+  it('matches by the full name, by the title alone, and by a nested describe', () => {
+    assert.equal(judge(report(mine), { ...live, test: 'clamp with min greater than max throws a RangeError when min > max' }).state, 'proven');
+    assert.equal(judge(report(mine), { ...live, test: 'throws a RangeError when min > max' }).state, 'proven');
+    const nested = result('throws', ['clamp', 'with min > max']);
+    assert.equal(judge(report(nested), { ...live, test: 'clamp > with min > max > throws' }).state, 'proven');
+  });
+
+  it('does not take another test in the same file for it', () => {
+    const other = result('returns min', ['clamp with min greater than max']);
+    const sameTitle = result('throws a RangeError when min > max', ['another describe']);
+    const tail = result('max', ['clamp with min greater than max']);
+    assert.deepEqual(judge(report(other, sameTitle, tail), live), { state: 'unproven', reason: 'the test is not in the report' });
+  });
+
+  it('says what was looked for and what the report held, without report text', () => {
+    const detail = missDetail(report(result('returns min', ['x'])), live);
+    assert.match(detail, /looked for "clamp with min greater than max > throws a RangeError when min > max"/);
+    assert.match(detail, /1 file\(s\), 1 of them that file, with 1 test\(s\)/);
+    assert.doesNotMatch(detail, /returns min/);
+  });
+});
+
+describe('judge: a throw assertion proves a Defect when the Author expected a throw (live run 41078124349)', () => {
+  const liveMessage = "AssertionError: expected function to throw an error, but it didn't\n    at /tmp/tree/backend/tests/clamp-range-error.test.ts:6:35\n    at file:///tmp/tree/backend/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11";
+  const live: DefectCase = { ...found, expected: 'clamp(5, 10, 1) throws a RangeError', received: 'No error thrown; clamp returns min (10)' };
+  const withExpected = (expected: string) => ({ ...live, expected });
+
+  it('proves the live message with the live Author values', () => {
+    assert.deepEqual(judge(failed(liveMessage), live), { state: 'proven', reason: '' });
+  });
+
+  it('proves the other vitest 4 wordings: promise, string or regex argument', () => {
+    for (const message of ["AssertionError: expected promise to throw an error, but it didn't", "AssertionError: expected [Function] to throw error including 'min' but got 'x'", 'AssertionError: expected [Function] to throw error matching /min/ but got ""']) {
+      assert.equal(judge(failed(message), live).state, 'proven', message);
+    }
+  });
+
+  it('proves when the Author names only an Error type', () => {
+    assert.equal(judge(failed(liveMessage), withExpected('a RangeError for min above max')).state, 'proven');
+  });
+
+  it('leaves it unproven when the Author did not expect a throw', () => {
+    assert.equal(judge(failed(liveMessage), withExpected('clamp(5, 10, 1) returns 5')).state, 'unproven');
+  });
+
+  it('leaves it unproven when the Author expected no throw', () => {
+    for (const expected of ['clamp(5, 10, 1) does not throw', 'must never throw a RangeError', "doesn't throw", 'no error is thrown']) {
+      assert.equal(judge(failed(liveMessage), withExpected(expected)).state, 'unproven', expected);
+    }
+  });
+
+  it('leaves a negated throw assertion to the value rule', () => {
+    assert.equal(judge(failed("AssertionError: expected [Function] to not throw an error but 'Error: x' was thrown"), live).state, 'unproven');
+  });
+
+  it('never proves a crash, even with a throw in the Author text', () => {
+    assert.equal(judge(failed("TypeError: x is not a function, expected function to throw an error, but it didn't"), live).state, 'unproven');
+    assert.equal(judge(failed('Error: expected function to throw an error'), live).state, 'unproven');
+  });
+});
+
 const newFile = (path: string, line: string) => `diff --git a/${path} b/${path}\nnew file mode 100644\nindex 0000000..1111111\n--- /dev/null\n+++ b/${path}\n@@ -0,0 +1 @@\n+${line}\n`;
 const existing = (path: string) => `diff --git a/${path} b/${path}\nindex 1..2 100644\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-a\n+b\n`;
 const flaggedUnit = (test: string): Unit => ({
@@ -105,6 +183,12 @@ describe('buildDefects', () => {
     const built = buildDefects(authorOf(flaggedUnit(`${FILE} > due today is not overdue`)), patch);
     assert.deepEqual(built.cases, [found]);
     assert.equal(built.patch, newFile(FILE, `it('${found.test}')`));
+  });
+
+  it('keeps the describe and the whole name when the name holds " > "', () => {
+    const name = 'throws a RangeError when min > max';
+    const built = buildDefects(authorOf(flaggedUnit(`${FILE} > clamp with min greater than max > ${name}`)), newFile(FILE, `it('${name}')`));
+    assert.deepEqual(built.cases.map((c) => c.test), [`clamp with min greater than max > ${name}`]);
   });
 
   it('keeps a file once when two Defects share it', () => {

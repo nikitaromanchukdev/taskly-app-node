@@ -138,6 +138,12 @@ describe('agent-output.ts', () => {
     assert.deepEqual(outcome.checked.checkRejected.map(({ kept, dropped }) => ({ kept, dropped })), [{ kept: ['backend/tests/todos.test.ts'], dropped: [] }]);
   });
 
+  it('accepts a characterization test inside a describe block', () => {
+    const test = 'backend/tests/todos.test.ts > todos > characterization: sorts by id';
+    const expectations = [{ text: 'sorts by id', source: 'none; current behaviour', kind: 'characterization' as const, tests: [test] }];
+    assertAccepted(check({ author: author(unit({ expectations })), reviewer: reviewer() }));
+  });
+
   it('check-rejects a characterization test whose name does not say so', () => {
     const expectations = [{ text: 'counts open todos', source: 'none', kind: 'characterization' as const, tests: [TEST] }];
     const outcome = isolates({ author: author(unit({ expectations })), reviewer: reviewer() }, /kind characterization, so its name must start with/, ['backend/tests/todos.test.ts']);
@@ -285,6 +291,23 @@ describe('agent-output.ts', () => {
     const patch = addedFile('backend/tests/stats.test.ts', ["it('due today is not overdue', () => {})"]);
     const outcome = check({ author: author(flagged()), reviewer: reviewer([], [confirmed]), patch });
     assert.deepEqual(outcome.checked.missingDefectTests, []);
+  });
+
+  // Live run 41078124349: the id was `file > describe > throws a RangeError when min > max`.
+  describe('a flagged Defect test whose name holds " > "', () => {
+    const id = 'backend/tests/stats.test.ts > clamp with min greater than max > throws a RangeError when min > max';
+    const run = (lines: string[]) => check({ author: author(flagged(id)), reviewer: reviewer([], [confirmed]), patch: addedFile('backend/tests/stats.test.ts', lines) });
+
+    it('is found in the new file by its whole name, and the file is dropped', () => {
+      const outcome = run(["describe('clamp with min greater than max', () => {", "  it('throws a RangeError when min > max', () => {})"]);
+      assert.deepEqual(outcome.checked.missingDefectTests, []);
+      assert.deepEqual(outcome.checked.dropFiles, ['backend/tests/stats.test.ts']);
+    });
+
+    it('is reported missing when the file holds only a test named like its tail', () => {
+      const outcome = run(["it('returns max', () => {})", "it('clamps to max', () => {})"]);
+      assert.deepEqual(outcome.checked.missingDefectTests, ['backend/src/stats.ts#stats']);
+    });
   });
 
   it('check-rejects a Unit whose name is not in its file', () => {

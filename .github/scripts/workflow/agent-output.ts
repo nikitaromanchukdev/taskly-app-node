@@ -58,7 +58,7 @@ function checkTestKinds(unit: Unit): TestKindSlips {
   const overclaimed: string[] = [];
   for (const { kind, tests: listed } of unit.expectations) {
     const rule = NAME_RULES[kind];
-    const wrong = listed.filter((test) => testName(test).startsWith(CHARACTERIZATION_PREFIX) !== rule.prefixed);
+    const wrong = listed.filter((test) => testName(test).split(' > ').some((part) => part.startsWith(CHARACTERIZATION_PREFIX)) !== rule.prefixed);
     errors.push(...wrong.map((test) => `${name}: test "${test}" checks an Expectation of kind ${kind}, so its name ${rule.must} "${CHARACTERIZATION_PREFIX}"`));
     if (rule.overclaims) overclaimed.push(...wrong);
   }
