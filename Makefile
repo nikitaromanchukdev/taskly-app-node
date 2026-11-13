@@ -109,7 +109,7 @@ check:
 # The suites job (coverage, mutation) is CI-only, so the report says the suites did not finish.
 report:
 	jq -n --arg sha "$$(git rev-parse HEAD)" '{pr: 0, analyzed_sha: $$sha, final_sha: $$sha, run_url: "local", \
-	  same_repo: true, label_skip: false, label_actor: "", run_agent: true, \
+	  same_repo: true, draft: false, label_skip: false, label_actor: "", run_agent: true, \
 	  jobs: {scope: "success", agents: "success", bot_commit: "success", suites: "skipped"}}' > $(OUT)/context.json
 	$(SCRIPTS)/workflow/report.ts --dir $(OUT)
 	@echo "Comments: $(OUT)/report.md $(OUT)/author.md $(OUT)/reviewer.md"

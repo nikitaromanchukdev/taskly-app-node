@@ -17,7 +17,7 @@ import type { CommentName } from './render.ts';
 import { STATUS_CONTEXT } from '../contracts/rules.ts';
 import { truncate } from './sanitize.ts';
 import { botLoginFrom } from './bot.ts';
-import { decide } from './status.ts';
+import { decide, supersededReason } from './status.ts';
 import type { Status } from './status.ts';
 
 type IssueComment = { id: number; user: { login: string } | null; body?: string };
@@ -83,7 +83,11 @@ async function main(env: Record<string, string | undefined>) {
   console.log(`${SCRIPT}: ${status.state}: ${status.description}`);
 
   if (!values.post || !run.context.same_repo) return;
-  await post(githubFromEnv(env), repo, botLoginFrom(env, SCRIPT), run.context, status, bodies);
+  const gh = githubFromEnv(env);
+  const live = await gh.request<{ head: { sha: string } }>(`/repos/${repo}/pulls/${run.context.pr}`);
+  const superseded = supersededReason(run.context, live.head.sha);
+  if (superseded) return console.log(`${SCRIPT}: nothing posted: ${superseded}`);
+  await post(gh, repo, botLoginFrom(env, SCRIPT), run.context, status, bodies);
 }
 
 if (import.meta.main) 

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { unitKey } from '../lib/artifacts.ts';
 import type { AuthorOutput, Context, DefectDecision, Proof, Results, ReviewerOutput, Run, Unit } from '../lib/artifacts.ts';
-import { decide } from '../workflow/status.ts';
+import { decide, supersededReason } from '../workflow/status.ts';
 
 const context = (overrides: Partial<Context> = {}): Context => ({
   pr: 1,
@@ -11,6 +11,7 @@ const context = (overrides: Partial<Context> = {}): Context => ({
   final_sha: 'b',
   run_url: 'https://example.invalid/run',
   same_repo: true,
+  draft: false,
   label_skip: false,
   label_actor: '',
   run_agent: true,
@@ -123,6 +124,17 @@ describe('decide', () => {
   it('is green with no agent run when the suites pass', () => {
     const skipped = context({ run_agent: false, jobs: { scope: 'success', agents: 'skipped', bot_commit: 'skipped', suites: 'success' } });
     assert.deepEqual(decide({ context: skipped, results: results() }), { state: 'success', description: 'no agent run; suites pass' });
+  });
+
+  it('says a draft PR is why no agent ran', () => {
+    const draft = context({ run_agent: false, draft: true, jobs: { scope: 'success', agents: 'skipped', bot_commit: 'skipped', suites: 'success' } });
+    assert.deepEqual(decide({ context: draft, results: results() }), { state: 'success', description: 'draft: no agent run; suites pass' });
+  });
+
+  it('says no testable changes is why no agent ran', () => {
+    const none = context({ run_agent: false, jobs: { scope: 'success', agents: 'skipped', bot_commit: 'skipped', suites: 'success' } });
+    const scope = { base: 'b', head: 'h', budgets: {}, candidates: [], skipped: [] } as unknown as Run['scope'];
+    assert.deepEqual(decide({ context: none, scope, results: results() }), { state: 'success', description: 'no testable changes: no agent run; suites pass' });
   });
 
   it('is red when the scope job failed', () => {
@@ -246,5 +258,32 @@ describe('decide', () => {
   it('cuts the description to GitHub limit of 140 characters', () => {
     const labelled = context({ label_skip: true, label_actor: 'a'.repeat(200) });
     assert.equal(decide(run({ context: labelled })).description.length, 140);
+  });
+});
+
+describe('supersededReason: a cancelled or outdated run posts nothing', () => {
+  const jobs = (overrides: Partial<Context['jobs']> = {}): Context['jobs'] => ({ scope: 'success', agents: 'success', bot_commit: 'success', suites: 'success', ...overrides });
+
+  it('names a cancelled job', () => {
+    assert.match(supersededReason(context({ jobs: jobs({ scope: 'cancelled', agents: 'skipped', suites: 'skipped' }) })) ?? '', /cancelled \(scope job was cancelled\)/);
+  });
+
+  it('does not count a crashed job as superseded, so a real failure still posts red', () => {
+    assert.equal(supersededReason(context({ jobs: jobs({ scope: 'failure', agents: 'skipped', suites: 'skipped' }) }), 'a'), undefined);
+    assert.equal(supersededReason(context({ jobs: jobs({ suites: 'failure' }) }), 'a'), undefined);
+  });
+
+  it('names a PR head that is neither the analyzed commit nor the Bot commit', () => {
+    assert.match(supersededReason(context({ analyzed_sha: 'aaaaaaa1', final_sha: 'bbbbbbb2' }), 'ccccccc3') ?? '', /head moved to ccccccc/);
+  });
+
+  it('accepts the analyzed head and the Bot commit as the live head', () => {
+    const run = context({ analyzed_sha: 'aaaaaaa1', final_sha: 'bbbbbbb2' });
+    assert.equal(supersededReason(run, 'aaaaaaa1'), undefined);
+    assert.equal(supersededReason(run, 'bbbbbbb2'), undefined);
+  });
+
+  it('decides from the job results alone when the live head is unknown', () => {
+    assert.equal(supersededReason(context({ jobs: jobs() })), undefined);
   });
 });
