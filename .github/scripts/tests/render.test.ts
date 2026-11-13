@@ -20,6 +20,7 @@ const context = (overrides: Partial<Context> = {}): Context => ({
   final_sha: 'abcdef1234',
   run_url: 'https://example.invalid/run',
   same_repo: true,
+  draft: false,
   label_skip: false,
   label_actor: '',
   run_agent: false,
@@ -60,6 +61,12 @@ const notRunCases: readonly { name: string; run: Run; why: string; link: string 
     run: { context: context({ label_skip: true, label_actor: 'owner' }), scope: scope([candidate]) },
     why: 'skipped by label',
     link: LABEL_ADR,
+  },
+  {
+    name: 'a draft PR that has testable changes',
+    run: { context: context({ draft: true }), scope: scope([candidate]) },
+    why: 'draft pull request',
+    link: '',
   },
   {
     name: 'a fork PR',

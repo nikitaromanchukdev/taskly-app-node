@@ -154,6 +154,7 @@ export type Context = {
   final_sha: string;
   run_url: string;
   same_repo: boolean;
+  draft: boolean;
   label_skip: boolean;
   label_actor: string;
   run_agent: boolean;
