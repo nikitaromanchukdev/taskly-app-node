@@ -8,7 +8,7 @@ import { runScript, tempDir } from './run.ts';
 
 type Need = { result: string; outputs?: Record<string, string> };
 
-const SCOPE_OUTPUTS = { head_sha: 'abcdef1234', same_repo: 'true', run_agent: 'true', label_skip: 'false', label_actor: '' };
+const SCOPE_OUTPUTS = { head_sha: 'abcdef1234', same_repo: 'true', draft: 'false', run_agent: 'true', label_skip: 'false', label_actor: '' };
 const BOT_COMMIT_OUTPUTS = { final_sha: '1234567abc' };
 
 function contextFor(needs: Record<string, Need>): Context {
@@ -34,6 +34,11 @@ describe('context.ts', () => {
     assert.equal(context.analyzed_sha, 'abcdef1234');
     assert.equal(context.final_sha, '1234567abc');
     assert.equal(context.run_agent, true);
+  });
+
+  it('reads the draft flag from the scope outputs', () => {
+    assert.equal(contextFor({ scope: { result: 'success', outputs: { ...SCOPE_OUTPUTS, draft: 'true' } } }).draft, true);
+    assert.equal(contextFor({ scope: { result: 'success', outputs: SCOPE_OUTPUTS } }).draft, false);
   });
 
   it('counts a job missing from needs as skipped', () => {

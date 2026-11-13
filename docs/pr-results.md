@@ -12,6 +12,10 @@ Each comment has the title `### <name> · <outcome>`, where a script counts the 
 
 On a PR that changes only tests and config, such as a Backfill PR, the agents have nothing to test, and the Test author and Test reviewer comments say so. A Backfill PR lists the Author and Reviewer results in its description. It has no changed source lines, so its Defects go in a fourth comment, **Defects**, with the same entries. See [ADR 0008](adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md).
 
+When the agents did not run, the Test author and Test reviewer comments give the reason: a draft PR (mark it ready for review to get the agents), no testable changes, a fork PR, the `skip-test-agent` label, or a scope failure. Only the reason "the agent step failed or timed out" means a real failure. The status says it too: `draft: no agent run; suites pass`, `no testable changes: no agent run; suites pass`.
+
+A run that a newer push cancelled posts no status and no comment; the newer run's result replaces it. Its workflow log says why.
+
 Read the quotes and the Intent sources they cite. The agents can be wrong.
 
 ## When a Defect is reported

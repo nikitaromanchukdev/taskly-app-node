@@ -47,6 +47,7 @@ async function main(env: Env) {
     final_sha: needs.bot_commit?.outputs?.final_sha || analyzed,
     run_url: env.RUN_URL ?? '',
     same_repo: sameRepo,
+    draft: out.draft === 'true',
     label_skip: out.label_skip === 'true',
     label_actor: out.label_actor ?? '',
     run_agent: out.run_agent === 'true',

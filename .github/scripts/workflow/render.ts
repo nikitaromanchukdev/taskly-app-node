@@ -101,6 +101,7 @@ const NO_AGENT_REASONS: readonly NotRunRule[] = [
   { when: (run) => run.context.label_skip, reason: (run) => labelSkipNote(run.context), adr: ADR_LABEL },
   { when: (run) => !run.context.same_repo, reason: () => 'fork pull request', adr: ADR_FORKS },
   { when: (run) => run.context.jobs.scope !== 'success', reason: () => SCOPE_FAILED },
+  { when: (run) => run.context.draft, reason: () => 'draft pull request; the agents run once it is ready for review' },
   { when: testsOnly, reason: () => TESTS_ONLY, adr: ADR_BACKFILL },
   { when: (run) => !run.scope?.candidates.length, reason: () => 'no testable changes', adr: ADR_SCOPE },
   { when: (run) => run.context.jobs.agents !== 'success', reason: () => 'the agent step failed or timed out' },
