@@ -1,5 +1,15 @@
+import { readFileSync } from 'node:fs'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vitest/config'
+
+// Source the owner chose not to test, from .github/scripts/contracts/ignored-paths.json; the PR workflow skips the
+// same files. Read only under vitest, because the Docker build copies just this folder.
+function ignoredPaths(): string[] {
+  if (!process.env.VITEST) return []
+  const file = new URL('../.github/scripts/contracts/ignored-paths.json', import.meta.url)
+  const { ignored } = JSON.parse(readFileSync(file, 'utf8')) as { ignored: { package: string; paths: string[] }[] }
+  return ignored.filter((entry) => entry.package === 'frontend').flatMap((entry) => entry.paths)
+}
 
 export default defineConfig({
   plugins: [react()],
@@ -14,7 +24,6 @@ export default defineConfig({
         'src/main.tsx',
         'src/test/**',
         'src/**/*.test.{ts,tsx}',
-        'src/design-system/**',
         'src/**/types.ts',
         'src/**/*.types.ts',
         'src/**/index.ts',
@@ -22,6 +31,7 @@ export default defineConfig({
         'src/**/*.constants.ts',
         'src/features/todos/api/queryKeys.ts',
         'src/lib/queryClient.ts',
+        ...ignoredPaths(),
       ],
       reporter: ['text', 'html', 'lcov', 'json-summary'],
       reportsDirectory: './coverage',

@@ -10,7 +10,8 @@ export type Hunk = { start: number; count: number };
 export type CandidateStatus = 'added' | 'modified';
 export type FileStatus = CandidateStatus | 'deleted';
 export type Candidate = { path: string; package: Pkg; status: CandidateStatus; hunks: Hunk[] };
-export type Skipped = { path: string; reason: SkipReason };
+// note: the owner's reason, for an `ignored` file.
+export type Skipped = { path: string; reason: SkipReason; note?: string };
 export type Budgets = {
   model: string;
   reviewerModel: string;

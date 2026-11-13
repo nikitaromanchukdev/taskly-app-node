@@ -126,7 +126,7 @@ function scopeFromDiff(diff: string, base: string, head: string, budgets: Budget
     const result = classify(file.path);
     switch (result.kind) {
       case 'skip':
-        scope.skipped.push({ path: file.path, reason: result.reason });
+        scope.skipped.push({ path: file.path, reason: result.reason, ...(result.note ? { note: result.note } : {}) });
         break;
       case 'candidate':
         scope.candidates.push({ path: file.path, package: result.package, status: file.status, hunks: file.hunks });

@@ -21,6 +21,7 @@ This repo adds two ways to get tests written, both by the same agents and skills
 | The Backfill runs locally and reports in its PR description | It stops for the owner's approval, and its PR has no source lines to test | [0008](docs/adr/0008-run-the-backfill-locally-and-report-it-in-the-pr-description.md) |
 | A change to the agent config is tested with `make demo` against committed cases | The PR's own run uses the base config, so CI cannot test the change | [0009](docs/adr/0009-test-agent-config-changes-against-committed-cases.md) |
 | A slip in one Unit's output makes that Unit not verified, not the whole run invalid | The slips are labels, not invalid tests; one must not cost the other Units or hide a confirmed Defect | [0010](docs/adr/0010-reject-one-unit-not-the-run-for-its-own-slip.md) |
+| A configurable ignore list: the owner excludes source paths from agent testing and coverage, each with a reason, read from `main` only | Every repo has code it chooses not to unit-test; the choice and its reason belong in one reviewed place, and a PR must not ignore its own code | [0011](docs/adr/0011-let-the-owner-ignore-source-paths-with-a-reason.md) |
 
 ## How to run the PR workflow
 
@@ -53,13 +54,15 @@ scripts/setup-github.sh ruleset    # step 4 (after step 6 and the merge), then a
 5. **Monthly spend limit,** in the model provider's console (`https://console.anthropic.com/settings/limits`). It is the hard cap on money.
 6. **GitHub App.** `config` prints a prefilled creation link (contents, commit statuses and pull requests: read and write). Generate a private key and install the App on this repo only. `config` then verifies the installation and sets the Environment secret `TEST_AGENT_APP_PRIVATE_KEY`, the Environment variables `TEST_AGENT_APP_ID` and `TEST_AGENT_APP_CLIENT_ID`, and the repo variable `TEST_AGENT_BOT_LOGIN`. `scope`, `bot_commit` and `publish` write with the App's short-lived token ([ADR 0004](docs/adr/0004-isolate-pr-code-from-secrets.md)).
 
+**Optional: ignored paths.** [`ignored-paths.json`](.github/scripts/contracts/ignored-paths.json) lists source the agents do not test and coverage leaves out: per package, path globs and a reason. The Report shows the reason next to each skipped file. Change it with a PR to `main`; PR runs read `main`'s copy, so a PR cannot ignore its own code. An entry without a reason stops the run. The repo ships one entry, the design system ([ADR 0011](docs/adr/0011-let-the-owner-ignore-source-paths-with-a-reason.md)).
+
 ## Agents, skills and the workflow
 
 - **Agents.** `.claude/agents/pr-test-engineer.md` (the Author) and `.claude/agents/pr-test-reviewer.md` (the Reviewer).
 - **Agent skills.** `.claude/skills/`, preloaded through each agent's `skills:` list: `scope-change`, `extract-intent`, `author-tests` (with the playbooks `backend.md` and `frontend.md`), `prove-tests` and `review-tests`. `map-coverage-gaps` is Backfill only: the Backfill prompt tells the Author to read it.
 - **Contributor skills.** Also in `.claude/skills/`, for a person's own session: `ship-change`, `github-ops`, `prove-script-test`, `run-local-workflow`, `report-backfill`. The agents cannot load them: neither has the `Skill` tool.
 - **Settings.** `.claude/agent-settings.json` holds the tool allow and deny lists and the guard hook, which blocks writes outside the test paths and shell commands outside `AGENT_COMMANDS` in `rules.ts` ([ADR 0001](docs/adr/0001-use-claude-code-action-as-agent-runtime.md)).
-- **Scripts.** `.github/scripts/` runs without a model: `contracts/` (rules and schemas), `agent/` (sandbox, overlay, guard), `workflow/` (the CI steps, among them `defect-proof.ts` and `flaky.ts`), `local/`, `lib/` and `tests/`.
+- **Scripts.** `.github/scripts/` runs without a model: `contracts/` (rules, schemas, and `ignored-paths.json` for source the owner chose not to test), `agent/` (sandbox, overlay, guard), `workflow/` (the CI steps, among them `defect-proof.ts` and `flaky.ts`), `local/`, `lib/` and `tests/`.
 - **Workflows.** `pr-intake.yml` (one job, no secrets) and `pr-test-engineer.yml`, whose jobs run in this order; [docs/pr-run.md](docs/pr-run.md) has the job table and follows one run step by step.
   - `intake` checks the `pr-intake` artifact against the live PR and stops quietly on a closed PR, a fork or a moved head.
   - `scope` checks the budget variables, writes `scope.json`, sets the status to pending.
@@ -112,7 +115,7 @@ The owner kept the behaviour of all four Suspected Defects. They and the gaps fo
 **Trust boundary**
 
 - Same-repo PR code is trusted more than fork code. `suites` runs the PR's own test setup (`npm ci`, configs, tests) on the host, without secrets. The sandbox mounts the checkout read-only except `backend/src/generated`, and the overlay is checked before each agent. The controls are a person reading the diff and the limits in [ADR 0004](docs/adr/0004-isolate-pr-code-from-secrets.md).
-- The ruleset accepts `test-agent/verify` only from the GitHub App, so a status a PR's own workflow posts does not count. What the gate trusts: the workflow on `main`, the App's private key (in the Environment, reachable only from `main`), and the admin bypass.
+- The ruleset accepts `test-agent/verify` only from the GitHub App, so a status a PR's own workflow posts does not count. Proven live on PR #77: its workflow posted a forged success after the App's failure; GitHub's combined status turned green, and the merge stayed `BLOCKED`. What the gate trusts: the workflow on `main`, the App's private key (in the Environment, reachable only from `main`), and the admin bypass.
 - PR code in `suites` can forge the raw reports it uploads (coverage, Stryker, test counts). Green needs the `suites` job result, and `results.ts` (in `publish`) keeps only numbers and known labels and can only add red reasons. A forged coverage or mutation figure can still reach the report.
 - A Defect's proof comes from a report that PR code wrote. Forging "proven" turns its own status red; forging "unproven" turns a confirmed Defect into a warning, which weakens the gate. This is accepted for the same reason; the Report shows the Defect as unproven, with its reason. The Defect test run has no network where the runner has `unshare` and passwordless `sudo`; otherwise the log says so.
 - Fork PRs get no agent run and no status; a maintainer pushes the branch into the repo to merge it.
